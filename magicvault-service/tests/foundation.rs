@@ -26,7 +26,7 @@ impl MasterKeyProvider for SharedKey {
     fn provider_name(&self) -> &str { "fixture" }
 }
 fn fixture() -> (tempfile::TempDir, Arc<InMemoryKeyProvider>) {
-    let root = tempfile::tempdir().unwrap();
+    let root = tempfile::Builder::new().permissions(fs::Permissions::from_mode(0o700)).tempdir().unwrap();
     let instance = storage::Instance { format_version:1, id:Uuid::new_v4() };
     fs::write(root.path().join("instance.json"), serde_json::to_vec(&instance).unwrap()).unwrap();
     fs::set_permissions(root.path().join("instance.json"), fs::Permissions::from_mode(0o600)).unwrap();

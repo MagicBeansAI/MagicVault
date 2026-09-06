@@ -223,7 +223,7 @@ mod initialization_tests {
 
     #[test]
     fn unrelated_state_is_never_adopted_or_sent_to_a_key_backend() {
-        let root = tempfile::tempdir().unwrap();
+        let root = tempfile::Builder::new().permissions(fs::Permissions::from_mode(0o700)).tempdir().unwrap();
         fs::write(root.path().join("retained"),b"existing state").unwrap();
         assert!(matches!(initialize_with_key(root.path(), |_| panic!("unrecognized root")),Err(ErrorCode::Conflict)));
         assert_eq!(fs::read(root.path().join("retained")).unwrap(),b"existing state");

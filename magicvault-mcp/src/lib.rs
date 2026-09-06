@@ -64,7 +64,7 @@ impl ServerHandler for MagicVaultMcp {
             },
             Err(code) => (json!({"error":code}), true),
         };
-        let content = vec![Content::text(value.to_string())];
+        let content = vec![ContentBlock::text(value.to_string())];
         Ok(CallToolResponse::Complete(if error { CallToolResult::error(content) } else { CallToolResult::success(content) }))
     }
 }

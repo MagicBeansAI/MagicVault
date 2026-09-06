@@ -11,7 +11,9 @@ Start with [setup and usage](docs/setup.md), the [local protocol and security
 boundary](docs/protocol.md), and the [implementation/review ledger](docs/phase2-foundation.md).
 The [follow-up deep static review](docs/static-review-2026-09-06.md) records
 additional shared-write, approval-replay, deadline, initialization and shutdown fixes.
-No checks, builds, tests or benchmarks have been run for this work.
+The later [targeted migration test round](docs/targeted-tests-2026-09-06.md)
+records compatibility/foundation results and fixes missed by static review.
+No full suite, benchmark or native-host qualification has run.
 
 ## Libraries and trust boundary
 
@@ -59,9 +61,11 @@ Product action/result and session integration tests remain with Magician.
 Additional synthetic tests characterize old/new vault framing and JSON formats,
 typed audit serialization, durable publication, and the consumer facade.
 
-Run `make check` / `make test` only when verification is permitted. **No checks or
-tests were run during this extraction**, by explicit owner instruction. Compile,
-runtime, performance, coverage, recovery, and platform results are unverified.
+Run `make check` / `make test` only when full verification is permitted. The
+initial extraction/static-review checkpoint ran no checks or tests. The owner
+later authorized only the targeted compatibility/foundation tests linked above;
+full regression, performance, coverage, recovery and native-platform qualification
+remain outstanding.
 The workflow is manual-only and has not been dispatched. Static review does not
 certify these results or authorize deploying over a live credential store.
 

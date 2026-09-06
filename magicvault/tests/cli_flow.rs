@@ -15,7 +15,7 @@ impl HumanInteraction for FixtureHuman {
 }
 #[tokio::test(flavor = "multi_thread")]
 async fn actual_cli_pairs_enrolls_and_discovers_through_the_daemon() {
-    let root = tempfile::tempdir().unwrap();
+    let root = tempfile::Builder::new().permissions(fs::Permissions::from_mode(0o700)).tempdir().unwrap();
     let instance = storage::Instance {format_version:1,id:Uuid::new_v4()};
     fs::write(root.path().join("instance.json"),serde_json::to_vec(&instance).unwrap()).unwrap();
     fs::set_permissions(root.path().join("instance.json"),fs::Permissions::from_mode(0o600)).unwrap();

@@ -1,5 +1,9 @@
 # Phase 1 / Phase 2 follow-up static review
 
+This records the static-only checkpoint. Subsequent owner-authorized
+[targeted migration tests](targeted-tests-2026-09-06.md) found and corrected SDK
+integration/fixture issues and supply limited executed evidence, not a full pass.
+
 Review baseline: `7a5e306e0872a0a0fcdfef90513d04b91a1eaa68`.
 Scope: extracted custody/persistence interfaces and their Magician facades;
 standalone storage, broker, native-human, IPC/client, CLI and SDK MCP paths;

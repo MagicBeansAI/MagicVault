@@ -1,5 +1,9 @@
 # Phase 2 foundation implementation ledger
 
+Historical static-only checkpoint. The later owner-authorized
+[targeted test round](targeted-tests-2026-09-06.md) records executed results and
+additional SDK/fixture fixes; it does not qualify the full release.
+
 Status: source implementation and repeated static-review checkpoint, 2026-09-06.
 No checks, builds, tests, benchmarks, native operations or CI ran during this
 implementation. Dependency lockfile resolution only was performed. Repositories

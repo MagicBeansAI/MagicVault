@@ -30,7 +30,7 @@ fn catalog_is_closed_and_has_no_administration_or_unimplemented_effects() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn sdk_mcp_to_shared_client_to_real_ipc_to_core_returns_only_metadata() {
-    let root = tempfile::tempdir().unwrap();
+    let root = tempfile::Builder::new().permissions(fs::Permissions::from_mode(0o700)).tempdir().unwrap();
     let instance = storage::Instance {format_version:1,id:Uuid::new_v4()};
     fs::write(root.path().join("instance.json"),serde_json::to_vec(&instance).unwrap()).unwrap();
     fs::set_permissions(root.path().join("instance.json"),fs::Permissions::from_mode(0o600)).unwrap();
@@ -52,12 +52,14 @@ async fn sdk_mcp_to_shared_client_to_real_ipc_to_core_returns_only_metadata() {
     let write = server.stdin.take().unwrap();
     let peer = FixtureClient.serve((read,write)).await.unwrap();
     assert_eq!(peer.list_tools(None).await.unwrap().tools.len(),4);
-    let response = peer.call_tool(CallToolRequestParams::new("list_credentials")).await.unwrap();
+    // Inspect a single response rather than letting the SDK drive continuation
+    // rounds: this foundation must return Complete and never request more input.
+    let response = peer.call_tool_once(CallToolRequestParams::new("list_credentials")).await.unwrap();
     let CallToolResponse::Complete(result) = response else {panic!("complete metadata result");};
     let wire = serde_json::to_string(&result).unwrap();
     assert!(wire.contains("password"));
     assert!(!wire.contains("SYNTHETIC-MCP-TRANSPORT-CANARY"));
-    let rejected = peer.call_tool(CallToolRequestParams::new("request_approval").with_arguments(
+    let rejected = peer.call_tool_once(CallToolRequestParams::new("request_approval").with_arguments(
         serde_json::json!({"credential_ref":"cred_00000000-0000-0000-0000-000000000000","approved":true}).as_object().unwrap().clone()
     )).await;
     match rejected {

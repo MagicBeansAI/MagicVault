@@ -1,8 +1,9 @@
 # Standalone foundation setup (macOS, unqualified)
 
-These are procedures to execute **after verification is permitted**, not results
-of this implementation. No binary, native dialog, keychain operation, installer,
-daemon, CLI, MCP or test was run during development. Rust 1.88+ is required by
+These are procedures for later native-host qualification, not instructions that
+have been executed against a live vault. The [targeted test round](targeted-tests-2026-09-06.md)
+ran synthetic CLI/MCP/IPC fixtures, but no native dialog, keychain operation,
+installer or installed service. Rust 1.88+ is required by
 the exact `rmcp 3.1.0` SDK dependency. Source repositories may remain private;
 builders need Git read access, running binaries do not need GitHub access.
 The [follow-up static review](static-review-2026-09-06.md) advances core to

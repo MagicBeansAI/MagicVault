@@ -1,12 +1,12 @@
-//! Durable local-filesystem write primitives extracted from
-//! `magician_v2::artifact_v2::io` — every filesystem-backed store in the
-//! workspace shares these; the error type is deliberately `std::io::Error`
-//! so no store takes a dependency on another module's error enum.
+//! Durable local-filesystem publication and transient-I/O retry primitives.
+//! Extracted from Magician's shared filesystem helpers; errors deliberately use
+//! `std::io::Error` so stores do not depend on another product's error enum.
 
 use std::{future::Future, path::Path, time::Duration};
 
 use uuid::Uuid;
-/// the helpers losing that on consolidation was a review finding.
+
+/// Report staging cleanup failures without treating an absent file as failure.
 pub fn warn_cleanup_failed(tmp_path: &Path, error: &std::io::Error) {
     // NotFound is the write failing before it created the temp — there is
     // nothing to clean and nothing to report.
@@ -93,9 +93,9 @@ pub fn write_bytes_durably_sync(path: &Path, value: &[u8]) -> std::io::Result<()
     write_bytes_durably_with_mode_sync(path, value, None)
 }
 
-/// Synchronous [`write_bytes_durably_with_mode`]. The staging file receives
-/// `mode` before publication, then the destination directory is synced after
-/// the atomic rename.
+/// Synchronous durable publication with an optional Unix file mode. The staging
+/// file receives `mode` before publication, then the destination directory is
+/// synced after the atomic rename. Async admission remains the host's concern.
 pub fn write_bytes_durably_with_mode_sync(
     path: &Path,
     value: &[u8],

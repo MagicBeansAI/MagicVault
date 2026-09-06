@@ -135,6 +135,46 @@ fn unsafe_roots_second_writers_and_unrecognized_state_fail_closed() {
 }
 
 #[test]
+fn standalone_refuses_unsafe_audit_journals_without_touching_their_targets() {
+    use std::os::unix::fs::symlink;
+    let (root, key) = fixture();
+    let outside = tempfile::tempdir().unwrap();
+    let target = outside.path().join("other-product-journal");
+    fs::write(&target, b"retained outside state\n").unwrap();
+    fs::set_permissions(&target, fs::Permissions::from_mode(0o640)).unwrap();
+    let vault = root.path().join("vault");
+    fs::create_dir(&vault).unwrap();
+    fs::set_permissions(&vault, fs::Permissions::from_mode(0o700)).unwrap();
+    let journal = vault.join(magicvault_core::store::SECRET_AUDIT_FILENAME);
+    symlink(&target, &journal).unwrap();
+    let lease = storage::open(root.path()).unwrap();
+    let store = SecretStore::new(Box::new(SharedKey(key)), vault).unwrap();
+    assert!(matches!(Broker::with_components(lease, store, Arc::new(FixtureHuman { answers: Mutex::new(VecDeque::new()) })), Err(ErrorCode::Unavailable)));
+    assert_eq!(fs::read(&target).unwrap(), b"retained outside state\n");
+    assert_eq!(fs::metadata(&target).unwrap().permissions().mode() & 0o777, 0o640);
+    // Replace only our disposable symlink, retaining the external fixture file.
+    fs::remove_file(&journal).unwrap();
+    fs::write(&journal, b"{}\n").unwrap();
+    fs::set_permissions(&journal, fs::Permissions::from_mode(0o644)).unwrap();
+    assert_eq!(storage::validate_vault(root.path()), Err(ErrorCode::Unavailable));
+    fs::set_permissions(&journal, fs::Permissions::from_mode(0o600)).unwrap();
+    storage::validate_vault(root.path()).unwrap();
+}
+
+#[tokio::test]
+async fn audit_append_failure_faults_the_daemon_before_publishing_pairing() {
+    let (root, key) = fixture();
+    let service = broker(root.path(), key, vec![true]);
+    let journal = root.path().join("vault").join(magicvault_core::store::SECRET_AUDIT_FILENAME);
+    fs::create_dir_all(&journal).unwrap();
+    let request = Request::Pair(PairRequest { label: "owner".into() });
+    assert!(matches!(service.execute(envelope(&service, request, None, Uuid::new_v4())).await, Reply::Error(ErrorCode::PersistenceUncertain)));
+    assert!(!root.path().join("clients.json").exists());
+    let Response::Status(status) = call(&service, Request::Status, None).await else { panic!("status"); };
+    assert!(!status.ready);
+}
+
+#[test]
 fn launch_agent_definition_escapes_paths_and_never_contains_credentials() {
     let text = magicvault_service::launch_agent::plist(std::path::Path::new("/tmp/a&b/magicvault"),std::path::Path::new("/tmp/vault<1>"),"ai.magicbeans.magicvault.fixture").unwrap();
     assert!(text.contains("a&amp;b"));

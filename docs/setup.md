@@ -110,7 +110,8 @@ wrong owner/mode, bad instance format, and a second writer fail closed. No
 in-memory key fallback or production auto-approve mode exists. A denied operation
 must not trigger raw-secret fallback. See [protocol.md](protocol.md).
 
-Quarantine evidence (`vault/*.corrupt-*`), ACLs referencing missing material,
+Unsafe existing audit journals (including symlinks and non-private files),
+quarantine evidence (`vault/*.corrupt-*`), ACLs referencing missing material,
 or a missing registry beside existing material prevent a healthy empty restart.
 Restore a consistent instance/key/vault/registry backup or reconcile offline with
 a trusted operator. No automatic quarantine deletion, orphan adoption, lost-key

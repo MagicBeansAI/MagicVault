@@ -1,12 +1,12 @@
 [package]
 name = "magicvault-service"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "Standalone custody service, authenticated IPC, and human boundary"
 
 [dependencies]
-magicvault-core = { path = "../magicvault-core", version = "0.1.2" }
+magicvault-core = { path = "../magicvault-core", version = "0.1.3" }
 magicvault-primitives = { path = "../magicvault-primitives", version = "0.1.1" }
 magicvault-protocol = { path = "../magicvault-protocol", version = "0.2.0" }
 async-trait = "0.1"

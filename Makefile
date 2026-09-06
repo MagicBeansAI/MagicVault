@@ -13,6 +13,8 @@ test:
 
 test-compatibility:
 	cargo test --locked -p magicvault-core --test extraction_compatibility
+	cargo test --locked -p magicvault-core --test metadata_projection
+	cargo test --locked -p magicvault-core --lib store::tests::audit_
 	cargo test --locked -p magicvault-primitives
 
 test-foundation:

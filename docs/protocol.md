@@ -68,6 +68,16 @@ its key/identity. Shared durable byte writers create staging files exclusively
 with the requested mode before any payload, sync data and permissions, rename,
 then sync the destination parent. Bare relative filenames use `.` as that parent.
 
+Standalone decisions use the opt-in `try_audit_event_durably` core method: append,
+sync the journal, sync its directory, then sync the parent naming that directory,
+all under the journal lock and the broker's serialized writer. A failed append or
+sync poisons the broker and prevents an optimistic successful response. The
+pre-existing `audit_event` / `try_audit_event` methods remain append-only; Magician
+does not incur the standalone audit barriers. The instance root must already be
+durably established, as it is by explicit initialization. Startup also refuses
+symlinked, non-regular, foreign-owned or non-private existing audit journals
+before core can append to or tighten their permissions.
+
 Enrollment persists the core entry before publishing client metadata permission.
 An uncertain second write may leave an encrypted entry without an ACL; the
 service fails closed. Startup does not infer a grant from such an orphan.

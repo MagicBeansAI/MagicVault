@@ -821,6 +821,21 @@ impl SecretStore {
         self.append_audit_event(&event)
     }
 
+    /// Append and sync an audit event before acknowledging a durable decision.
+    /// Unlike `try_audit_event`, this syncs both the journal and its directory
+    /// entries under the journal lock. Existing callers retain append-only
+    /// behavior and do not incur these additional filesystem barriers.
+    ///
+    /// The host must have durably established the parent of `base_dir` already.
+    /// Failure may follow a completed append; do not blindly retry the event.
+    pub fn try_audit_event_durably<Receipt: AuditReceipt>(&self, event: AuditEvent<Receipt>) -> Result<(), SecretStoreError> {
+        self.append_audit_event_with(&event, |file, path| {
+            file.sync_all()?;
+            magicvault_primitives::durable_io::sync_parent_dir_blocking(path)?;
+            magicvault_primitives::durable_io::sync_parent_dir_blocking(&self.base_dir)
+        })
+    }
+
     pub fn store_provisioned(
         &self,
         id: impl Into<String>,
@@ -2544,6 +2559,14 @@ impl SecretStore {
     }
 
     fn append_audit_event<Receipt: AuditReceipt>(&self, event: &AuditEvent<Receipt>) -> Result<(), SecretStoreError> {
+        self.append_audit_event_with(event, |_, _| Ok(()))
+    }
+
+    fn append_audit_event_with<Receipt: AuditReceipt>(
+        &self,
+        event: &AuditEvent<Receipt>,
+        finish: impl FnOnce(&std::fs::File, &Path) -> std::io::Result<()>,
+    ) -> Result<(), SecretStoreError> {
         let _guard = self
             .audit_write_lock
             .lock()
@@ -2561,6 +2584,7 @@ impl SecretStore {
         // owner-only rule on its next append.
         restrict_vault_file(&path)?;
         file.write_all(&encoded)?;
+        finish(&file, &path)?;
         Ok(())
     }
 
@@ -3049,6 +3073,23 @@ mod tests {
         }
     }
     type SecretStoreResolver = super::SecretStoreResolver<FixtureScopeLayout>;
+
+    #[test]
+    fn audit_sync_failure_is_returned_after_append_under_the_journal_lock() {
+        let root = tempfile::tempdir().unwrap();
+        let store = SecretStore::new_empty(Box::new(FixedKeyProvider), root.path().join("vault"));
+        let event = SecretAuditEvent::new_at("synthetic_audit", 1);
+        let error = store.append_audit_event_with(&event, |file, path| {
+            assert!(matches!(store.audit_write_lock.try_lock(), Err(std::sync::TryLockError::WouldBlock)));
+            assert!(file.metadata()?.len() > 0);
+            assert_eq!(std::fs::read_to_string(path)?.lines().count(), 1);
+            Err(std::io::Error::other("synthetic sync failure"))
+        }).unwrap_err();
+        assert!(matches!(error, SecretStoreError::Io(_)));
+        assert!(store.audit_write_lock.try_lock().is_ok());
+        // The append is not rolled back or replayed when its durability is unknown.
+        assert_eq!(std::fs::read_to_string(store.audit_path()).unwrap().lines().count(), 1);
+    }
 
     struct FixedKeyProvider;
 

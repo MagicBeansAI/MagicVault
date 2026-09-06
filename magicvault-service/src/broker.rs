@@ -169,7 +169,7 @@ impl Broker {
 
     fn audit(&self, state: &mut State, event: &'static str, id: Uuid) -> Result<(), ErrorCode> {
         let event = SecretAuditEvent::new(event).with_tool("magicvault").with_detail(id.to_string());
-        if self.store.try_audit_event(event).is_err() {
+        if self.store.try_audit_event_durably(event).is_err() {
             state.faulted = true;
             return Err(ErrorCode::PersistenceUncertain);
         }

@@ -13,6 +13,8 @@ The [follow-up deep static review](docs/static-review-2026-09-06.md) records
 additional shared-write, approval-replay, deadline, initialization and shutdown fixes.
 The later [targeted migration test round](docs/targeted-tests-2026-09-06.md)
 records compatibility/foundation results and fixes missed by static review.
+The [second deep review](docs/deep-review-2026-09-07.md) fixes standalone journal
+durability and unsafe-journal adoption, with 58 passing targeted upstream tests.
 No full suite, benchmark or native-host qualification has run.
 
 ## Libraries and trust boundary
@@ -39,6 +41,10 @@ cloning credential values. Core `0.1.2` consumes primitives `0.1.1` with correct
 staging permissions and relative-path durability. Existing APIs/formats remain unchanged. Magician is
 a continuing core consumer, not a frozen fork; it does not link the standalone
 CLI/service/MCP crates.
+
+Core `0.1.3` adds opt-in durable audit appends, used by service/CLI/MCP `0.2.2`.
+Magician's existing append-only audit methods keep their previous behavior and
+cost. Standalone startup rejects unsafe journals before using the core writer.
 
 These are trusted in-process APIs: a consumer can receive plaintext. This does
 not promise that privileged local software, an authorized recipient, or arbitrary

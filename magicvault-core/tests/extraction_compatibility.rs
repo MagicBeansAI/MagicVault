@@ -140,3 +140,25 @@ fn typed_audit_extension_preserves_the_existing_optional_wire() {
         "runtime_credential_receipt": {"call_id": "fixture-call"}
     }));
 }
+
+#[test]
+fn durable_audit_retains_the_legacy_journal_wire_and_append_order() {
+    let temp = tempfile::tempdir().unwrap();
+    let base = temp.path().join("vault");
+    let store = SecretStore::new_empty(Box::new(FixtureKey), base.clone());
+    let first: AuditEvent<MetadataReceipt> = AuditEvent::new_at("first", 1);
+    let second: AuditEvent<MetadataReceipt> = AuditEvent::new_at("second", 2)
+        .with_runtime_credential_receipt(MetadataReceipt { call_id: "fixture".into() });
+    store.try_audit_event(first.clone()).unwrap();
+    store.try_audit_event_durably(second.clone()).unwrap();
+    let journal = std::fs::read_to_string(base.join("secret_audit.jsonl")).unwrap();
+    let rows = journal.lines().map(|line| serde_json::from_str::<AuditEvent<MetadataReceipt>>(line).unwrap()).collect::<Vec<_>>();
+    assert_eq!(rows, [first, second]);
+    assert!(journal.ends_with('\n'));
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(std::fs::metadata(&base).unwrap().permissions().mode() & 0o777, 0o700);
+        assert_eq!(std::fs::metadata(base.join("secret_audit.jsonl")).unwrap().permissions().mode() & 0o777, 0o600);
+    }
+}

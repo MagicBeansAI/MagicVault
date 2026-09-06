@@ -140,6 +140,12 @@ pub fn validate_vault(root: &Path) -> Result<(), ErrorCode> {
     }
     for entry in fs::read_dir(&vault).map_err(|_| ErrorCode::Unavailable)? {
         let entry = entry.map_err(|_| ErrorCode::Unavailable)?;
+        // Core's legacy append path may tighten/follow an existing journal.
+        // Standalone must validate it before handing any path to that writer:
+        // an imported symlink must never redirect writes/chmod outside this root.
+        if entry.file_name() == magicvault_core::store::SECRET_AUDIT_FILENAME {
+            private_path(&entry.path(), false)?;
+        }
         if entry.file_name().to_string_lossy().contains(".corrupt-") {
             return Err(ErrorCode::Unavailable);
         }

@@ -5,6 +5,9 @@ of this implementation. No binary, native dialog, keychain operation, installer,
 daemon, CLI, MCP or test was run during development. Rust 1.88+ is required by
 the exact `rmcp 3.1.0` SDK dependency. Source repositories may remain private;
 builders need Git read access, running binaries do not need GitHub access.
+The [follow-up static review](static-review-2026-09-06.md) advances core to
+`0.1.2`, primitives to `0.1.1`, and service/CLI/MCP to `0.2.1` without changing
+protocol version, vault format, root or key identity. It is still unqualified.
 
 ## Build and foreground service
 
@@ -44,8 +47,9 @@ reference/label/field names to that client—not values or future delivery autho
 Enrollment's delivery policy is inactive for browser/HTTP/process use; the next
 adapter phase must add its own destination-bound policy and consent.
 The initial hidden-input backend accepts nonempty UTF-8 text, at most 4096 bytes
-per field, up to eight fields, within one 180-second enrollment window. Binary
-and multiline credential import are not supported setup paths.
+per field, up to eight fields, within one 180-second enrollment window. The
+deadline is rechecked after writer/audit waits immediately before persistence.
+Binary and multiline credential import are not supported setup paths.
 
 Only one human interaction runs at a time. `busy` means wait for that interaction
 to finish; no hidden unbounded prompt queue exists. Poll a returned approval ID
@@ -69,6 +73,8 @@ running daemon, not an alternative store owner.
 The advertised tools are exactly `vault_status`, `list_credentials`,
 `request_approval` and `approval_status`. No pairing, enrollment, shutdown,
 human-grant, raw-material or unimplemented effect method is an MCP tool.
+The client bounds runtime teardown after SDK completion to handle blocked stdio;
+the separate custody daemon continues to drain durable writes without that bound.
 
 ## User-session service
 

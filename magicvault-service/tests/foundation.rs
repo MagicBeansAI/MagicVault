@@ -247,3 +247,37 @@ async fn pending_consent_is_caller_scoped_and_shutdown_never_grants_it() {
     assert!(rows.is_empty());
     assert!(matches!(restarted.execute(envelope(&restarted,query,Some(&agent.token),Uuid::new_v4())).await,Reply::Error(ErrorCode::NotFound)));
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn concurrent_approval_replays_keep_one_request_binding_and_one_human_prompt() {
+    let (root,key) = fixture();
+    let human = Arc::new(WaitingHuman {immediate:std::sync::atomic::AtomicUsize::new(3),waiting:tokio::sync::Notify::new()});
+    let lease = storage::open(root.path()).unwrap();
+    let store = SecretStore::new(Box::new(SharedKey(key)),root.path().join("vault")).unwrap();
+    let service = Broker::with_components(lease,store,human.clone()).unwrap();
+    let owner = pair(&service,"owner").await;
+    let agent = pair(&service,"agent").await;
+    let metadata = enrolled(&service,&owner.token).await;
+    let request = Request::RequestAccess(AccessRequest {credential_ref:metadata.credential_ref.clone()});
+    let id = Uuid::new_v4();
+    let mut calls = tokio::task::JoinSet::new();
+    let start = Arc::new(tokio::sync::Barrier::new(16));
+    for _ in 0..16 {
+        let service = Arc::clone(&service);
+        let envelope = envelope(&service,request.clone(),Some(&agent.token),id);
+        let start = Arc::clone(&start);
+        calls.spawn(async move {start.wait().await; service.execute(envelope).await});
+    }
+    tokio::time::timeout(Duration::from_secs(5),async {
+        while let Some(reply) = calls.join_next().await {
+            let Reply::Ok(Response::Approval(status)) = reply.unwrap() else {panic!("a replay must return the original approval, not Busy or a replacement");};
+            assert_eq!(status.approval_id,id);
+            assert_eq!(status.decision,Decision::Pending);
+        }
+    }).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(2),human.waiting.notified()).await.unwrap();
+    assert!(matches!(service.execute(envelope(&service,request,Some(&owner.token),id)).await,Reply::Error(ErrorCode::Conflict)));
+    let changed = Request::RequestAccess(AccessRequest {credential_ref:format!("cred_{}",Uuid::new_v4())});
+    assert!(matches!(service.execute(envelope(&service,changed,Some(&agent.token),id)).await,Reply::Error(ErrorCode::Conflict)));
+    service.quiesce().await;
+}

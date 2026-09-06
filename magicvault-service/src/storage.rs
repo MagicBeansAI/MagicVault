@@ -79,6 +79,12 @@ fn lock(root: &Path) -> Result<File, ErrorCode> {
 
 /// Explicit setup only. Refuses any nonempty, unrecognized directory.
 pub fn initialize(root: &Path) -> Result<Instance, ErrorCode> {
+    initialize_with_key(root, create_key)
+}
+
+// Private dependency-injection seam for source-owned fixtures; no executable
+// flag, protocol method or public API selects a fake key backend.
+fn initialize_with_key(root: &Path, initialize_key: impl FnOnce(&Instance) -> Result<(), ErrorCode>) -> Result<Instance, ErrorCode> {
     if !root.is_absolute() || root.parent().is_none() { return Err(ErrorCode::InvalidRequest); }
     if !root.exists() {
         let mut builder = fs::DirBuilder::new();
@@ -98,8 +104,12 @@ pub fn initialize(root: &Path) -> Result<Instance, ErrorCode> {
     let _lease = lock(root)?;
     // Recheck after the lease: another initializer may have won.
     if root.join("instance.json").exists() { return load_instance(root); }
+    // Sync the entry naming the root, not only files inside it. This also runs
+    // on a retry after an uncertain creation left an empty directory behind.
+    magicvault_primitives::durable_io::sync_parent_dir_blocking(root)
+        .map_err(|_| ErrorCode::PersistenceUncertain)?;
     let instance = Instance { format_version: 1, id: Uuid::new_v4() };
-    create_key(&instance)?;
+    initialize_key(&instance)?;
     let encoded = serde_json::to_vec(&instance).map_err(|_| ErrorCode::Unavailable)?;
     write_bytes_durably_with_mode_sync(&root.join("instance.json"), &encoded, Some(0o600))
         .map_err(|_| ErrorCode::PersistenceUncertain)?;
@@ -191,3 +201,31 @@ pub fn load_key(instance: &Instance) -> Result<CachedKey, ErrorCode> {
 }
 #[cfg(not(target_os = "macos"))]
 pub fn load_key(_: &Instance) -> Result<CachedKey, ErrorCode> { Err(ErrorCode::Unavailable) }
+
+#[cfg(all(test, unix))]
+mod initialization_tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn key_failure_does_not_publish_identity_and_retry_recovers_only_the_empty_setup() {
+        let parent = tempfile::tempdir().unwrap();
+        let root = parent.path().join("vault");
+        assert!(matches!(initialize_with_key(&root, |_| Err(ErrorCode::Unavailable)),Err(ErrorCode::Unavailable)));
+        assert!(!root.join("instance.json").exists());
+        assert_eq!(fs::metadata(&root).unwrap().permissions().mode() & 0o777,0o700);
+        let created = initialize_with_key(&root, |_| Ok(())).unwrap();
+        let existing = initialize_with_key(&root, |_| panic!("existing identity must never regenerate its key")).unwrap();
+        assert_eq!(created.id,existing.id);
+        assert_eq!(inspect_instance(&root).unwrap().id,created.id);
+        assert_eq!(fs::metadata(root.join("instance.json")).unwrap().permissions().mode() & 0o777,0o600);
+    }
+
+    #[test]
+    fn unrelated_state_is_never_adopted_or_sent_to_a_key_backend() {
+        let root = tempfile::tempdir().unwrap();
+        fs::write(root.path().join("retained"),b"existing state").unwrap();
+        assert!(matches!(initialize_with_key(root.path(), |_| panic!("unrecognized root")),Err(ErrorCode::Conflict)));
+        assert_eq!(fs::read(root.path().join("retained")).unwrap(),b"existing state");
+    }
+}

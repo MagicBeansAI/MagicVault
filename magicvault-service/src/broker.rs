@@ -44,6 +44,12 @@ impl Job {
 
 struct State { registry: Registry, jobs: HashMap<Uuid, Job>, faulted: bool }
 impl State {
+    fn existing_approval(&self, id: Uuid, owner: Uuid, reference: &str) -> Result<Option<ApprovalStatus>, ErrorCode> {
+        let Some(job) = self.jobs.get(&id) else { return Ok(None); };
+        if job.owner != owner || job.reference != reference { return Err(ErrorCode::Conflict); }
+        Ok(Some(job.projection(id)))
+    }
+
     fn reap(&mut self, now: Instant) {
         self.jobs.retain(|_, job| job.retain_until > now);
         for job in self.jobs.values_mut() {
@@ -70,6 +76,10 @@ impl Drop for SecretInput {
 fn token_hash(token: &str) -> [u8; 32] { Sha256::digest(token.as_bytes()).into() }
 fn equal_digest(left: &[u8; 32], right: &[u8; 32]) -> bool {
     left.iter().zip(right.iter()).fold(0u8, |difference, (a, b)| difference | (a ^ b)) == 0
+}
+
+fn ensure_enrollment_live(deadline: Instant) -> Result<(), ErrorCode> {
+    if Instant::now() >= deadline { Err(ErrorCode::Expired) } else { Ok(()) }
 }
 
 impl Broker {
@@ -276,11 +286,11 @@ impl Broker {
             if b.store.list_available().len() >= MAX_CREDENTIALS { return Err(ErrorCode::Capacity); }
             Ok(peer.label.clone())
         }).await?;
-        let started = Instant::now();
+        let deadline = Instant::now() + Duration::from_secs(CONSENT_TTL_SECS);
         if !self.human.confirm(&format!("Client {peer_label} requests enrolling {} with fields {}. Names/label are non-secret metadata. Values are collected next in hidden prompts. This does not permit browser, HTTP or process delivery. Allow?", params.label, params.field_names.join(", ")), self.shutdown.clone()).await? { return Err(ErrorCode::Denied); }
         let mut fields = SecretInput(HashMap::new());
         for field in &params.field_names {
-            let remaining = Duration::from_secs(CONSENT_TTL_SECS).saturating_sub(started.elapsed());
+            let remaining = deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() { return Err(ErrorCode::Expired); }
             let cancel = self.shutdown.child_token();
             let message = format!("Enroll {} for {peer_label}: enter {field}. Do not put credentials in names, terminal commands or chat.", params.label);
@@ -298,15 +308,19 @@ impl Broker {
             if value.is_empty() || value.len() > 4096 || value.contains(['\r', '\n']) { return Err(ErrorCode::InvalidRequest); }
             fields.0.insert(field.clone(), std::mem::take(&mut *value));
         }
-        if started.elapsed() >= Duration::from_secs(CONSENT_TTL_SECS) { return Err(ErrorCode::Expired); }
+        ensure_enrollment_live(deadline)?;
         self.transaction(move |broker, state| {
             broker.peer(state, &auth)?;
             if broker.store.contains_provisioned(&reference) { return Err(ErrorCode::Conflict); }
+            ensure_enrollment_live(deadline)?;
             broker.audit(state, "standalone_enrollment_requested", id)?;
             let injection = InjectionTarget::FormFields(params.field_names.iter().map(|name| (name.clone(), name.clone())).collect());
             // Enrollment activates metadata only. Future delivery requires its
             // own policy configuration/target-bound human authorization.
             let policy = SecretPolicy { allowed_tools: vec!["magicvault:metadata".into()], requires_approval: true, ..SecretPolicy::default() };
+            // Revalidate at the write boundary, including time in the blocking
+            // queue/state lock and in the durable audit append.
+            ensure_enrollment_live(deadline)?;
             if broker.store.store_provisioned(&reference, params.label, std::mem::take(&mut fields.0), injection, policy).is_err() {
                 state.faulted = true;
                 return Err(ErrorCode::PersistenceUncertain);
@@ -322,20 +336,15 @@ impl Broker {
         let auth2 = auth.clone();
         let reference = params.credential_ref;
         let ref2 = reference.clone();
-        let existing = self.transaction(move |broker, state| {
-            broker.peer(state, &auth2)?;
-            if let Some(job) = state.jobs.get(&id) {
-                if job.owner != auth2.id || job.reference != ref2 { return Err(ErrorCode::Conflict); }
-                return Ok(Some(job.projection(id)));
-            }
-            Ok(None)
-        }).await?;
-        if let Some(status) = existing { return Ok(Response::Approval(status)); }
-        let permit = Arc::clone(&self.human_gate).try_acquire_owned().map_err(|_| ErrorCode::Busy)?;
-        let auth2 = auth.clone();
-        let ref2 = reference.clone();
-        let (client_label, credential_label, status) = self.transaction(move |broker, state| {
+        let (interaction, status) = self.transaction(move |broker, state| {
             let client_label = broker.peer(state, &auth2)?.label.clone();
+            // Lookup, nonblocking admission and reservation are one transaction.
+            // Concurrent replays cannot race a separate optimistic lookup and
+            // replace a completed job or reopen a second human prompt.
+            if let Some(existing) = state.existing_approval(id, auth2.id, &ref2)? {
+                return Ok((None, existing));
+            }
+            let permit = Arc::clone(&broker.human_gate).try_acquire_owned().map_err(|_| ErrorCode::Busy)?;
             let credential = broker.metadata(&ref2).ok_or(ErrorCode::Denied)?;
             if state.jobs.len() >= MAX_PENDING { return Err(ErrorCode::Capacity); }
             let now = Instant::now();
@@ -343,8 +352,9 @@ impl Broker {
             let job = Job { owner: auth2.id, reference: ref2, decision: Decision::Pending, expires: now + Duration::from_secs(CONSENT_TTL_SECS), retain_until: now + Duration::from_secs(600) };
             let status = job.projection(id);
             state.jobs.insert(id, job);
-            Ok((client_label, credential.label, status))
+            Ok((Some((client_label, credential.label, permit)), status))
         }).await?;
+        let Some((client_label, credential_label, permit)) = interaction else { return Ok(Response::Approval(status)); };
         let broker = Arc::clone(self);
         tokio::spawn(async move {
             let _permit = permit;
@@ -357,6 +367,7 @@ impl Broker {
                 let decision = match decision { Ok(true) => Decision::Allowed, Err(ErrorCode::Expired) => Decision::Expired, _ => Decision::Denied };
                 let valid = b.peer(state, &auth).is_ok() && b.metadata(&reference).is_some();
                 let Some(job) = state.jobs.get(&id) else { return Ok(()); };
+                if job.owner != auth.id || job.reference != reference { return Err(ErrorCode::Conflict); }
                 if job.decision != Decision::Pending { return Ok(()); }
                 let decision = if !valid { Decision::Denied } else if job.expires <= Instant::now() { Decision::Expired } else { decision };
                 if decision == Decision::Allowed {
@@ -399,6 +410,12 @@ impl Broker {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn enrollment_write_boundary_rejects_an_expired_deadline() {
+        assert_eq!(ensure_enrollment_live(Instant::now()), Err(ErrorCode::Expired));
+        assert_eq!(ensure_enrollment_live(Instant::now() + Duration::from_secs(CONSENT_TTL_SECS)), Ok(()));
+    }
 
     #[test]
     fn configured_registry_capacity_fits_the_persistence_bound() {

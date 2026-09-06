@@ -1204,7 +1204,7 @@ checksum = "5e5032e24019045c762d3c0f28f5b6b8bbf38563a65908389bf7978758920897"
 
 [[package]]
 name = "magicvault"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "async-trait",
  "clap",
@@ -1220,7 +1220,7 @@ dependencies = [
 
 [[package]]
 name = "magicvault-core"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "aes-gcm",
  "base64",
@@ -1244,7 +1244,7 @@ dependencies = [
 
 [[package]]
 name = "magicvault-mcp"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "async-trait",
  "bytes",
@@ -1264,7 +1264,7 @@ dependencies = [
 
 [[package]]
 name = "magicvault-primitives"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "blake3",
  "serde",
@@ -1287,7 +1287,7 @@ dependencies = [
 
 [[package]]
 name = "magicvault-service"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "async-trait",
  "fs2",

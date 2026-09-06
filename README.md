@@ -9,6 +9,8 @@ HTTP/process delivery follows it. No `secure_*` operation is advertised yet.
 
 Start with [setup and usage](docs/setup.md), the [local protocol and security
 boundary](docs/protocol.md), and the [implementation/review ledger](docs/phase2-foundation.md).
+The [follow-up deep static review](docs/static-review-2026-09-06.md) records
+additional shared-write, approval-replay, deadline, initialization and shutdown fixes.
 No checks, builds, tests or benchmarks have been run for this work.
 
 ## Libraries and trust boundary
@@ -30,8 +32,9 @@ Applications can append their typed metadata-only audit receipt by implementing
 `AuditReceipt`; unstructured strings/JSON do not implement that contract.
 The core's ordinary events have no product receipt.
 
-Core `0.1.1` adds a metadata projection that obtains sorted field names without
-cloning credential values. Existing APIs/formats remain unchanged. Magician is
+Core `0.1.1` added a metadata projection that obtains sorted field names without
+cloning credential values. Core `0.1.2` consumes primitives `0.1.1` with corrected
+staging permissions and relative-path durability. Existing APIs/formats remain unchanged. Magician is
 a continuing core consumer, not a frozen fork; it does not link the standalone
 CLI/service/MCP crates.
 

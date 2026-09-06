@@ -5,6 +5,11 @@ No checks, builds, tests, benchmarks, native operations or CI ran during this
 implementation. Dependency lockfile resolution only was performed. Repositories
 stay private; this is not a qualified release or a no-regressions certification.
 
+The [follow-up Phase 1/2 review](static-review-2026-09-06.md) records additional
+persistence, approval-replay, enrollment-deadline and MCP shutdown fixes. Current
+versions are core `0.1.2`, primitives `0.1.1`, service/CLI/MCP `0.2.1`; protocol
+remains `0.2.0` / wire version `1`. The findings below record the initial P2 pass.
+
 Sequence: protocol/storage → daemon and native human boundary → pairing,
 enrollment and metadata consent → CLI → SDK MCP → coordinated core consumer
 integration → static review/coverage/docs. Browser delivery is the next phase;

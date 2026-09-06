@@ -1,19 +1,19 @@
 [package]
 name = "magicvault"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "MagicVault human CLI and standalone daemon"
 
 [dependencies]
-magicvault-service = { path = "../magicvault-service", version = "0.2.0" }
+magicvault-service = { path = "../magicvault-service", version = "0.2.1" }
 clap = { version = "4", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
 uuid = "1"
 
 [dev-dependencies]
-magicvault-core = { path = "../magicvault-core", version = "0.1.1" }
+magicvault-core = { path = "../magicvault-core", version = "0.1.2" }
 async-trait = "0.1"
 tempfile = "3"
 tokio-util = { version = "0.7", features = ["rt"] }

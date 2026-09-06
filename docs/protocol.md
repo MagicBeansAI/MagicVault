@@ -27,6 +27,9 @@ messages to 32 KiB and replies to 1 MiB, and routes at most eight active tool ca
 Its writes/close have five-second deadlines; a partial-write failure closes the
 writer without retry. The registry is bounded to 32 clients × 256 references
 and 512 KiB of serialized state. Enrollment allows eight 4096-byte text fields.
+After SDK completion the MCP client bounds runtime teardown to 250 ms so an
+uncancellable Tokio stdio task cannot indefinitely hold the process open. This
+client owns no store writes; the custody daemon does not use bounded teardown.
 
 Envelope fields: `version: 1`, UUID `request_id`, daemon `epoch` (from status),
 optional pairing `token`, and a tagged `request` with `method` / optional `params`.
@@ -60,12 +63,18 @@ The daemon caches the loaded key for its lifetime. `clients.json` contains
 versioned paired-client hashes and metadata ACLs. Core vault bytes stay in
 `ROOT/vault`, using existing encryption/partition formats. No key/vault import,
 replacement, migration, automatic data cleanup or ambient credential discovery.
+Initialization syncs the parent entry naming the private root before creating
+its key/identity. Shared durable byte writers create staging files exclusively
+with the requested mode before any payload, sync data and permissions, rename,
+then sync the destination parent. Bare relative filenames use `.` as that parent.
 
 Enrollment persists the core entry before publishing client metadata permission.
 An uncertain second write may leave an encrypted entry without an ACL; the
 service fails closed. Startup does not infer a grant from such an orphan.
 Requests use deterministic enrollment IDs to refuse same-ID overwrites. There is
 no safe-to-retry claim after a transport/persistence failure.
+Enrollment revalidates its monotonic deadline after waiting for the serialized
+writer and after audit, immediately before writing the core entry.
 Standalone startup refuses quarantine evidence, mismatched ACL/material state,
 unsafe file modes and oversized vault files rather than silently creating an
 empty ready service. This host policy does not change Magician's core recovery
@@ -75,6 +84,10 @@ Human waits hold no store lock. Completion rechecks caller validity, shutdown,
 expiry and target-reference presence before allowing access. Native interaction
 is serialized; pending jobs/results are bounded. Results are ephemeral across
 restart, while completed metadata ACLs persist. They are not future effect grants.
+Within the retained job window, replay lookup and reservation are atomic: the
+same request ID/owner/reference returns its original status without a new prompt;
+changing that binding returns `conflict`. This does not authorize automatic
+retries after lost transport replies or make other mutations idempotent.
 
 Shutdown cancels prompts, stops admission, drains connections/human work, and
 retains the instance lease through outstanding blocking commits. A second owner

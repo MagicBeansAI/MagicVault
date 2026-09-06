@@ -13,6 +13,7 @@ test:
 
 test-compatibility:
 	cargo test --locked -p magicvault-core --test extraction_compatibility
+	cargo test --locked -p magicvault-primitives
 
 test-foundation:
 	cargo test --locked -p magicvault-protocol -p magicvault-service -p magicvault -p magicvault-mcp

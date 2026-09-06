@@ -1,6 +1,6 @@
 [package]
 name = "magicvault-core"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 authors = ["MagicBeansAI"]
 description = "Credential custody, policy, and redaction primitives for trusted integrations"
@@ -12,7 +12,7 @@ repository = "https://github.com/MagicBeansAI/MagicVault"
 test-fixtures = []
 
 [dependencies]
-magicvault-primitives = { path = "../magicvault-primitives", version = "0.1.0" }
+magicvault-primitives = { path = "../magicvault-primitives", version = "0.1.1" }
 aes-gcm = "0.10"
 base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }

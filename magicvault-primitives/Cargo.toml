@@ -1,6 +1,6 @@
 [package]
 name = "magicvault-primitives"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["MagicBeansAI"]
 description = "Stack-safe JSON and durable file primitives shared by MagicVault integrations"

@@ -87,42 +87,59 @@ fn retry_delay(attempt: usize) -> Duration {
 /// them interleaving rename a half-written file over the store — twice-shipped,
 /// once in the VibeDev project store and once in the secret vault.
 ///
-/// The temp is removed on every failure path; with a unique name, skipping that
-/// would leak a file per failure rather than reusing one.
+/// Cleanup is attempted on failure only for a temp created by this call;
+/// pre-existing paths are never adopted, truncated or removed.
 pub fn write_bytes_durably_sync(path: &Path, value: &[u8]) -> std::io::Result<()> {
     write_bytes_durably_with_mode_sync(path, value, None)
 }
 
+fn create_staging(path: &Path, mode: Option<u32>) -> std::io::Result<std::fs::File> {
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    if let Some(mode) = mode {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(mode);
+    }
+    #[cfg(not(unix))]
+    let _ = mode;
+    retry_transient_io_blocking(|| options.open(path))
+}
+
 /// Synchronous durable publication with an optional Unix file mode. The staging
-/// file receives `mode` before publication, then the destination directory is
-/// synced after the atomic rename. Async admission remains the host's concern.
+/// file is created with `mode` (subject to umask), then receives the exact mode
+/// on its owned descriptor before any bytes are written. Data and permissions
+/// are synced before rename, then the destination directory is synced.
+/// Async admission remains the host's concern.
 pub fn write_bytes_durably_with_mode_sync(
     path: &Path,
     value: &[u8],
     mode: Option<u32>,
 ) -> std::io::Result<()> {
-    if let Some(parent) = path.parent() {
+    if let Some(parent) = path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
         retry_transient_io_blocking(|| std::fs::create_dir_all(parent))?;
     }
     let tmp_path = path.with_file_name(format!(".artifact-write-{}.tmp", Uuid::new_v4().simple()));
+    let mut owns_staging = false;
     let written = (|| {
         use std::io::Write;
-        let mut file = retry_transient_io_blocking(|| std::fs::File::create(&tmp_path))?;
+        let mut file = create_staging(&tmp_path, mode)?;
+        owns_staging = true;
+        // Creation is restrictive already; apply the exact requested mode on
+        // the owned descriptor before any bytes, then fsync data AND metadata.
+        #[cfg(unix)]
+        if let Some(mode) = mode {
+            use std::os::unix::fs::PermissionsExt;
+            file.set_permissions(std::fs::Permissions::from_mode(mode))?;
+        }
         file.write_all(value)?;
         file.flush()?;
         file.sync_all()?;
         drop(file);
-        #[cfg(unix)]
-        if let Some(mode) = mode {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&tmp_path, std::fs::Permissions::from_mode(mode))?;
-        }
-        #[cfg(not(unix))]
-        let _ = mode;
         retry_transient_io_blocking(|| std::fs::rename(&tmp_path, path))?;
         sync_parent_dir_blocking(path)
     })();
-    if written.is_err() {
+    if written.is_err() && owns_staging {
         if let Err(cleanup) = std::fs::remove_file(&tmp_path) {
             warn_cleanup_failed(&tmp_path, &cleanup);
         }
@@ -155,8 +172,33 @@ pub fn sync_parent_dir_blocking(path: &Path) -> std::io::Result<()> {
     let Some(parent) = path.parent() else {
         return Ok(());
     };
+    // Path::new("record").parent() is "", not ".". Opening "" after
+    // rename reports a false failure despite having already replaced the file.
+    let parent = if parent.as_os_str().is_empty() { Path::new(".") } else { parent };
     retry_transient_io_blocking(|| {
         let dir = std::fs::File::open(parent)?;
         dir.sync_all()
     })
+}
+
+#[cfg(all(test, unix))]
+mod staging_tests {
+    use super::*;
+    use std::os::unix::fs::{symlink, PermissionsExt};
+
+    #[test]
+    fn mode_is_private_before_the_first_byte_and_existing_paths_are_not_adopted() {
+        let root = tempfile::tempdir().unwrap();
+        let stage = root.path().join("stage");
+        let file = create_staging(&stage, Some(0o600)).unwrap();
+        assert_eq!(file.metadata().unwrap().permissions().mode() & 0o077, 0);
+        assert_eq!(file.metadata().unwrap().len(), 0);
+        drop(file);
+        std::fs::write(&stage, b"existing").unwrap();
+        assert!(create_staging(&stage, Some(0o600)).is_err());
+        let link = root.path().join("link");
+        symlink(&stage, &link).unwrap();
+        assert!(create_staging(&link, Some(0o600)).is_err());
+        assert_eq!(std::fs::read(stage).unwrap(), b"existing");
+    }
 }

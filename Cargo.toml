@@ -1,0 +1,3 @@
+[workspace]
+members = ["magicvault-core", "magicvault-primitives"]
+resolver = "2"

@@ -1,0 +1,17 @@
+name: Manual extraction qualification
+# No automatic checks/tests during the owner-requested static-review extraction.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  libraries:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: make check
+      - run: make test

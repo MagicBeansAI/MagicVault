@@ -1,0 +1,9 @@
+{
+  "_comment": "Existing source counts transferred from Magician aef928c, not removed by relocation. The shared durable primitive definitions themselves are intentionally not scanned.",
+  "total_violations": 3,
+  "files": {
+    "magicvault-core/src/store.rs": {
+      "hand_rolled_atomic_write": 3
+    }
+  }
+}

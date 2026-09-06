@@ -1,0 +1,19 @@
+[package]
+name = "magicvault-primitives"
+version = "0.1.0"
+edition = "2021"
+authors = ["MagicBeansAI"]
+description = "Stack-safe JSON and durable file primitives shared by MagicVault integrations"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/MagicBeansAI/MagicVault"
+
+[dependencies]
+blake3 = "1.0"
+serde = "1.0"
+serde_json = "1.0"
+tokio = { version = "1.0", features = ["time"] }
+tracing = "0.1"
+uuid = { version = "1.0", features = ["v4"] }
+
+[dev-dependencies]
+tempfile = "3.8"

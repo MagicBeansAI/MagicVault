@@ -1,6 +1,6 @@
 [package]
 name = "magicvault-core"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["MagicBeansAI"]
 description = "Credential custody, policy, and redaction primitives for trusted integrations"

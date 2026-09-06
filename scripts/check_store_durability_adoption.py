@@ -22,7 +22,7 @@ BASELINE_PATH = Path(__file__).resolve().parent / "store_durability_baseline.jso
 
 # Crates with filesystem-backed stores. `magios/` and `magdroid/` are not Rust
 # store surfaces and `ui/` is not Rust at all.
-SCAN_ROOTS = ("magicvault-core/src",)
+SCAN_ROOTS = ("magicvault-core/src", "magicvault-service/src")
 
 RULES: dict[str, re.Pattern[str]] = {
     # `with_extension("tmp")`, `with_extension("json.tmp")`, and friends.

@@ -87,6 +87,15 @@ pub struct SecretListEntry {
     pub label: String,
 }
 
+/// Metadata projected under the store read lock without cloning field values.
+/// Hosts must authorize the caller before exposing ids, labels or field names.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProvisionedSecretMetadata {
+    pub id: String,
+    pub label: String,
+    pub field_names: Vec<String>,
+}
+
 /// Pending provisioned-secret approval safe to expose to the localhost UI/API.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PendingSecretApproval {
@@ -890,6 +899,19 @@ impl SecretStore {
                 .then(left.created_at.cmp(&right.created_at))
         });
         entries
+    }
+
+    pub fn provisioned_metadata(&self, secret_id: &str) -> Option<ProvisionedSecretMetadata> {
+        if !self.feature_status(SecretSourceKind::Provisioned).is_available() {
+            return None;
+        }
+        let state = self.state.read().expect("secret store state lock poisoned");
+        let entry = state.provisioned.get(secret_id)?;
+        let mut field_names = entry.fields.keys().cloned().collect::<Vec<_>>();
+        field_names.sort();
+        Some(ProvisionedSecretMetadata {
+            id: entry.id.clone(), label: entry.label.clone(), field_names,
+        })
     }
 
     pub fn get_provisioned(&self, secret_id: &str) -> Option<SecretEntry> {

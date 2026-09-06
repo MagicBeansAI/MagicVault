@@ -1,0 +1,14 @@
+[package]
+name = "magicvault-protocol"
+version = "0.2.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Bounded, reference-only MagicVault local service contract"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+zeroize = "1"
+
+[dev-dependencies]
+serde_json = "1"

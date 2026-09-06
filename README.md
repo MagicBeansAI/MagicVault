@@ -2,9 +2,14 @@
 
 The easiest way to keep credentials away from models.
 
-This repository currently contains the **Phase 1 shared libraries**, not the
-standalone browser/HTTP/process product. CLI, MCP, `secure_fill`, extension/native
-messaging, `secure_new_http`, and `secure_new_process` are later milestones.
+This repository contains the Phase 1 shared libraries and an **unqualified
+Phase 2 foundation implementation**: a standalone daemon, human enrollment/
+consent, CLI, and reference-only MCP. Browser/CDP/extension delivery is Phase 3;
+HTTP/process delivery follows it. No `secure_*` operation is advertised yet.
+
+Start with [setup and usage](docs/setup.md), the [local protocol and security
+boundary](docs/protocol.md), and the [implementation/review ledger](docs/phase2-foundation.md).
+No checks, builds, tests or benchmarks have been run for this work.
 
 ## Libraries and trust boundary
 
@@ -13,12 +18,22 @@ messaging, `secure_new_http`, and `secure_new_process` are later milestones.
   scoped store cache parameterized by the host's path layout.
 - `magicvault-primitives`: stack-safe JSON and durable filesystem primitives,
   separately consumable without a credential backend or product runtime.
+- `magicvault-protocol`: closed reference/metadata-only local messages.
+- `magicvault-service`: single-writer standalone host, local client, OS-user and
+  pairing authentication, native human boundary, and LaunchAgent management.
+- `magicvault`: human CLI plus `serve` daemon entry point.
+- `magicvault-mcp`: official-SDK stdio surface using the same daemon client.
 
-Neither crate depends on Magician or MagicRun. Trusted applications provide a
+None of these crates depends on Magician or MagicRun. Core integrations provide a
 `MasterKeyProvider` and, for shared scoped resolution, `SecretScopeLayout`.
 Applications can append their typed metadata-only audit receipt by implementing
 `AuditReceipt`; unstructured strings/JSON do not implement that contract.
 The core's ordinary events have no product receipt.
+
+Core `0.1.1` adds a metadata projection that obtains sorted field names without
+cloning credential values. Existing APIs/formats remain unchanged. Magician is
+a continuing core consumer, not a frozen fork; it does not link the standalone
+CLI/service/MCP crates.
 
 These are trusted in-process APIs: a consumer can receive plaintext. This does
 not promise that privileged local software, an authorized recipient, or arbitrary

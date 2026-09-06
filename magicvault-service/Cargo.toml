@@ -1,0 +1,30 @@
+[package]
+name = "magicvault-service"
+version = "0.2.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Standalone custody service, authenticated IPC, and human boundary"
+
+[dependencies]
+magicvault-core = { path = "../magicvault-core", version = "0.1.1" }
+magicvault-primitives = { path = "../magicvault-primitives", version = "0.1.0" }
+magicvault-protocol = { path = "../magicvault-protocol", version = "0.2.0" }
+async-trait = "0.1"
+fs2 = "0.4"
+hex = "0.4"
+libc = "0.2"
+rand = "0.8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tokio = { version = "1", features = ["net", "io-util", "sync", "time", "rt", "macros", "process", "signal"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+zeroize = "1"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = "2.3"
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { version = "1", features = ["rt-multi-thread"] }

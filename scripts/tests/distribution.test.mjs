@@ -86,3 +86,27 @@ test('signing helper parses and rejects relative paths before any signing action
   execFileSync('/bin/sh', ['-n', script]);
   assert.throws(() => execFileSync('/bin/sh', [script, 'relative'], { stdio: 'pipe' }));
 });
+
+test('workflow initializes runner paths at step scope and exports them to later steps', t => {
+  const workflow = fs.readFileSync(path.join(repo, '.github/workflows/distribution.yml'), 'utf8');
+  const jobEnvironment = workflow.match(/^    env:\n([\s\S]*?)^    steps:/m)?.[1];
+  assert.ok(jobEnvironment, 'expected job environment');
+  assert.doesNotMatch(jobEnvironment, /\$\{\{\s*(?:runner|env)\b/);
+  const initializer = workflow.match(/^      - name: Initialize artifact locations\n        shell: bash\n        run: \|\n((?:          [^\n]*\n)+)/m);
+  assert.ok(initializer, 'expected runner-time path initialization');
+  assert(initializer.index < workflow.indexOf('- uses:'), 'initialize before checkout/build/package steps');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'magicvault-workflow-test-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const runnerTemp = path.join(root, 'runner temp with spaces');
+  const environmentFile = path.join(root, 'github env');
+  const script = initializer[1].replace(/^          /gm, '');
+  execFileSync('/bin/bash', ['-e', '-u', '-o', 'pipefail', '-c', script], {
+    env: { RUNNER_TEMP: runnerTemp, GITHUB_ENV: environmentFile }, stdio: 'pipe',
+  });
+  assert.deepEqual(fs.readFileSync(environmentFile, 'utf8').trimEnd().split('\n'), [
+    `CARGO_TARGET_DIR=${runnerTemp}/magicvault-builds`,
+    `PACKAGE_PARENT=${runnerTemp}/magicvault-distribution`,
+  ]);
+  assert(workflow.includes('path: ${{ env.PACKAGE_PARENT }}/qualification/*.tgz'));
+  assert.equal(fs.existsSync(runnerTemp), false, 'initialization exports paths without creating artifacts');
+});

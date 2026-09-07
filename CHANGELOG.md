@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Fix distribution workflow validation by exporting runner-dependent artifact
+  paths from the first execution step, not unsupported job-level expressions.
+  Add a focused runner-path/export regression test; application behavior is unchanged.
+
 ## 0.5.0 — 2026-09-07 — Prebuilt distribution source alpha
 
 - Add explicit-scope macOS Apple Silicon npm package assembly, exact-version thin

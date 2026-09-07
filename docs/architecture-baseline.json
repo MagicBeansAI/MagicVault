@@ -15,7 +15,7 @@
     "magicvault-service": "0.5.0"
   },
   "source_sha256": {
-    ".github/workflows/distribution.yml": "7309c53ed5b3132b965058ec83c736c7d40b8cd1446a82483ead0e20a8d6c3e3",
+    ".github/workflows/distribution.yml": "225f6a7b1ade38c3b576e106387c1dc7cae614946a89b1fe5074acdd20f5ccde",
     "Cargo.lock": "e88230d767f2eb204388fb315684ae4ea1dc08cbeb04dae100b33902c47a395b",
     "Cargo.toml": "7f5b8f9eaed713c5c68dedc540340f93693ab5d7fcc0d7c2856d4dd0553742cb",
     "extension/manifest.json": "709002e9ddf30382e8ac832e445a3d2487fc1665c72f996466b3f5b83a92e507",

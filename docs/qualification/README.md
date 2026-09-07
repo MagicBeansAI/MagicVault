@@ -7,6 +7,11 @@ that would not replace destination, custody, transport or output-boundary tests.
 
 ## What is covered
 
+Use the [public release gate matrix](release.md) to separate automated conformance,
+human desktop acceptance and publisher/registry authorization. The
+[broader release results](results-release-2026-09-08.md) record qualification of
+the committed `0.7.0` revision, including CI and repeated fresh browser starts.
+
 | Surface | Runnable evidence | Remaining gate |
 | --- | --- | --- |
 | Real headed/headless Chrome through CDP | `make test-browser-native` | More brands/platforms and accessibility/control combinations |

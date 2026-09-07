@@ -1,7 +1,9 @@
 # Installed extension and native-host acceptance
 
 Status: manual gate for genuine permissions, native consent/keychain and normal
-installation lifecycle. [Automated native transport](extension-transport.md) now
+installation lifecycle. [Basic installed acceptance](results-discovery-2026-09-08.md)
+passed on one macOS/Chrome setup; that is not completion of the matrix below.
+[Automated native transport](extension-transport.md) now
 exercises actual Chrome dispatch and multiple profiles with synthetic custody/UI
 and a pregranted loopback fixture. That does not qualify these native UX gates.
 
@@ -76,5 +78,6 @@ instead of deleting a vault or silently replacing another application's files.
 If a case fails, record the closed error and exact step. Check daemon readiness,
 profile/root match, absolute executable location, extension ID, site permission,
 native manifest conflicts and unpacked assets. Never “fix” it by weakening UID,
-origin, document or consent checks. Record the gate as NOT RUN until a person
-actually performs these steps; the [results](results-2026-09-07.md) are explicit.
+origin, document or consent checks. Record each case as NOT RUN until a person
+actually performs its steps. The [current installed results](results-discovery-2026-09-08.md)
+distinguish basic acceptance from the unexecuted cases.

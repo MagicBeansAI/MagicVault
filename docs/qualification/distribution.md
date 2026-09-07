@@ -60,8 +60,11 @@ packaging must not change recipient binding, per-use consent or receipt-only out
 3. Reconnect MCP and reload/reconnect the extension. Verify retained instance/key,
    credentials, permissions and delivery profiles. Old browser targets and jobs
    must not silently regain authority.
-   Verify the browser uses current assets, not a resolved old version directory;
-   remove/load unpacked again when needed and check/rebind the exact extension ID.
+   Verify the browser uses current assets, not a resolved old version directory.
+   If Reload retains the old version, use **Load unpacked** for the new directory
+   without removing the existing fixed-ID extension. Check its displayed version,
+   ID, connection, grants and blocks; removal would reset local pairing/settings.
+   A legacy path-derived ID requires the separate documented migration.
 4. Remove **only these test packages** with npm. Confirm the stable service,
    native host, extension assets and direct MCP command remain usable.
 5. Test a changed owned definition and a foreground daemon holding the writer

@@ -57,7 +57,8 @@ impl Client {
     pub async fn call(&self, request: Request) -> Result<Response, ErrorCode> {
         request.validate()?;
         let status = self.status().await?;
-        if !status.ready && !matches!(request, Request::FillStatus(_)) {
+        if !status.ready && !matches!(request, Request::FillStatus(_) | Request::DeliveryStatus(_))
+        {
             return Err(ErrorCode::Unavailable);
         }
         self.send(request, Some(status.epoch), Uuid::new_v4()).await

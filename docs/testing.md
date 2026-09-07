@@ -2,9 +2,11 @@
 
 ## Current evidence
 
-**Builds and automated suites pass on macOS arm64. Real headed/headless Chrome,
-CLI-to-daemon-to-Chrome, and opt-in public-page smoke cases also pass on the
-recorded Chrome version.** See the [current qualification results](qualification/results-2026-09-07.md)
+The [0.4.0 delivery qualification](qualification/results-delivery-2026-09-07.md)
+records current browser/process/HTTP regressions, builds and their limits.
+Real headed/headless Chrome, CLI-to-daemon-to-Chrome, and opt-in public-page
+smoke cases passed for the earlier browser baseline. See the
+[historical browser qualification](qualification/results-2026-09-07.md)
 for counts, commands, environments and limits. Real-browser cases stay ignored
 in the default suite and run through explicit targets. Versioned test results
 remain technical evidence, not a production-readiness claim.
@@ -14,7 +16,7 @@ coverage-percentage tool or CI ran. Real CLI qualification uses test-only human
 and key providers. Browser success does not establish measured performance,
 all consumer regressions, broader browser compatibility or production readiness.
 The [qualification index](qualification/README.md) separates executable
-conformance tests, manual acceptance runbooks and future process gates.
+conformance tests, manual acceptance runbooks and unimplemented running-service gates.
 
 ## Architecture consistency
 
@@ -68,6 +70,7 @@ application suites.
 | `make test-compatibility` | Shared custody/metadata/audit and primitive compatibility fixtures | No |
 | `make test-foundation` | Protocol, custody service, retained broker/storage/encoder unit cases, CLI and official SDK MCP integration | Synthetic local IPC/subprocesses only |
 | `make test-browser` | Closed fill schema, CDP peer, native bridge, daemon effects, real CLI/MCP/native-host subprocesses, extension JS fixtures | Synthetic local transports/human/key providers only |
+| `make test-delivery` | Closed process/HTTP profiles, real local HTTP/TLS and child processes, MagicRun integration, consent/lifecycle/audit failures, shipped CLI/MCP | Synthetic local recipients/human/key providers; no public provider or native dialogs |
 | `make test-browser-native` | Headed/headless fills, controls, frames and stale documents against disposable Chrome | Yes, explicit executable required |
 | `make test-cli-native` | Shipped CLI → real daemon/IPC → real Chrome, allowed and denied fills | Yes; test-only human/key providers |
 | `make test-public-web` | Example Domain navigation and Selenium public test-form fill, no submit | Yes; separate explicit public-network opt-in |
@@ -109,7 +112,13 @@ exported by a production model tool.
 | Headed/headless real DOM delivery and independent browser-tool continuation | Ignored `magicvault-effect/tests/chromium.rs` |
 | Actual CLI/daemon/Chrome, allow/deny and value-free output/audit | Ignored `magicvault/tests/browser_native.rs` |
 | Explicit public-page navigation and synthetic fill without submit | Ignored `magicvault-effect/tests/chromium_public.rs` |
-| Reusable local pages and child env/stdin/IPC/echo contracts | `scripts/tests/qualification-fixtures.test.mjs`; process effects remain unimplemented |
+| Reusable local pages and child env/stdin/IPC/echo contracts | `scripts/tests/qualification-fixtures.test.mjs`; stateful refresh remains a fixture only |
+| Exact reference-only process/HTTP contracts | `magicvault-protocol/tests/delivery_contract.rs` |
+| Methods, header/query/body encoding, DNS/address fences, no redirect/retry, response discard/deadlines | `magicvault-effect/tests/http_delivery.rs` and `src/http/tests.rs` |
+| Real TLS trust, hostname rejection and content withholding | `magicvault-effect/src/http/tests.rs`; test-only root/pin, no insecure production switch |
+| MagicRun env/stdin, executable change, cancellation/output bounds and withheld streams | `magicvault-effect/tests/process_delivery.rs` |
+| Per-client profiles, consent/removal/shutdown, capacity, restart/replay and audit uncertainty | `magicvault-service/src/broker/delivery/tests.rs` |
+| Shipped CLI/MCP → IPC → broker → new process and HTTP | `magicvault/tests/delivery_cli.rs`, `magicvault-mcp/tests/end_to_end.rs` |
 | Key/store identity, scoped facade and durability compatibility | Retained shared-library lanes; consumer-owned integration tests remain with the consumer |
 
 The dated record identifies which fixtures passed. Ignored browser cases were
@@ -176,3 +185,10 @@ and rollback drills remain unexecuted.
 Qualification must retain the core compatibility lane and relevant consumer-owned
 tests against any changed shared dependency; unchanged shared source is evidence
 of scope, not a substitute for all consumer runtime tests.
+
+New-process delivery reuses MagicRun's owned-child coordinator and bounded streams.
+HTTP uses no idle connection pool, at most 16 vetted addresses, bounded resolver
+thread admission and one shared request deadline. These are resource safeguards,
+not measured throughput/latency claims. Native maximum-size profile-consent
+rendering is an explicit manual gate; synthetic prompt-length checks do not
+prove a person can comfortably review the native dialog.

@@ -51,7 +51,12 @@ fn catalog_is_closed_and_has_no_administration_or_unimplemented_effects() {
             "browser_targets",
             "secure_fill",
             "fill_status",
-            "cancel_fill"
+            "cancel_fill",
+            "list_delivery_profiles",
+            "secure_new_process",
+            "secure_new_http",
+            "delivery_status",
+            "cancel_delivery"
         ]
     );
     for tool in tools {
@@ -122,7 +127,7 @@ async fn sdk_mcp_to_shared_client_to_real_ipc_to_core_returns_only_metadata() {
     let read = server.stdout.take().unwrap();
     let write = server.stdin.take().unwrap();
     let peer = FixtureClient.serve((read, write)).await.unwrap();
-    assert_eq!(peer.list_tools(None).await.unwrap().tools.len(), 9);
+    assert_eq!(peer.list_tools(None).await.unwrap().tools.len(), 14);
     // Inspect a single response rather than letting the SDK drive continuation
     // rounds: this foundation must return Complete and never request more input.
     let response = peer
@@ -183,7 +188,7 @@ async fn sdk_mcp_to_shared_client_to_real_ipc_to_core_returns_only_metadata() {
         target_handle: targets[0].target_handle,
         fields: vec![FillField {
             css: "#password".into(),
-            credential_ref: credential.credential_ref,
+            credential_ref: credential.credential_ref.clone(),
             credential_field: "password".into(),
         }],
     };
@@ -243,6 +248,145 @@ async fn sdk_mcp_to_shared_client_to_real_ipc_to_core_returns_only_metadata() {
     assert_eq!(
         cdp.state.lock().unwrap().delivered,
         [vec!["SYNTHETIC-MCP-TRANSPORT-CANARY".to_owned()]]
+    );
+    // The same shipped MCP subprocess reaches both new adapters. Human
+    // registration remains outside the tool catalog and binds exact recipients.
+    use magicvault_service::protocol::{
+        DeliveryDestination, DeliveryProfile, DeliveryState, HttpDestination, InputValue,
+        NamedValue, ProcessDestination,
+    };
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let value = InputValue::Credential {
+        credential_ref: credential.credential_ref.clone(),
+        credential_field: "password".into(),
+        prefix: String::new(),
+        suffix: String::new(),
+    };
+    let executable = root.path().join("recipient");
+    fs::write(&executable, "#!/bin/sh\n[ -n \"$MV_TOKEN\" ] || exit 1\nprintf '%s' \"$MV_TOKEN\"\nprintf 'ran' > mcp-ran\n").unwrap();
+    fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}/", listener.local_addr().unwrap());
+    let http = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let mut bytes = Vec::new();
+        let mut buffer = [0u8; 4096];
+        while !bytes.windows(4).any(|w| w == b"\r\n\r\n") {
+            let n = stream.read(&mut buffer).await.unwrap();
+            assert!(n > 0);
+            bytes.extend_from_slice(&buffer[..n]);
+            assert!(bytes.len() < 16384);
+        }
+        assert!(String::from_utf8_lossy(&bytes).contains("SYNTHETIC-MCP-TRANSPORT-CANARY"));
+        let body = "SYNTHETIC-MCP-TRANSPORT-CANARY";
+        stream
+            .write_all(
+                format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                )
+                .as_bytes(),
+            )
+            .await
+            .unwrap();
+    });
+    for (name, destination) in [
+        (
+            "secure_new_process",
+            DeliveryDestination::Process(ProcessDestination {
+                executable: executable.to_str().unwrap().into(),
+                arguments: vec![],
+                working_directory: root.path().to_str().unwrap().into(),
+                environment: vec![NamedValue {
+                    name: "MV_TOKEN".into(),
+                    value: value.clone(),
+                }],
+                stdin: None,
+                timeout_secs: 2,
+            }),
+        ),
+        (
+            "secure_new_http",
+            DeliveryDestination::Http(HttpDestination {
+                url,
+                method: "POST".into(),
+                headers: vec![NamedValue {
+                    name: "Authorization".into(),
+                    value: value.clone(),
+                }],
+                query: vec![],
+                body: None,
+                timeout_secs: 2,
+            }),
+        ),
+    ] {
+        let Response::DeliveryProfile(profile) = client
+            .call(Request::RegisterDeliveryProfile(DeliveryProfile {
+                label: name.into(),
+                destination,
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("profile")
+        };
+        let operation = Uuid::new_v4();
+        let CallToolResponse::Complete(result) = peer
+            .call_tool_once(
+                CallToolRequestParams::new(name).with_arguments(
+                    serde_json::json!({"profile_id":profile.profile_id,"operation_id":operation})
+                        .as_object()
+                        .unwrap()
+                        .clone(),
+                ),
+            )
+            .await
+            .unwrap()
+        else {
+            panic!("complete invocation")
+        };
+        assert_ne!(result.is_error, Some(true));
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let CallToolResponse::Complete(result) = peer
+                    .call_tool_once(
+                        CallToolRequestParams::new("delivery_status").with_arguments(
+                            serde_json::json!({"operation_id":operation})
+                                .as_object()
+                                .unwrap()
+                                .clone(),
+                        ),
+                    )
+                    .await
+                    .unwrap()
+                else {
+                    panic!("complete receipt")
+                };
+                let wire = serde_json::to_value(result).unwrap();
+                assert!(!wire.to_string().contains("SYNTHETIC-MCP-TRANSPORT-CANARY"));
+                let Response::Delivery(status) =
+                    serde_json::from_str(wire["content"][0]["text"].as_str().unwrap()).unwrap()
+                else {
+                    panic!("receipt")
+                };
+                if !matches!(
+                    status.state,
+                    DeliveryState::Pending | DeliveryState::Running
+                ) {
+                    assert_eq!(status.state, DeliveryState::Completed);
+                    assert!(status.may_have_run);
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+    }
+    http.await.unwrap();
+    assert_eq!(
+        fs::read_to_string(root.path().join("mcp-ran")).unwrap(),
+        "ran"
     );
     peer.cancel().await.unwrap();
     assert!(tokio::time::timeout(Duration::from_secs(10), server.wait())

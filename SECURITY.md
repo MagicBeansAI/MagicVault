@@ -1,6 +1,6 @@
 # Security boundary and reporting
 
-MagicVault `0.3.0` is a source alpha with scoped automated and real-CDP evidence,
+MagicVault `0.4.0` is a source alpha with scoped automated and historical real-CDP evidence,
 not a production-qualified release. Installed-extension/native-human/keychain
 and broader qualification remain open. Do not use valuable credentials until
 the relevant [qualification gates](docs/testing.md) pass. Source review, a
@@ -10,7 +10,7 @@ the relevant [qualification gates](docs/testing.md) pass. Source review, a
 
 Supported agent channels use credential references, not enrolled values.
 MagicVault's model-facing replies, errors, logs and audit projections do not
-return those values. Trusted custody, browser adapters and native bridge code
+return those values. Trusted custody, browser/HTTP/process adapters and native bridge code
 handle material only to perform an explicitly authorized operation.
 
 The shipped executables compile the `log` facade out (`max_level_off`): the
@@ -22,13 +22,24 @@ embedders must explicitly address their own dependency logging as described in
 Authorization is separate from discovery: pairing and metadata consent do not
 grant browser delivery. Browser use needs per-client field/origin permission and
 a native human decision for each document-bound fill. Both top-page and frame
-origins are checked. No model-facing raw read, arbitrary JavaScript, generic
+origins are checked. New-process and HTTP delivery requires human-registered
+fixed recipient profiles plus fresh per-use consent. Profile literals/labels
+are public configuration, not places for credentials. No model-facing raw read, arbitrary JavaScript, generic
 dispatch, material-delivery or human-grant endpoint is provided.
 
 ## What this does not protect against
 
 - The destination website receives its credentials and can copy or transmit them.
   Filling may trigger site-defined input handlers; it is not an atomic login.
+- An authorized child process or HTTP service receives credentials too. Process
+  digest binding is not a sandbox or a recursive attestation of interpreters,
+  arguments' files, libraries or recipient network activity. Trust the whole
+  recipient and its relevant inputs. Plain loopback HTTP is unencrypted and only
+  suitable for trusted local recipients; use synthetic data during qualification.
+- Process/HTTP results deliberately withhold stdout/stderr, exit codes, response
+  bodies/headers and raw HTTP status codes, including transformed echoes. Timing
+  and coarse success/failure remain observable; this is not a noninterference
+  guarantee. Separate tools, recipient logs and created files are not filtered.
 - A separate browser tool may read DOM values, screenshots, cookies, traces or
   newly created session credentials. Filtering those paths is deferred.
 - Privileged or unrestricted same-user code may read pairing files, drive native
@@ -58,7 +69,7 @@ No secrets, browser profiles, live configuration, telemetry payloads or private
 runtime data belong in this repository.
 
 Effects are not automatically retried after uncertainty. Cancellation cannot
-recall a DOM write. Persistence uncertainty blocks new work and requires explicit
+recall a DOM write, child execution or HTTP side effect. Persistence uncertainty blocks new work and requires explicit
 reconciliation; missing keys and damaged state are not silently regenerated or
 adopted. Native removal only touches validated managed definitions, never vaults.
 

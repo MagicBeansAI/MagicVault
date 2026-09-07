@@ -1,6 +1,53 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 — 2026-09-07 — Process and HTTP delivery source alpha
+
+Source-only alpha; no registry, binary, extension-store or production release is
+announced. [Qualification and limits](docs/qualification/results-delivery-2026-09-07.md).
+
+### Added
+
+- Reference-only `secure_new_process` and `secure_new_http` through the daemon,
+  shipped CLI and MCP, with caller-owned fixed destination profiles, separate
+  human registration and fresh native per-use consent.
+- MagicRun-backed governed batch execution with fixed executable/arguments/cwd,
+  approved executable digest revalidation, clean environment, env/stdin delivery,
+  bounded output and owned-child cancellation/cleanup.
+- HTTP methods and header/query/text/form/flat-JSON placements; public HTTPS
+  with vetted/pinned DNS and verified TLS, explicit loopback IP HTTP for local
+  development, no ambient proxy/redirect/retry and bounded response discard.
+- Receipt-only results withholding stdout/stderr/exit codes and HTTP response
+  content/headers/raw status codes, including encoded recipient echoes. Typed
+  durable audit, spent-ID protection and status reconciliation after audit failure.
+- Local HTTP/TLS, process, broker and actual CLI/MCP conformance coverage, focused
+  `make test-delivery`, reference-only examples and a public delivery usage guide.
+
+### Compatibility and security
+
+- Standalone packages and test support advance to `0.4.0`; local agent wire is
+  now `3`. Upgrade daemon/CLI/MCP together. Existing browser permission data is
+  retained and delivery profiles start absent; old standalone binaries may reject
+  the extended registry. Profiles persist, but effect jobs do not survive restart.
+- Core `0.1.3`, primitives `0.1.1`, extension `0.3.0` and native wire `1` are
+  unchanged. No Magician source/dependency update or MagicRun runtime change is
+  required. The standalone effect crate consumes MagicRun's existing public
+  `tool-runtime-core 0.1.73` coordinator, with reviewed Git source in Cargo.lock.
+- This is not a process sandbox or a promise that recipients cannot copy secrets.
+  Existing services/PIDs/PTYs, private HTTPS, response-content access and other
+  tools' observations remain unsupported. Native acceptance and performance
+  measurement are separate gates, not implied by automated conformance.
+
+### Verification
+
+- Full MagicVault Rust suite: 199 passed; six additional disposable headed/
+  headless/CLI browser cases, 17 JS cases and 23 tooling regressions passed.
+  One optional public-site case was not rerun. Optimized standalone build and
+  all-target compilation passed; no native installed-extension/keychain or
+  performance qualification is implied.
+- Ten optimized CLI/MCP integration and logging-boundary reruns passed; these
+  overlap, rather than increase, the distinct case counts above.
+- Unchanged MagicRun runtime: 486 Rust and 23 tooling cases passed, with full
+  compilation/build. Magician's own runtime suite was not run.
 
 ### Development
 

@@ -13,13 +13,15 @@ that would not replace destination, custody, transport or output-boundary tests.
 | Actual CLI → daemon → real Chrome | `make test-cli-native` | Genuine native dialogs/keychain in [CLI runbook](cli.md) |
 | MCP and native-host executables | Existing real subprocess/IPC tests | Installed-extension/native UX in [extension runbook](extension.md) |
 | Public demo pages | Opt-in `make test-public-web` | Non-gating compatibility smoke, not login/provider qualification |
-| New-process and running-service destinations | `make test-qualification-fixtures` exercises real Node children | MagicVault process-effect integration is **not implemented**; see [process runbook](process.md) |
+| New process / HTTP requests | `make test-delivery`: real local HTTP/TLS and MagicRun children, shipped CLI/MCP | Native profile approval/keychain and measured performance; see [delivery runbook](process.md) |
+| Running-service destinations | `make test-qualification-fixtures` exercises a cooperative Node service | Product refresh/rotation integration remains **unimplemented** |
 
 The [browser runbook](browser.md) describes the local pages, exact commands and
 outcome checks. [The dated results](results-2026-09-07.md) distinguish actual
-execution from manual and future gates. Browser delivery uses MagicVault's
-standalone surfaces; it does not require MagicRun or change embedded Magician's
-shared custody contract. See the [architecture](../architecture.md).
+execution from manual and future gates. The [0.4.0 delivery record](results-delivery-2026-09-07.md)
+covers the newer source. MagicRun is now the standalone new-process dependency;
+the shared custody contract and Magician remain unchanged.
+See the [architecture](../architecture.md).
 
 ## Safety rules
 

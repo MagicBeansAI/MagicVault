@@ -36,6 +36,18 @@ result boundary as the standalone service, or clearly state a narrower contract.
 The adapter itself does not enforce your custody policy or obtain human consent.
 Keep shared custody independent of effect/backend dependencies.
 
+For new-process/HTTP builders, `magicvault-effect` additionally exposes
+`delivery::DeliveryMaterial` (owned zeroizing fields; no Debug/Serialize),
+`process::inspect`/`process::execute` and `http::validate`/`http::execute`.
+`DeliveryOutcome` is a closed receipt, never recipient output. These are trusted
+Rust APIs, **not authorization services**: an embedder must bind caller and
+profile policy, obtain per-use consent, durably audit before resolution/dispatch,
+bound admission and reconcile cancellation/audit uncertainty. The process
+adapter uses MagicRun's public coordinator and a fixed executable digest; it
+does not persist audit by itself. The standalone broker owns that durable audit.
+Never expose material-bearing APIs or transport diagnostics through model tools.
+See [delivery profiles and limitations](delivery-usage.md).
+
 The websocket dependency can log raw messages at debug/trace levels. The shipped
 executables enable `log`'s `max_level_off` and `release_max_level_off` features,
 disabling that facade in both debug and release builds. A reusable effect/core crate does not globally change
@@ -58,8 +70,8 @@ stored capability, inspect status/epoch, discover handles, and request fills.
 The capability is machine authentication data, not a value to put in chat.
 
 Implement bounded length-prefixed frames and closed schemas. Use protocol version
-2, verify local peer identity, and never retry a mutation because a reply was lost.
-Use a fresh operation UUID once for `secure_fill` and retain it for status lookup.
+3, verify local peer identity, and never retry a mutation because a reply was lost.
+Use a fresh operation UUID once for any secure operation and retain it for status lookup.
 After a daemon restart, discard old handles; missing status is not safe retry.
 Do not make an administrative command into an implicit human-approval bypass.
 
@@ -88,7 +100,7 @@ fill function from `magicvault-effect/src/fill.js`.
 6. On disconnect or replacement, reject stale work and rebind deliberately. Never
    replay an in-flight fill, persist values in extension storage, or log payloads.
 
-Bridge wire version 1 is separate from agent protocol version 2. See
+Bridge wire version 1 is separate from agent protocol version 3. See
 [the native channel](protocol.md#native-integration-channel) and its Rust
 `BridgeCommand`, `BridgeReply`, `BridgeRequest` and `BridgeResult` definitions.
 The bridge carries plaintext into trusted code; it is not an agent API. Chrome's
@@ -118,12 +130,16 @@ or protection against arbitrary programmable consumers.
 
 ## Existing embedded consumers
 
-The `0.3.0` update changes standalone crates and adds `magicvault-effect`; core
+The `0.4.0` update changes standalone crates and adds process/HTTP adapters; core
 `0.1.3` and primitives `0.1.1` remain unchanged. Magician keeps its direct core integration,
 existing store identity and browser execution owner. It does not consume the new
-standalone registry, CLI, MCP, extension or native host. MagicRun is not required
-for browser fills; it is the intended execution dependency for later new-process
-work. Future shared-core changes require deliberate compatibility review rather
+standalone registry, CLI, MCP, extension or native host. The effect crate now
+depends on public MagicRun `tool-runtime-core 0.1.73` and invokes its existing
+coordinator for new processes, with no MagicRun runtime source change. Browser
+fills do not invoke that coordinator. The Git dependency evolves normally within
+its declared requirement; the committed Cargo lockfile records the exact source
+used for reproducible standalone builds. Shared custody does not acquire this
+dependency. Future shared-core changes require deliberate compatibility review rather
 than a frozen fork or an implicit runtime migration.
 
 A standalone version bump alone does not require an embedded consumer to update

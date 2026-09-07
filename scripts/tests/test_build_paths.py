@@ -92,7 +92,7 @@ class BuildPaths(unittest.TestCase):
         cargo.write_text('#!/bin/sh\nprintf "RECORDED_CARGO_TARGET=%s\\n" "$CARGO_TARGET_DIR"\n', encoding="utf8")
         cargo.chmod(0o700)
         environment = dict(self.environment, PATH=str(executable) + os.pathsep + self.environment.get("PATH", ""))
-        targets = (["check", "test", "build-standalone", "test-browser-native", "test-cli-native", "test-public-web", "sync-lockfile"]
+        targets = (["check", "test", "build-standalone", "test-delivery", "test-browser-native", "test-cli-native", "test-public-web", "sync-lockfile"]
                    if PROJECT == "magicvault" else ["check", "build", "test", "test-lifecycle", "inventory", "classification", "replay"])
         expected = "RECORDED_CARGO_TARGET=" + str(self.volume / PROJECT / "builds")
         for target in targets:

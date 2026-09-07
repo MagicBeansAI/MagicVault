@@ -1,7 +1,7 @@
 # Standalone setup (macOS alpha)
 
 Builds, automated tests and disposable Chrome/CLI qualification
-[pass](qualification/results-2026-09-07.md) on the recorded configuration.
+[pass](qualification/results-delivery-2026-09-07.md) on the recorded configuration.
 Native prompts/keychain and the installed-extension workflow remain manual gates;
 the real CLI test uses test-only human/key providers, never a live credential store.
 Start with synthetic data and disposable profiles. The crates use Rust edition
@@ -51,7 +51,8 @@ labels, field names, logs or chat. Approving metadata access exposes the selecte
 reference/label/field names to that client—not values or future delivery authority.
 Enrollment does not activate delivery. Browser use requires the explicit
 client/field/origin configuration and per-fill human consent described in
-[browser usage](browser-usage.md). HTTP/process effects remain unavailable.
+[browser usage](browser-usage.md). New HTTP/process use requires a separately
+registered fixed [delivery profile](delivery-usage.md) and fresh per-use consent.
 The initial hidden-input backend accepts nonempty UTF-8 text, at most 4096 bytes
 per field, up to eight fields, within one 180-second enrollment window. The
 deadline is rechecked after writer/audit waits immediately before persistence.
@@ -78,7 +79,9 @@ running daemon, not an alternative store owner.
 
 The advertised tools are `vault_status`, `list_credentials`, `request_approval`,
 `approval_status`, `list_browsers`, `browser_targets`, `secure_fill`, `fill_status`
-and `cancel_fill`. No pairing, enrollment, browser registration, policy editing,
+and `cancel_fill`, plus `list_delivery_profiles`, `secure_new_process`,
+`secure_new_http`, `delivery_status` and `cancel_delivery`. No pairing, enrollment,
+destination-profile registration/removal, browser registration, policy editing,
 shutdown, human-grant, raw-material or unimplemented effect method is an MCP tool.
 Browser setup stays human-facing. Use the same paired profile for that setup and
 the MCP executable; handles and permissions are client-scoped.
@@ -111,27 +114,28 @@ access through that capability and does not erase material or revoke providers.
 
 ## Upgrade and recovery
 
-Standalone packages use source version `0.3.0` and local protocol version
-`2`. This is a source alpha, not an announcement of published registry packages
+Standalone packages use source version `0.4.0` and local protocol version
+`3`. The unchanged extension uses `0.3.0` / native bridge wire `1`.
+This is a source alpha, not an announcement of published registry packages
 or an installer. See the [component version matrix](versioning.md).
 Upgrade `magicvault`, `magicvault-mcp` and `magicvault-native-host` together and
 restart the standalone daemon. Older/newer mismatched wire versions fail closed;
 there is no automatic downgrade or transport fallback. Existing vault framing,
 instance/key identity and core/primitives versions are unchanged.
 
-The standalone registry gains explicit browser permissions, initially empty for
-existing installations. No enrolled credential becomes fillable on upgrade.
-Older standalone daemons may reject a registry containing the new permission
-field. Do not run one over that registry or remove permission data to force a
+The standalone registry retains browser permissions and gains delivery profiles,
+initially empty for existing installations. No enrolled credential gains new
+effect authority on upgrade. Older standalone daemons may reject a registry
+containing new permission/profile fields. Do not run one over that registry or remove policy data to force a
 downgrade; use a deliberately reconciled, consistent backup if rollback is needed.
 Embedded core consumers such as Magician do not read this standalone registry or
 link the new browser/transport packages.
 
-Browser connections, target handles, pending consent and fill status are
+Delivery profiles persist. Browser connections, target handles, pending consent and effect status are
 ephemeral and invalid after restart. Reconnect and rediscover deliberately.
 Missing status after restart is not safe-to-retry evidence. A completed durable
 receipt may help a trusted operator reconcile, but no receipt can prove that a
-lost browser reply meant no side effect occurred.
+lost browser, child-process or HTTP reply meant no side effect occurred.
 
 `persistence_uncertain` means a write may have committed. The daemon fails closed
 until restart/reconciliation; it does not roll memory back optimistically or run

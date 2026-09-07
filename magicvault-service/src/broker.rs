@@ -25,6 +25,8 @@ use uuid::Uuid;
 use zeroize::{Zeroize, Zeroizing};
 mod browser;
 use browser::{BrowserPermission, BrowserState};
+mod delivery;
+use delivery::{DeliveryJobs, RegisteredDelivery};
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -42,6 +44,8 @@ struct Registry {
     peers: Vec<Peer>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     browser_permissions: Vec<BrowserPermission>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    delivery_profiles: Vec<RegisteredDelivery>,
 }
 
 #[derive(Clone)]
@@ -71,6 +75,7 @@ struct State {
     registry: Registry,
     jobs: HashMap<Uuid, Job>,
     browsers: BrowserState,
+    deliveries: DeliveryJobs,
     faulted: bool,
 }
 impl State {
@@ -91,6 +96,7 @@ impl State {
 
     fn reap(&mut self, now: Instant) {
         self.browsers.reap(now);
+        self.deliveries.reap(now);
         self.jobs.retain(|_, job| job.retain_until > now);
         for job in self.jobs.values_mut() {
             if job.decision == Decision::Pending && job.expires <= now {
@@ -196,6 +202,7 @@ impl Broker {
                     version: 1,
                     peers: Vec::new(),
                     browser_permissions: Vec::new(),
+                    delivery_profiles: Vec::new(),
                 }
             }
             Err(_) => return Err(ErrorCode::Unavailable),
@@ -203,6 +210,7 @@ impl Broker {
         if registry.version != 1
             || registry.peers.len() > MAX_CLIENTS
             || !browser::valid_permissions(&registry, &store)
+            || !delivery::valid_profiles(&registry, &store)
             || registry.peers.iter().any(|p| {
                 !valid_label(&p.label)
                     || p.references.len() > MAX_CREDENTIALS
@@ -234,6 +242,7 @@ impl Broker {
                 registry,
                 jobs: HashMap::new(),
                 browsers: BrowserState::default(),
+                deliveries: DeliveryJobs::default(),
                 faulted: false,
             }),
             human,
@@ -254,6 +263,7 @@ impl Broker {
         let _ = self
             .transaction(|_, state| {
                 state.browsers.stop_all();
+                state.deliveries.stop_all();
                 Ok(())
             })
             .await;
@@ -382,7 +392,10 @@ impl Broker {
                 if digest.is_some() && auth.is_none() {
                     return Err(ErrorCode::Unauthorized);
                 }
-                if !matches!(request, Request::Status | Request::FillStatus(_)) {
+                if !matches!(
+                    request,
+                    Request::Status | Request::FillStatus(_) | Request::DeliveryStatus(_)
+                ) {
                     broker.ready(state)?;
                 }
                 Ok(auth)
@@ -396,7 +409,11 @@ impl Broker {
                         epoch: broker.epoch,
                         client_id,
                         ready: !state.faulted && !broker.shutdown.is_cancelled(),
-                        effects: vec!["secure_fill".into()],
+                        effects: vec![
+                            "secure_fill".into(),
+                            "secure_new_process".into(),
+                            "secure_new_http".into(),
+                        ],
                     }))
                 })
                 .await
@@ -454,6 +471,25 @@ impl Broker {
                     Request::SecureFill(request) => self.secure_fill(auth, request).await,
                     Request::FillStatus(query) => self.fill_status(auth, query, false).await,
                     Request::CancelFill(query) => self.fill_status(auth, query, true).await,
+                    Request::RegisterDeliveryProfile(profile) => {
+                        self.register_delivery(auth, id, profile).await
+                    }
+                    Request::ListDeliveryProfiles => self.list_deliveries(auth).await,
+                    Request::RemoveDeliveryProfile(query) => {
+                        self.remove_delivery(auth, id, query).await
+                    }
+                    Request::SecureNewProcess(request) => {
+                        self.secure_delivery(auth, request, DeliveryKind::Process)
+                            .await
+                    }
+                    Request::SecureNewHttp(request) => {
+                        self.secure_delivery(auth, request, DeliveryKind::Http)
+                            .await
+                    }
+                    Request::DeliveryStatus(query) => {
+                        self.delivery_status(auth, query, false).await
+                    }
+                    Request::CancelDelivery(query) => self.delivery_status(auth, query, true).await,
                     Request::Shutdown => {
                         let _permit = Arc::clone(&self.human_gate)
                             .try_acquire_owned()
@@ -772,6 +808,10 @@ impl Broker {
                 .browser_permissions
                 .retain(|p| p.client_id != client_id);
             s.browsers.revoke(client_id);
+            s.registry
+                .delivery_profiles
+                .retain(|p| p.owner != client_id);
+            s.deliveries.revoke(client_id);
             for job in s.jobs.values_mut().filter(|j| j.owner == client_id) {
                 job.decision = Decision::Denied;
             }
@@ -807,6 +847,7 @@ mod tests {
         let registry = Registry {
             version: 1,
             browser_permissions: vec![],
+            delivery_profiles: vec![],
             peers: (0..MAX_CLIENTS)
                 .map(|i| Peer {
                     id: Uuid::from_u128(i as u128),
@@ -816,7 +857,16 @@ mod tests {
                 })
                 .collect(),
         };
-        assert!(serde_json::to_vec(&registry).unwrap().len() as u64 <= storage::MAX_STATE_BYTES);
+        // Conservative upper bounds include escaped origin strings (canonical
+        // origins cannot contain raw quotes/backslashes), all field names and
+        // each row's IDs, digest and serialization overhead. Keep new profile
+        // capacity from making an otherwise valid maximum registry unwritable.
+        let browser_bytes = 64 * (MAX_ORIGINS * (256 + 3) + MAX_FIELDS * (64 + 3) + 512);
+        let delivery_bytes = MAX_DELIVERY_PROFILES * (MAX_PROFILE_BYTES + 1024);
+        assert!(
+            (serde_json::to_vec(&registry).unwrap().len() + browser_bytes + delivery_bytes) as u64
+                <= storage::MAX_STATE_BYTES
+        );
     }
 
     #[test]
@@ -828,9 +878,11 @@ mod tests {
                 version: 1,
                 peers: vec![],
                 browser_permissions: vec![],
+                delivery_profiles: vec![],
             },
             jobs: HashMap::new(),
             browsers: BrowserState::default(),
+            deliveries: DeliveryJobs::default(),
             faulted: false,
         };
         state.jobs.insert(

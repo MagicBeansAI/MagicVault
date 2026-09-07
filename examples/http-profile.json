@@ -1,0 +1,22 @@
+{
+  "label": "Example API request",
+  "destination": {
+    "kind": "http",
+    "config": {
+      "url": "https://api.example.com/v1/action",
+      "method": "POST",
+      "headers": [{
+        "name": "Authorization",
+        "value": {
+          "kind": "credential",
+          "credential_ref": "cred_00000000-0000-0000-0000-000000000000",
+          "credential_field": "password",
+          "prefix": "Bearer "
+        }
+      }],
+      "query": [],
+      "body": {"kind": "json", "value": [{"name": "action", "value": {"kind": "literal", "value": "synthetic-demo"}}]},
+      "timeout_secs": 15
+    }
+  }
+}

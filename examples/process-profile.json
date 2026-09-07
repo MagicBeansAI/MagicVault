@@ -1,0 +1,21 @@
+{
+  "label": "Example trusted command",
+  "destination": {
+    "kind": "process",
+    "config": {
+      "executable": "/absolute/path/to/trusted-recipient",
+      "arguments": [],
+      "working_directory": "/absolute/path/to/trusted-work-directory",
+      "environment": [{
+        "name": "SERVICE_TOKEN",
+        "value": {
+          "kind": "credential",
+          "credential_ref": "cred_00000000-0000-0000-0000-000000000000",
+          "credential_field": "password"
+        }
+      }],
+      "stdin": null,
+      "timeout_secs": 15
+    }
+  }
+}

@@ -6,6 +6,9 @@
 //! reusable crate intentionally does not change an embedding host's global logs.
 pub mod bridge;
 pub mod cdp;
+pub mod delivery;
+pub mod http;
+pub mod process;
 use async_trait::async_trait;
 use magicvault_protocol::{ErrorCode, FieldState, MAX_FIELDS};
 use serde::{Deserialize, Serialize};

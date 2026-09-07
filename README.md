@@ -2,7 +2,7 @@
   <h1>MagicVault</h1>
   <p><strong>Keep secrete away from Agents</strong></p>
   <p>
-    <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/source-v0.3.0%20alpha-7C3AED.svg" alt="Source version 0.3.0 alpha" /></a>
+    <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/source-v0.4.0%20alpha-7C3AED.svg" alt="Source version 0.4.0 alpha" /></a>
     <a href="#quick-start"><img src="https://img.shields.io/badge/standalone-macOS-lightgrey.svg" alt="Standalone host: macOS" /></a>
     <a href="#rust-toolchain"><img src="https://img.shields.io/badge/Rust-2021%20edition-orange.svg" alt="Rust language edition 2021" /></a>
     <a href="#rust-toolchain"><img src="https://img.shields.io/badge/compiler-1.88%2B-orange.svg" alt="Standalone MCP compiler requirement: Rust 1.88 or newer" /></a>
@@ -20,15 +20,18 @@
 
 Give an agent access to an account without putting its password into a prompt
 or typing-tool argument. MagicVault stores the credential, lets the agent select
-a reference, asks you to approve its use, and fills the authorized browser field.
-The agent receives status—not the credential value.
+a reference, asks you to approve its use, and delivers it to an authorized browser
+field, new command-line program or HTTP request. The agent receives status—not
+the credential value or a recipient's raw output.
 
 - **Keep your browser workflow.** Your automation tool owns navigation and
   submission; MagicVault connects to the same browser just for credential fills.
-- **Choose your integration.** Use the CLI, expose `secure_fill` through MCP,
+- **Choose your integration.** Use the CLI, expose `secure_fill`,
+  `secure_new_process` and `secure_new_http` through MCP,
   or build on the Rust libraries and local daemon protocol.
-- **Approve the actual destination.** Access is bound to the client, credential
-  fields, exact origins and browser document—not just permission to list a vault.
+- **Approve the actual destination.** Browser fills bind client, fields, origins
+  and document. New commands/HTTP bind a fixed recipient profile. Every use
+  requires fresh consent; permission to list a vault is not delivery authority.
 
 > [!WARNING]
 > **Early-access software.** Start with synthetic credentials and disposable
@@ -38,8 +41,9 @@ The agent receives status—not the credential value.
 
 ## What works today
 
-The destination matters as much as the interface. **Having a MagicVault CLI does
-not mean MagicVault can inject credentials into another CLI or process.**
+The destination matters as much as the interface. Browser fills attach to an
+existing session; process and HTTP operations create a **new, fixed-profile**
+invocation. They do not offer arbitrary secret-bearing commands or URLs.
 
 | Destination / use case | Available today? | Connection, conditions and limits |
 | :--- | :--- | :--- |
@@ -47,8 +51,8 @@ not mean MagicVault can inject credentials into another CLI or process.**
 | **Already-running headed browser without CDP** | **Implemented — extension; native acceptance pending** | Install the MagicVault Chromium extension **and native host**, run the daemon, and grant the target sites. No debugging port needed. The macOS host installer supports Chrome/Chromium. |
 | **Browser accessible only through a driver's private pipe, or a remote CDP endpoint** | **Not directly** | Configure an accessible local browser websocket, or use the headed extension path where installation is possible. An arbitrary browser/driver cannot be attached automatically. |
 | **Embedded browser frames** | **Conditional** | CDP supports frames addressable through the attached page session. The extension uses explicit document/frame targeting and site permissions. Both top-page and frame origins must be allowed; opaque origins are refused. Broader cross-process frame compatibility is not claimed. |
-| **New HTTP(S) requests** — `GET`, `HEAD`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS` or other methods | **Not implemented** | Planned `secure_new_http`: credential delivery to an authorized request plus response/output handling. No HTTP method is currently exposed as a secure request operation. |
-| **New processes / command-line programs** | **Not implemented** | Planned `secure_new_process`: authorized launch with supported environment/stdin delivery and process-output handling. The MagicVault CLI currently manages the vault and browser fills; it does not launch arbitrary commands with secrets. |
+| **New HTTP(S) requests** — `GET`, `HEAD`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`, `TRACE` and supported custom methods | **Yes — `secure_new_http`** | Human-registered exact URL/method and header/query/text/form/flat-JSON credential placements. Public HTTPS; plain HTTP only to explicit loopback IPs. No CONNECT, redirects, ambient proxy, retries, custom CA or insecure TLS switch. Responses, headers and raw status codes are withheld. |
+| **New processes / command-line programs** | **Yes — `secure_new_process`** | Human-registered executable/arguments/cwd, environment and/or stdin slots; fresh consent each run. MagicRun owns bounded batch execution and cleanup. Executable bytes are checked against the registered digest. No credential arguments, interactive terminal or raw stdout/stderr/exit-code return. |
 | **Already-running processes / interactive terminals** | **Not implemented** | Requires a cooperating input, IPC or credential-provider integration. There is no generic “inject into this PID” or live environment-rewrite capability. |
 | **Stateful services / long-lived API clients** | **Not implemented** | Credential refresh, connection pools and existing sessions need an explicit service/provider adapter. Synthetic service-rotation fixtures are preparation, not a working product integration. |
 | **Native application password fields / non-Chromium browsers** | **Not implemented** | No accessibility, OS-level secure typing, Firefox or Safari adapter is provided. |
@@ -116,6 +120,10 @@ magicvault --profile agent list-credentials
 Approve the native prompts and enter a **synthetic password in the hidden input**,
 never in the shell, chat or request JSON. Keep the returned `credential_ref` for
 the next steps. Pairing and metadata access alone do not authorize a fill.
+
+For process/HTTP delivery only, skip the browser steps and continue to
+[new commands and HTTP requests](#new-commands-and-http-requests). Neither CDP
+nor an extension is needed for those operations.
 
 ### 3. Connect your browser
 
@@ -213,9 +221,36 @@ test page and credential. `filled` means delivery, not successful login. Your
 existing browser tool handles the next step. Never automatically repeat a
 `partial` or `uncertain` operation. [Status, cancellation and recovery](docs/browser-usage.md#request-a-fill-and-inspect-its-outcome).
 
+## New commands and HTTP requests
+
+After pairing/enrollment, a human registers a fixed destination using the same
+paired client profile. Copy **one** reference-only example and edit its paths or
+URL and `credential_ref`/field. Do not insert a password into the file:
+
+```bash
+delivery_profile=$(mktemp /tmp/mv-delivery.XXXXXX)
+cp examples/http-profile.json "$delivery_profile"  # Or process-profile.json.
+open -e "$delivery_profile"
+# Save after reviewing the exact recipient and every credential placement.
+magicvault --profile agent register-delivery-profile --request-file "$delivery_profile"
+magicvault --profile agent list-delivery-profiles
+
+operation_id=$(uuidgen)  # Choose once; keep this ID for reconciliation.
+magicvault --profile agent secure-new-http \
+  --profile-id REPLACE_WITH_REGISTERED_PROFILE_UUID --operation-id "$operation_id"
+# For a process profile, use secure-new-process with the same two flags.
+magicvault --profile agent delivery-status --operation-id "$operation_id"
+```
+
+Registration and each invocation request separate native consent. The agent can
+select a profile ID, **not override its destination**. `completed` is a transport/
+process receipt, not proof of application success. Output is deliberately withheld,
+including encoded credential echoes. A missing or uncertain result never means
+safe to retry. [Profile format, limits, cancellation and recipient trust](docs/delivery-usage.md).
+
 ## Use with an MCP agent
 
-After pairing, enrollment and browser setup, configure your agent's stdio MCP
+After pairing, enrollment and destination setup, configure your agent's stdio MCP
 client with the executable and arguments below. Adapt the enclosing configuration
 format to your client; use an absolute path to the built binary:
 
@@ -231,8 +266,9 @@ format to your client; use an absolute path to the built binary:
 ```
 
 Keep the daemon running. The agent can discover credential references and browser
-targets, request `secure_fill`, and inspect or cancel the resulting operation.
-It cannot enroll raw values, grant itself permission, edit browser policy or
+targets and delivery profiles, request `secure_fill`, `secure_new_process` or
+`secure_new_http`, and inspect or cancel the resulting operation.
+It cannot enroll raw values, register a destination, grant itself permission, edit browser policy or
 read the credential. Use the same paired profile and, if customized, `--root`
 for setup and MCP. [MCP tool catalog and setup](docs/setup.md#mcp).
 The built executable is at `$(make -s print-target-dir)/release/magicvault-mcp`;
@@ -242,8 +278,8 @@ resolve that path in your shell, not literally inside the JSON configuration.
 
 | Interface | For | What you integrate |
 | :--- | :--- | :--- |
-| **CLI** — `magicvault` | People, scripts and tool wrappers | Setup, enrollment, browser connections, `secure-fill` and status |
-| **MCP** — `magicvault-mcp` | MCP-compatible agents | Reference-only discovery and fill operations; no raw-secret tool |
+| **CLI** — `magicvault` | People, scripts and tool wrappers | Setup, enrollment, browser connections, delivery profiles, all three secure operations and status |
+| **MCP** — `magicvault-mcp` | MCP-compatible agents | Reference-only discovery and browser/process/HTTP operations; no administration or raw-secret tool |
 | **Daemon / local protocol** | Application and SDK builders in any language | Authenticated local IPC with shared custody, permission, consent and operation state |
 | **Rust crates** | Trusted application/browser-tool builders | `magicvault-core` for custody; `magicvault-effect` for delivery; `magicvault-primitives` for shared utilities |
 | **Native extension bridge** | Existing Chromium extension builders | Implement the documented bridge in your own trusted extension instead of requiring a second extension |
@@ -254,14 +290,16 @@ crate does not make arbitrary tools safe. There are no dedicated Python/Node SDK
 yet. See the [builder guide](docs/integrations.md) and [protocol](docs/protocol.md).
 
 Magician embeds the shared core directly; it does not need these standalone
-surfaces. Core `0.1.3` and primitives `0.1.1` are unchanged by the `0.3.0` browser
-update. [Embedded-consumer compatibility](docs/integrations.md#existing-embedded-consumers).
+surfaces. Core `0.1.3` and primitives `0.1.1` remain unchanged in `0.4.0`.
+The standalone process adapter uses MagicRun `0.1.73` through its existing public
+API; no MagicRun runtime or Magician change is required.
+[Embedded-consumer compatibility](docs/integrations.md#existing-embedded-consumers).
 
 ## Security: the promise and its boundary
 
 MagicVault keeps enrolled values out of its supported model-facing requests,
 replies, errors and audit projections. Trusted delivery code and the receiving
-website necessarily see the credential.
+website, HTTP service or child process necessarily see the credential.
 
 It does **not** promise that nobody can ever read a credential: another browser
 tool can inspect the DOM or session, a recipient can copy its inputs, and
@@ -274,9 +312,10 @@ before choosing an integration, and report vulnerabilities privately.
 - [Architecture, trust boundaries and versioned drift baseline](docs/architecture.md)
 - [Setup, service lifecycle and upgrades](docs/setup.md)
 - [Browser usage and supported controls](docs/browser-usage.md)
+- [New command/HTTP profiles and receipt-only results](docs/delivery-usage.md)
 - [Building integrations](docs/integrations.md)
 - [Tests, reusable fixtures and acceptance runbooks](docs/qualification/README.md)
-- [Dated results and remaining gates](docs/qualification/results-2026-09-07.md)
+- [Current results and remaining gates](docs/qualification/results-delivery-2026-09-07.md)
 - [Changelog](CHANGELOG.md) and [component versions](docs/versioning.md)
 
 Reproduce issues with synthetic data and include the affected interface, version

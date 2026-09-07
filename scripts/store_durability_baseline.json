@@ -1,11 +1,14 @@
 {
-  "_comment": "Three existing production counts transferred from Magician aef928c, not removed by relocation. One reviewed browser test rename injects an audit failure into a synthetic journal, not atomic publication. Shared durable primitive definitions are intentionally not scanned.",
-  "total_violations": 4,
+  "_comment": "Three existing production counts transferred from Magician aef928c, not removed by relocation. Two reviewed test-only renames (browser and delivery) retain synthetic journals before injecting post-effect audit failures; neither is atomic publication. Shared durable primitive definitions are intentionally not scanned.",
+  "total_violations": 5,
   "files": {
     "magicvault-core/src/store.rs": {
       "hand_rolled_atomic_write": 3
     },
     "magicvault-service/src/broker/browser/tests.rs": {
+      "hand_rolled_atomic_write": 1
+    },
+    "magicvault-service/src/broker/delivery/tests.rs": {
       "hand_rolled_atomic_write": 1
     }
   }

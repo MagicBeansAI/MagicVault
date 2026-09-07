@@ -6,10 +6,12 @@ use uuid::Uuid;
 use zeroize::Zeroize;
 mod browser;
 pub use browser::*;
+mod delivery;
+pub use delivery::*;
 
 // Closed enums require matching standalone executables; persisted vault and
 // registry formats and embedded core APIs are independent of this wire version.
-pub const VERSION: u32 = 2;
+pub const VERSION: u32 = 3;
 pub const MAX_FRAME_BYTES: usize = 32 * 1024;
 pub const MAX_REPLY_BYTES: usize = 256 * 1024;
 pub const MAX_FIELDS: usize = 8;
@@ -59,6 +61,13 @@ pub enum Request {
     SecureFill(SecureFill),
     FillStatus(FillQuery),
     CancelFill(FillQuery),
+    RegisterDeliveryProfile(DeliveryProfile),
+    ListDeliveryProfiles,
+    RemoveDeliveryProfile(ProfileQuery),
+    SecureNewProcess(SecureDelivery),
+    SecureNewHttp(SecureDelivery),
+    DeliveryStatus(FillQuery),
+    CancelDelivery(FillQuery),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -149,6 +158,10 @@ pub enum Response {
     BrowserDisconnected,
     BrowserCredentialConfigured,
     Fill(FillStatus),
+    DeliveryProfile(DeliveryProfileInfo),
+    DeliveryProfiles(Vec<DeliveryProfileInfo>),
+    DeliveryProfileRemoved,
+    Delivery(DeliveryStatus),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -243,6 +256,10 @@ impl Request {
             }
             Self::ConfigureBrowserCredential(p) => p.valid(),
             Self::SecureFill(p) => p.valid(),
+            Self::RegisterDeliveryProfile(p) => p.valid(),
+            Self::SecureNewProcess(p) | Self::SecureNewHttp(p) => {
+                !p.operation_id.is_nil() && !p.profile_id.is_nil()
+            }
             _ => true,
         };
         if valid {

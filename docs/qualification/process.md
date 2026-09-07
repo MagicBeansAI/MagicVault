@@ -1,52 +1,92 @@
-# Process and running-service qualification contract
+# Process and HTTP delivery qualification
 
-**MagicVault does not yet implement `secure_new_process` or `secure_new_http`.**
-The current standalone delivery surfaces support browsers. These fixtures prepare future
-integration with MagicRun; they do not implement or qualify a process credential
-delivery feature, and do not require changes to MagicRun now.
+The `0.4.0` standalone surface implements fixed-profile new-process and HTTP
+delivery. Automated conformance uses actual local recipients, the public MagicRun
+coordinator, real IPC and shipped CLI/MCP executables, with synthetic custody and
+human providers. It never approves a live credential or contacts a real provider.
+[Usage and trust boundary](../delivery-usage.md).
 
-## Runnable recipient fixtures today
+## Run deterministic product tests
 
-```sh
+```bash
+make print-target-dir
+make test-delivery
+```
+
+This is a focused lane. `make test` includes these tests in the full workspace
+suite. All Cargo lanes use the selected SSD1 build directory when available.
+Run MagicRun's full suite from its own checkout/build tree when qualifying the
+execution dependency. Record actual results using the
+[results template](result-template.md); do not claim tests ran merely because
+the source exists.
+
+| Concern | Executable coverage |
+| --- | --- |
+| Authority | Closed UUID-only requests; unknown overrides rejected; native registration/per-use seams; cross-client and wrong-field refusal |
+| Process delivery | Real child receives exact synthetic env/stdin through MagicRun; changed executable and unsafe loader variables refused |
+| Process output/lifecycle | Echoed stdout/stderr withheld, cancellation and output flood bounded; closed dispatch evidence, no implicit second launch |
+| HTTP methods/placement | GET/HEAD/POST/PUT/PATCH/DELETE/OPTIONS/TRACE/PROPFIND; authorization headers, encoded query, text/form/flat JSON |
+| TLS and destinations | Real local TLS exchange with test-only trust root; untrusted/wrong-host certificates rejected; special-use addresses and nonpublic DNS refused |
+| HTTP response/uncertainty | Raw and encoded echoes discarded; redirects/lost replies cause no repeat; output cap, stalled body, cancellation and invalid headers |
+| Broker lifecycle | Deny/cancel/remove/shutdown, profile capacity, detailed-result eviction with spent IDs, persisted profiles and old-epoch refusal |
+| Durable reconciliation | Final audit-write failure blocks new effects and remains queryable through actual CLI IPC |
+| Actual client wiring | CLI and official-SDK MCP subprocesses invoke both production adapters; existing browser flow remains covered |
+
+The TLS fixture's custom root and loopback resolution are test-only transport
+seams. They do not establish access to a public provider or expose an insecure
+mode in the product. The OS-native trust store, desktop prompt rendering and
+keychain path still require platform acceptance.
+
+## Native acceptance (manual, not replaced by synthetic approval)
+
+Use a disposable OS account and private fresh root. Initialize, serve, pair and
+enroll a public synthetic token via real native hidden input. Never reuse an
+embedded application's root or credentials. Follow [setup](../setup.md).
+
+1. Build the standalone binaries. Prepare a trusted fixed recipient that accepts
+   a synthetic env/stdin value and writes a non-secret completion marker in a
+   disposable directory. Review its program, inputs and permissions.
+2. Register its exact process profile through the real CLI and review the entire
+   native dialog. Deny once and verify no profile/effect; approve deliberately.
+   Confirm listing returns only label/kind/profile ID.
+3. Invoke once, deny per-use consent and verify no marker. Invoke a fresh ID for
+   a deliberately approved new operation; verify the marker and closed receipt.
+   Recipient echo must never appear in CLI/MCP output or typed audit.
+4. Change executable bytes and verify the old profile refuses dispatch. Remove
+   and deliberately re-register after reviewing the change.
+5. Use a trusted loopback HTTP fixture with a synthetic credential, then a
+   controlled public HTTPS test endpoint if separately authorized. Verify the
+   selected placements at the recipient and no raw response in model-facing
+   output. Never authenticate to a live account or send a real provider token.
+6. Exercise cancellation while awaiting consent and after dispatch, terminal
+   status, profile removal, client revocation, daemon restart and uncertain
+   transport. Missing status must not trigger automatic retries.
+7. Review maximum-size profile dialogs for legibility and untruncated destination/
+   placement details. A byte-length assertion does not qualify the native UI.
+8. Record native OS/keychain behavior, executable/build revisions, receipt-only
+   expectations and failures. Keep private profiles, keychain identities and
+   capabilities out of public artifacts.
+
+Measure latency/CPU/memory, repeated operation stability, concurrent discovery,
+deadline and shutdown behavior separately. Fast test duration is not a benchmark.
+No passing integration suite proves arbitrary recipient software trustworthy.
+
+## Reusable fixtures and running services
+
+```bash
 make test-qualification-fixtures
 ```
 
-The test runner launches real Node child processes with synthetic data and tests
-`test-support/process-fixtures/child.mjs`:
+`test-support/process-fixtures/child.mjs` supplies env, stdin, echo and stateful
+JSON-lines probes. Those fixture-only tests validate recipient behavior, **not**
+the MagicVault product path above. Echo mode is deliberately unsafe as model
+output and accepts only synthetic data.
 
-| Mode | Recipient behavior | Future integration purpose |
-| --- | --- | --- |
-| `env` | Compare a fixed synthetic environment variable; emit a boolean only | New-process environment delivery without model/argv exposure |
-| `stdin` | Bounded stdin, compare the synthetic canary, emit a boolean | Pipe delivery, EOF, cancellation and input lifetime |
-| `echo` | Intentionally emit the public canary on stdout and stderr | Prove future output mediation blocks recipient echo in both streams |
-| `stateful` | Bounded JSON-lines `set`/`status`/`shutdown`; acknowledge rotation without echo | Explicit credential-provider/IPC updates to an already-running service |
+An already-running process needs an explicit cooperating credential-provider,
+IPC, reload or refresh contract. The stateful fixture demonstrates such a seam;
+MagicVault does not yet implement live rotation, update another process's
+environment, take over arbitrary PIDs/PTYs or refresh an existing connection pool.
 
-The echo mode is deliberately unsafe **as an agent output** and uses only a
-hard-coded public fake value. Its passing fixture test proves that the adversarial
-probe works, not that MagicVault filters it. Never supply real credentials to it.
-Fixture subprocesses have timeouts and are killed/reaped by the owning runner.
-
-## Required gates for a process-delivery integration
-
-| Case | Required end-to-end property | Current status |
-| --- | --- | --- |
-| P-01 authority | Reference-only CLI/MCP request → exact executable/argv/cwd/destination-bound consent → MagicRun execution | NOT IMPLEMENTED |
-| P-02 delivery | Approved values reach only selected child env/stdin/provider slots; no secret CLI arguments | NOT IMPLEMENTED |
-| P-03 denial/races | Deny, cancel, expiry or revocation before dispatch causes no child material delivery | NOT IMPLEMENTED |
-| P-04 hostile output | Echo/encoding/error/partial UTF-8/chunk boundaries cannot expose canaries through stdout, stderr, logs, status or audit | NOT IMPLEMENTED |
-| P-05 lifecycle | Exit/signal/timeout, pipe backpressure, input caps, descendant ownership and cleanup are bounded; never kill unrelated PIDs | NOT IMPLEMENTED |
-| P-06 uncertainty | Lost reply or partial launch does not automatically launch a second credential-bearing child | NOT IMPLEMENTED |
-| P-07 running service | Explicit authenticated provider/IPC contract supports rotation/revocation; existing service PID/lifecycle stays owned by its host | NOT IMPLEMENTED |
-| P-08 regression | MagicRun and Magician's existing execution/credential paths pass consumer-owned regression tests | Required when those repos actually change |
-
-An already-running process cannot be treated like a new child environment.
-Use an application-supported provider, IPC, reload or refresh seam with explicit
-authority; do not promise universal injection into arbitrary processes/PIDs.
-The stateful fixture demonstrates that cooperative seam only.
-
-When implementation begins, add an integration that drives these fixtures through
-the **actual public MagicVault CLI/MCP → broker → MagicRun path**, not a test that
-directly spawns the recipient and claims product success. Keep new HTTP request
-qualification separate, with destination/redirect/header and response-mediation
-tests against a local synthetic HTTP server. Public provider calls and real
-credentials are unnecessary for deterministic acceptance.
+Shared-core and MagicRun consumer contracts are retained. Magician-owned runtime
+regression tests remain the consumer's responsibility; unchanged source plus
+standalone tests is not a claim that Magician's full suite ran.

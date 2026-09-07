@@ -8,7 +8,7 @@ use uuid::Uuid;
 #[derive(Parser)]
 #[command(
     version,
-    about = "Keep credential values out of agent messages: custody, consent and browser secure-fill"
+    about = "Reference-only credential delivery: browser fills, new processes and HTTP requests"
 )]
 struct Cli {
     #[arg(long, global = true)]
@@ -85,6 +85,39 @@ enum Command {
         operation_id: Uuid,
     },
     CancelFill {
+        #[arg(long)]
+        operation_id: Uuid,
+    },
+    /// Human-authored, reference-only destination JSON; native approval required.
+    RegisterDeliveryProfile {
+        #[arg(long)]
+        request_file: PathBuf,
+    },
+    ListDeliveryProfiles,
+    /// Remove this client's profile and cancel its pending/running deliveries.
+    RemoveDeliveryProfile {
+        #[arg(long)]
+        profile_id: Uuid,
+    },
+    /// Run a registered exact command once. Never returns stdout/stderr or secrets.
+    SecureNewProcess {
+        #[arg(long)]
+        profile_id: Uuid,
+        #[arg(long)]
+        operation_id: Uuid,
+    },
+    /// Send a registered HTTP request once. Never returns response bodies/headers.
+    SecureNewHttp {
+        #[arg(long)]
+        profile_id: Uuid,
+        #[arg(long)]
+        operation_id: Uuid,
+    },
+    DeliveryStatus {
+        #[arg(long)]
+        operation_id: Uuid,
+    },
+    CancelDelivery {
         #[arg(long)]
         operation_id: Uuid,
     },
@@ -326,6 +359,36 @@ async fn run(cli: Cli) -> Result<serde_json::Value, ErrorCode> {
                 Command::CancelFill { operation_id } => {
                     Request::CancelFill(FillQuery { operation_id })
                 }
+                Command::RegisterDeliveryProfile { request_file } => {
+                    let bytes = read_delivery_profile(request_file).await?;
+                    Request::RegisterDeliveryProfile(
+                        serde_json::from_slice(&bytes).map_err(|_| ErrorCode::InvalidRequest)?,
+                    )
+                }
+                Command::ListDeliveryProfiles => Request::ListDeliveryProfiles,
+                Command::RemoveDeliveryProfile { profile_id } => {
+                    Request::RemoveDeliveryProfile(ProfileQuery { profile_id })
+                }
+                Command::SecureNewProcess {
+                    profile_id,
+                    operation_id,
+                } => Request::SecureNewProcess(SecureDelivery {
+                    profile_id,
+                    operation_id,
+                }),
+                Command::SecureNewHttp {
+                    profile_id,
+                    operation_id,
+                } => Request::SecureNewHttp(SecureDelivery {
+                    profile_id,
+                    operation_id,
+                }),
+                Command::DeliveryStatus { operation_id } => {
+                    Request::DeliveryStatus(FillQuery { operation_id })
+                }
+                Command::CancelDelivery { operation_id } => {
+                    Request::CancelDelivery(FillQuery { operation_id })
+                }
                 Command::RevokeClient { client_id } => {
                     Request::RevokeClient(RevokeRequest { client_id })
                 }
@@ -344,4 +407,35 @@ async fn run(cli: Cli) -> Result<serde_json::Value, ErrorCode> {
             serde_json::to_value(response).map_err(|_| ErrorCode::Unavailable)
         }
     }
+}
+
+async fn read_delivery_profile(path: PathBuf) -> Result<zeroize::Zeroizing<Vec<u8>>, ErrorCode> {
+    tokio::task::spawn_blocking(move || {
+        use std::io::Read;
+        let mut options = std::fs::OpenOptions::new();
+        options.read(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.custom_flags(libc::O_NONBLOCK | libc::O_NOFOLLOW | libc::O_CLOEXEC);
+        }
+        let file = options.open(path).map_err(|_| ErrorCode::InvalidRequest)?;
+        if !file
+            .metadata()
+            .map_err(|_| ErrorCode::InvalidRequest)?
+            .is_file()
+        {
+            return Err(ErrorCode::InvalidRequest);
+        }
+        let mut bytes = zeroize::Zeroizing::new(Vec::new());
+        file.take((MAX_FRAME_BYTES + 1) as u64)
+            .read_to_end(&mut bytes)
+            .map_err(|_| ErrorCode::InvalidRequest)?;
+        if bytes.len() > MAX_FRAME_BYTES {
+            return Err(ErrorCode::Capacity);
+        }
+        Ok(bytes)
+    })
+    .await
+    .map_err(|_| ErrorCode::Unavailable)?
 }

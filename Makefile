@@ -11,7 +11,7 @@ export CARGO_TARGET_DIR
 .DEFAULT_GOAL := help
 
 help:
-	@echo "MagicVault: test-compatibility | test-foundation | test-browser | test-browser-native | test-cli-native | test-public-web | test-qualification-fixtures | fixture-site | build-standalone | package-extension | sync-lockfile"
+	@echo "MagicVault: test-compatibility | test-foundation | test-browser | test-delivery | test-browser-native | test-cli-native | test-public-web | test-qualification-fixtures | fixture-site | build-standalone | package-extension | sync-lockfile"
 	@echo "check/test are full lanes; run only when explicitly authorized. Browser native tests require a disposable Chrome/Chromium installation."
 	@echo "Cargo artifacts: $(CARGO_TARGET_DIR) (print-target-dir; override CARGO_TARGET_DIR or BUILD_VOLUME)"
 	@echo "Architecture: check-architecture | test-architecture | architecture-snapshot (candidate only)"
@@ -65,6 +65,15 @@ test-browser:
 	cargo test --locked -p magicvault-mcp --test end_to_end
 	node --test extension/tests/fill.test.cjs extension/tests/worker.test.cjs
 
+# Real local HTTP/TLS, child processes and shipped clients; synthetic custody/UI.
+test-delivery:
+	cargo test --locked -p magicvault-protocol --test delivery_contract
+	cargo test --locked -p magicvault-effect --lib http::tests
+	cargo test --locked -p magicvault-effect --test http_delivery --test process_delivery
+	cargo test --locked -p magicvault-service --lib broker::delivery::tests
+	cargo test --locked -p magicvault --test delivery_cli
+	cargo test --locked -p magicvault-mcp --test end_to_end
+
 # Explicit opt-in only. Set MAGICVAULT_CHROME to a trusted browser executable.
 test-browser-native:
 	cargo test --locked -p magicvault-effect --test chromium -- --ignored --test-threads=1
@@ -98,3 +107,4 @@ sync-lockfile:
 	cargo update --workspace
 
 .PHONY: help print-target-dir test-build-paths check-architecture architecture-snapshot test-architecture check test test-compatibility test-foundation test-browser test-browser-native test-cli-native test-public-web test-qualification-fixtures fixture-site build-standalone package-extension sync-lockfile
+.PHONY: test-delivery

@@ -26,7 +26,8 @@ automatic mutation retries. The SDK MCP transport separately limits inbound
 messages to 32 KiB and replies to 1 MiB, and routes at most eight active tool calls.
 Its writes/close have five-second deadlines; a partial-write failure closes the
 writer without retry. The registry is bounded to 32 clients × 256 references
-and 1 MiB of serialized state including at most 64 browser-permission rows.
+and 1 MiB of serialized state including at most 64 browser-permission rows and
+16 delivery profiles of at most 12 KiB each.
 Enrollment allows eight 4096-byte text fields.
 Native consent metadata is bounded to 16 KiB so valid browser rules and escaped
 selectors are not silently truncated. Secret answers remain bounded to 4096 bytes.
@@ -34,7 +35,7 @@ After SDK completion the MCP client bounds runtime teardown to 250 ms so an
 uncancellable Tokio stdio task cannot indefinitely hold the process open. This
 client owns no store writes; the custody daemon does not use bounded teardown.
 
-Envelope fields: `version: 2`, UUID `request_id`, daemon `epoch` (from status),
+Envelope fields: `version: 3`, UUID `request_id`, daemon `epoch` (from status),
 optional pairing `token`, and a tagged `request` with `method` / optional `params`.
 Every non-status request binds the current epoch. No caller sends a grant decision
 or plaintext vault field through this protocol. Parse/OS/keychain errors use
@@ -42,7 +43,7 @@ closed codes; raw diagnostic text and process output are never replies.
 
 | Request | Caller/result |
 | --- | --- |
-| `status` | Same-user health; with valid token also own client ID; effects contains `secure_fill` |
+| `status` | Same-user health; with valid token also own client ID; effects contains `secure_fill`, `secure_new_process`, `secure_new_http` |
 | `pair {label}` | Human CLI bootstrap; native consent; private pairing capability saved by client, never printed |
 | `enroll {label, field_names}` | Paired human CLI; native consent and hidden inputs; metadata-only result |
 | `list_credentials` | Paired client; only explicitly permitted credential metadata |
@@ -58,6 +59,13 @@ closed codes; raw diagnostic text and process output are never replies.
 | `secure_fill {operation_id, browser_handle, target_handle, fields}` | Paired client; consumes target, returns pending status; daemon-owned exact-use consent then delivery |
 | `fill_status {operation_id}` | Only owning paired client; metadata-only status, also available after persistence uncertainty |
 | `cancel_fill {operation_id}` | Owning paired client; cancellation request, never a rollback claim |
+| `register_delivery_profile {label, destination}` | Paired human CLI; full bounded reference-only profile, native consent and process digest capture; no effect |
+| `list_delivery_profiles` | Only own profile IDs, labels and kinds |
+| `remove_delivery_profile {profile_id}` | Owning paired CLI; narrows authority and cancels related work |
+| `secure_new_process {operation_id, profile_id}` | Exact registered process; fresh native consent; receipt only |
+| `secure_new_http {operation_id, profile_id}` | Exact registered HTTP request; fresh native consent; receipt only |
+| `delivery_status {operation_id}` | Only owning paired client; closed receipt, available after audit failure |
+| `cancel_delivery {operation_id}` | Cancellation request, not proof of non-dispatch or rollback |
 
 MCP translates `request_approval` to `request_access`, and `vault_status` to
 `status`. Its catalog is a fixed subset, not automatic exposure of every request.
@@ -71,8 +79,8 @@ with a fixed script, metadata argv, private bounded answer pipe and discarded st
 `instance.json` is a versioned UUID identity; the keychain uses service
 `ai.magicbeans.magicvault`, account `instance-UUID`, never Magician's names.
 The daemon caches the loaded key for its lifetime. `clients.json` contains
-versioned paired-client hashes, metadata ACLs and explicit standalone browser
-permissions. Core vault bytes stay in
+versioned paired-client hashes, metadata ACLs, explicit standalone browser
+permissions and caller-owned fixed delivery profiles/digests. Core vault bytes stay in
 `ROOT/vault`, using existing encryption/partition formats. No key/vault import,
 replacement, migration, automatic data cleanup or ambient credential discovery.
 Initialization syncs the parent entry naming the private root before creating
@@ -162,6 +170,28 @@ No selector, raw URL, value, page dump or browser diagnostic is journaled.
 If post-effect audit fails, the final state is `uncertain`, new work is blocked,
 and authenticated `fill_status` remains available for reconciliation while that
 result is retained. A receipt describes delivery, not successful authentication.
+
+## Process and HTTP effects
+
+The closed request is `SecureDelivery {operation_id, profile_id}`; no raw command,
+URL, value, arbitrary input or approval override is accepted. Administrative
+`DeliveryProfile` contains a tagged `destination` (`process` or `http`, `config`)
+with explicit `InputValue` reference/literal slots. See the
+[profile schema and limits](delivery-usage.md). All literals are non-secret
+human-authored metadata. A profile grants no automatic future use.
+
+There are 32 retained jobs and 4096 epoch-local spent IDs, separate from browser
+job capacity. Identical retained invocations return the original status; changed
+bindings and spent-but-evicted IDs conflict. Human/effect admission is shared with
+browser workflows. Cancellation and revocation request cleanup, not rollback.
+
+`DeliveryStatus` contains only operation ID, kind, state, `may_have_run` and an
+optional closed error. It never contains recipient output, raw status/exit codes,
+URLs or transport diagnostics. Final durable typed audit failure faults custody
+and leaves `delivery_status` available through both CLI and MCP. Profiles persist
+on restart but jobs/tombstones do not; missing status is not safe retry evidence.
+No distributed exactly-once semantics or zero timing/coarse-outcome leakage is
+claimed.
 
 ## Native integration channel
 

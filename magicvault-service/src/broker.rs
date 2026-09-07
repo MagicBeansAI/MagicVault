@@ -27,6 +27,8 @@ mod browser;
 use browser::{BrowserPermission, BrowserState, NativeGrant};
 mod delivery;
 use delivery::{DeliveryJobs, RegisteredDelivery};
+mod consent;
+use consent::{ConsentGrant, ConsentTicket};
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -48,6 +50,8 @@ struct Registry {
     native_grants: Vec<NativeGrant>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     delivery_profiles: Vec<RegisteredDelivery>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    consents: Vec<ConsentGrant>,
 }
 
 #[derive(Clone)]
@@ -78,6 +82,7 @@ struct State {
     jobs: HashMap<Uuid, Job>,
     browsers: BrowserState,
     deliveries: DeliveryJobs,
+    consent_epochs: HashMap<Uuid, Uuid>,
     faulted: bool,
 }
 impl State {
@@ -99,6 +104,10 @@ impl State {
     fn reap(&mut self, now: Instant) {
         self.browsers.reap(now);
         self.deliveries.reap(now);
+        self.registry.consents.retain(|g| {
+            consent::session_scope(&g.info.scope)
+                .is_none_or(|handle| self.browsers.session_live(handle))
+        });
         self.jobs.retain(|_, job| job.retain_until > now);
         for job in self.jobs.values_mut() {
             if job.decision == Decision::Pending && job.expires <= now {
@@ -192,7 +201,7 @@ impl Broker {
             return Err(ErrorCode::Unavailable);
         }
         let path = lease.root().join("clients.json");
-        let registry = match path.symlink_metadata() {
+        let mut registry = match path.symlink_metadata() {
             Ok(_) => {
                 let bytes = storage::read_private(&path, storage::MAX_STATE_BYTES)?;
                 serde_json::from_slice::<Registry>(&bytes).map_err(|_| ErrorCode::Unavailable)?
@@ -206,6 +215,7 @@ impl Broker {
                     browser_permissions: Vec::new(),
                     native_grants: Vec::new(),
                     delivery_profiles: Vec::new(),
+                    consents: Vec::new(),
                 }
             }
             Err(_) => return Err(ErrorCode::Unavailable),
@@ -215,6 +225,7 @@ impl Broker {
             || !browser::valid_permissions(&registry, &store)
             || !browser::valid_native_grants(&registry)
             || !delivery::valid_profiles(&registry, &store)
+            || !consent::valid_grants(&registry)
             || registry.peers.iter().any(|p| {
                 !valid_label(&p.label)
                     || p.references.len() > MAX_CREDENTIALS
@@ -239,6 +250,10 @@ impl Broker {
         {
             return Err(ErrorCode::Unavailable);
         }
+        // Connection-scoped CDP/custom-adapter approvals never survive restart.
+        registry
+            .consents
+            .retain(|g| consent::session_scope(&g.info.scope).is_none());
         Ok(Arc::new(Self {
             lease,
             store,
@@ -247,6 +262,7 @@ impl Broker {
                 jobs: HashMap::new(),
                 browsers: BrowserState::default(),
                 deliveries: DeliveryJobs::default(),
+                consent_epochs: HashMap::new(),
                 faulted: false,
             }),
             human,
@@ -494,6 +510,11 @@ impl Broker {
                         self.delivery_status(auth, query, false).await
                     }
                     Request::CancelDelivery(query) => self.delivery_status(auth, query, true).await,
+                    Request::ListConsents => self.list_consents(auth).await,
+                    Request::RevokeConsent(query) => {
+                        self.revoke_consent(auth, id, Some(query)).await
+                    }
+                    Request::ClearConsents => self.revoke_consent(auth, id, None).await,
                     Request::Shutdown => {
                         let _permit = Arc::clone(&self.human_gate)
                             .try_acquire_owned()
@@ -808,6 +829,8 @@ impl Broker {
             b.peer(s, &auth)?;
             b.audit(s, "standalone_revocation_requested", id)?;
             s.registry.peers.retain(|p| p.id != client_id);
+            s.registry.consents.retain(|g| g.owner != client_id);
+            s.consent_epochs.remove(&client_id);
             s.registry
                 .browser_permissions
                 .retain(|p| p.client_id != client_id);
@@ -856,6 +879,7 @@ mod tests {
             browser_permissions: vec![],
             native_grants: vec![],
             delivery_profiles: vec![],
+            consents: vec![],
             peers: (0..MAX_CLIENTS)
                 .map(|i| Peer {
                     id: Uuid::from_u128(i as u128),
@@ -873,7 +897,10 @@ mod tests {
             64 * (MAX_ORIGINS * (256 + 3) + MAX_FIELDS * (64 + 3) + 512) + 128 * 512;
         let delivery_bytes = MAX_DELIVERY_PROFILES * (MAX_PROFILE_BYTES + 1024);
         assert!(
-            (serde_json::to_vec(&registry).unwrap().len() + browser_bytes + delivery_bytes) as u64
+            (serde_json::to_vec(&registry).unwrap().len()
+                + browser_bytes
+                + delivery_bytes
+                + 16 * (12 * 1024 + 128)) as u64
                 <= storage::MAX_STATE_BYTES
         );
     }
@@ -889,10 +916,12 @@ mod tests {
                 browser_permissions: vec![],
                 native_grants: vec![],
                 delivery_profiles: vec![],
+                consents: vec![],
             },
             jobs: HashMap::new(),
             browsers: BrowserState::default(),
             deliveries: DeliveryJobs::default(),
+            consent_epochs: HashMap::new(),
             faulted: false,
         };
         state.jobs.insert(

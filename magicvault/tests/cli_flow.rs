@@ -69,6 +69,8 @@ async fn actual_cli_pairs_enrolls_and_discovers_through_the_daemon() {
         vec!["pair", "--label", "CLI fixture"],
         vec!["enroll", "--label", "Fixture", "--field", "password"],
         vec!["list-credentials"],
+        vec!["list-consents"],
+        vec!["clear-consents"],
         vec!["status"],
     ] {
         let output = tokio::process::Command::new(cli_binary())
@@ -96,6 +98,7 @@ async fn rejected_arguments_never_echo_the_rejected_value() {
     for args in [
         vec!["enroll", "--password", "SYNTHETIC-REJECTED-CANARY"],
         vec!["setup", "--password", "SYNTHETIC-REJECTED-CANARY"],
+        vec!["revoke-consent", "--grant-id", "SYNTHETIC-REJECTED-CANARY"],
         vec![
             "approval-status",
             "--approval-id",

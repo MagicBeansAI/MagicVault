@@ -14,8 +14,9 @@ use uuid::Uuid;
 use zeroize::Zeroizing;
 
 // 32 clients × 256 UUID references, plus bounded labels/hashes and JSON syntax.
-// Existing maximum metadata registry plus 64 bounded browser permission rows.
-pub const MAX_STATE_BYTES: u64 = 1024 * 1024;
+// Existing registry plus 16 exact-use grants, each at most 12 KiB. Remains
+// bounded; increasing the grant cap also requires reply/persistence-size tests.
+pub const MAX_STATE_BYTES: u64 = 1280 * 1024;
 pub const KEYCHAIN_SERVICE: &str = "ai.magicbeans.magicvault";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

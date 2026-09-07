@@ -90,7 +90,7 @@ reference/label/field names to that client—not values or future delivery autho
 Enrollment does not activate delivery. Browser use requires the explicit
 client/field/origin configuration and per-fill human consent described in
 [browser usage](browser-usage.md). New HTTP/process use requires a separately
-registered fixed [delivery profile](delivery-usage.md) and fresh per-use consent.
+registered fixed [delivery profile](delivery-usage.md) and native per-use or explicitly remembered exact-use consent.
 The initial hidden-input backend accepts nonempty UTF-8 text, at most 4096 bytes
 per field, up to eight fields, within one 180-second enrollment window. The
 deadline is rechecked after writer/audit waits immediately before persistence.
@@ -114,7 +114,7 @@ MCP is the recommended routine interface for local agents. Start with the
 [Codex and Claude Code quick start](../README.md#use-with-an-mcp-agent); use the
 [CLI](../README.md#cli-for-agents-and-scripts) for shell-based agents/scripts, or
 the [builder guide](integrations.md) for embedding. MCP is local stdio, not a
-hosted HTTP endpoint. It does not remove human setup or per-use consent.
+hosted HTTP endpoint. It does not remove human setup or the requirement for native per-use or explicitly remembered consent.
 
 The README's commands use the default application/vault paths and paired profile
 `agent`. Claude Code's `--scope user` makes the MCP entry available across
@@ -196,8 +196,8 @@ access through that capability and does not erase material or revoke providers.
 
 ## Upgrade and recovery
 
-CLI/MCP/service packages use source version `0.7.0`; protocol/effect crates use
-`0.5.0`, with agent wire version `3` retained. Extension `0.6.0` uses native connection handshake `2`: rebuild/update
+CLI/MCP/service packages use source version `0.8.1`; protocol/effect crates use
+`0.6.0`, with agent wire version `4`. Extension `0.6.1` uses native connection handshake `2`: rebuild/update
 host and daemon together. Effect schemas and host config remain `1`. Normal
 packaged setup now installs the exact bundled native-host identity after pairing;
 install-only does not. See [one-time unpacked migration](browser-usage.md#upgrading-older-unpacked-extensions).

@@ -1,6 +1,6 @@
 [package]
 name = "magicvault-protocol"
-version = "0.5.0"
+version = "0.6.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "Bounded, reference-only MagicVault local service contract"

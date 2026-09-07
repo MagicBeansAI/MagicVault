@@ -48,7 +48,7 @@ For new-process/HTTP builders, `magicvault-effect` additionally exposes
 `process::inspect`/`process::execute` and `http::validate`/`http::execute`.
 `DeliveryOutcome` is a closed receipt, never recipient output. These are trusted
 Rust APIs, **not authorization services**: an embedder must bind caller and
-profile policy, obtain per-use consent, durably audit before resolution/dispatch,
+profile policy, obtain per-use or explicitly human-created exact-use consent, durably audit before resolution/dispatch,
 bound admission and reconcile cancellation/audit uncertainty. The process
 adapter uses MagicRun's public coordinator and a fixed executable digest; it
 does not persist audit by itself. The standalone broker owns that durable audit.
@@ -117,7 +117,7 @@ sites and recheck it before dispatch, fail closed on policy errors, and explain
 that a behavioral blocklist is not browser-enforced permission revocation.
 
 Native handshake version 2 is separate from unchanged effect schemas (v1) and
-agent protocol version 3. Custom builders must implement the profile handshake;
+agent protocol version 4. Custom builders must implement the profile handshake;
 there is no insecure v1 fallback. Explicit `--extension-id ID` remains supported. See
 [the native channel](protocol.md#native-integration-channel) and its Rust
 `BridgeCommand`, `BridgeReply`, `BridgeRequest` and `BridgeResult` definitions.

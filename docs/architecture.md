@@ -1,6 +1,6 @@
 # MagicVault architecture
 
-Architecture version: `0.7.0`
+Architecture version: `0.8.1`
 
 Previous immutable baseline tag: `architecture/v0.3.0`. The current reviewed
 source/document baseline is [architecture-baseline.json](architecture-baseline.json).
@@ -17,7 +17,8 @@ and [security](../SECURITY.md) define the product's supported boundary.
 flowchart TB
     agent["Agent / model"] -->|"References and locators only"| client["CLI or MCP client"]
     client -->|"Authenticated local IPC"| broker["Standalone service broker"]
-    human["Human via native UI"] -->|"Pairing, policy and per-use consent"| broker
+    human["Human via native UI"] -->|"Pairing, policy, per-use / Always allow"| broker
+    broker -->|"Exact-use grants: persist / revoke"| grants["Private standalone registry"]
     broker -->|"Resolve approved fields"| core["Shared custody core"]
     keychain["OS keychain / host key provider"] --> core
     core --> storage["Encrypted vault and typed audit"]
@@ -55,16 +56,16 @@ generic substring redaction; coarse outcomes and timing remain observable.
 
 | Component | Version | Ownership |
 | --- | --- | --- |
-| `magicvault`, `magicvault-mcp` | `0.7.0` | Human administration, reference-only clients and optional discovery narrowing; CLI builds daemon/native host |
-| `magicvault-service` | `0.7.0` | Validates/routes discovery narrowing; one store writer and private application-bundle installer |
-| `magicvault-protocol` | `0.5.0` | Discovery query/filter types; authentication, policy, consent, profiles, jobs and bounded IPC |
-| `magicvault-effect` | `0.5.0` | Filtered adapter method/native command; CDP/native fills, HTTP and MagicRun integration |
-| Chromium extension | `0.6.0` | Permission-aware exact discovery narrowing, site grants/blocks and document-targeted fill; no navigation or submission API |
+| `magicvault`, `magicvault-mcp` | `0.8.1` | Human administration, reference-only clients and optional discovery narrowing; CLI builds daemon/native host |
+| `magicvault-service` | `0.8.1` | Native consent/grants and cancellation, bounded discovery, one store writer and private application-bundle installer |
+| `magicvault-protocol` | `0.6.0` | Discovery query/filter types; authentication, policy, consent, profiles, jobs and bounded IPC |
+| `magicvault-effect` | `0.6.0` | Filtered adapter method/native command; CDP/native fills, HTTP and MagicRun integration |
+| Chromium extension | `0.6.1` | Permission-aware exact discovery narrowing, site grants/blocks and document-targeted fill; no navigation or submission API |
 | MagicRun `tool-runtime-core` | `0.1.73`, existing public Git dependency | Governed process preparation, digest-bound dispatch, cancellation, output bounds and owned-child cleanup; runtime source unchanged |
 | `magicvault-core` | `0.1.3` | Encryption, credential references, existing policies, scoped stores and typed audit |
 | `magicvault-primitives` | `0.1.1` | Durable filesystem and stack-safe JSON utilities |
 
-The local agent wire is version **3**, unchanged. The profile-authenticated native
+The local agent wire is version **4**; matching standalone clients/daemon are required. The profile-authenticated native
 handshake is version **2**; bridge framing and host configuration remain version **1**.
 Filtered discovery adds a closed `filtered_targets` bridge command; use matching
 updated components. Old workers refuse it; no broader-query or delivery fallback.
@@ -156,7 +157,7 @@ of jitter for transport/busy failures, not exact-time scheduling. Worker startup
 restores lost alarms and respects the persisted deadline/pause. Terminal errors
 require explicit Retry; every effect remains one-use, never replayed by reconnect.
 Native framing validates closed greetings and commands; v1 handshake downgrade is
-refused. Browser permissions, per-credential rules and per-fill consent are unchanged.
+refused. Browser permissions, per-credential rules and per-use or remembered consent remain separate checks.
 The fixed public unpacked identity is not a signing key or a Store listing.
 
 ## One fill, end to end
@@ -218,7 +219,7 @@ none of those helpers or test configuration overrides enter production binaries.
    browser handle. Discovery binds short-lived targets to the tab/frame, actual
    document and top/selected origins; another tool's snapshot IDs are not handles.
 3. `secure_fill` admits a closed reference-only request, spends its target handle
-   and operation ID, and requests consent for that exact destination and fields.
+   and operation ID, and requests consent or captures an existing exact-use grant.
 4. Immediately before delivery, the service rechecks authority, cancellation,
    expiry and target binding, then resolves material through the custody core.
    Browser I/O and human waits do not hold the custody lock.
@@ -236,12 +237,44 @@ did not happen. [Lifecycle and recovery](browser-usage.md#request-a-fill-and-ins
 
 ## One new process or HTTP request
 
+### Exact-use consent state
+
+The default is a fresh native use decision. Only `HumanInteraction::confirm_use`
+can return Always allow; its default implementation delegates to the old boolean
+confirmation as Allow once, preserving trusted embedders' behavior. Administrative
+confirmation and hidden enrollment are unchanged. No protocol/MCP call accepts an
+allow choice or a caller-defined grant scope.
+
+`broker/consent.rs` derives exact scopes from registered destinations or captured
+browser targets. A final transaction revalidates grants before custody resolution;
+new grants are durably saved/audited. Reset/revocation invalidates pending decisions
+and cancels affected jobs. The human/effect permit still covers effect completion
+and shutdown draining, including remembered uses; grants do not introduce a new
+concurrent execution path.
+
+Process/HTTP grants bind immutable profile IDs and survive restart. Native-browser
+grants bind paired client, extension/profile identity, exact top/frame origins,
+frame kind and ordered field/CSS mapping; live CDP/custom-adapter grants instead
+bind one connection and are discarded on disconnect/restart. Browser scopes are
+not restricted to one tab or path. Permission checks, current documents, digest
+validation and single-use operation IDs remain independent requirements.
+
+The standalone registry adds optional grant records (empty by default), capped at
+16 records of 12 KiB each within a 1.25 MiB file limit. List replies fit the existing
+256 KiB bound. CLI exposes list/revoke/clear only; MCP keeps its existing closed
+catalog. Agent wire is now `4`, native handshake `2` and effect framing `1` are
+unchanged. Shared custody/key identity and MagicRun's runtime do not change.
+See [consent semantics and recovery](consent.md).
+
+### Delivery sequence
+
 1. A human registers a caller-owned, immutable profile containing reference-only
    credential placements and an exact executable/argv/cwd or URL/method. Process
    registration captures an executable content digest; no effect runs here.
 2. The agent selects that profile and an operation UUID. Admission reserves the
-   one-use identity and shared human/effect permit before prompting. Registration
-   is not per-use consent, and metadata access is not effect authority.
+   one-use identity and shared human/effect permit before prompting or reusing an
+   exact-use grant. Registration is not use consent, and metadata access is not
+   effect authority.
 3. After consent, the broker rechecks caller/profile/field authority, cancellation
    and deadline under its writer, appends durable authorization, and resolves the
    selected material once. The `running` transition is the dispatch-authority
@@ -259,7 +292,13 @@ did not happen. [Lifecycle and recovery](browser-usage.md#request-a-fill-and-ins
    audit. Profiles persist; jobs expire, with epoch-local spent-ID tombstones.
    Missing results and new epochs never authorize automatic replay.
 
-Profiles are capped at 16 × 12 KiB to fit the existing 1 MiB registry alongside
+Pending native prompt teardown can return a denial-shaped provider error. As
+with browser fills, the delivery broker preserves an explicit expiry and otherwise
+reports its cancelled token as `cancelled`, not a human `denied` decision. This
+normalization happens before custody resolution; it cannot turn a refusal into
+dispatch or mask a later durable-write/recipient failure.
+
+Profiles are capped at 16 × 12 KiB to fit the bounded 1.25 MiB registry alongside
 maximum ACL/browser state. There are 32 retained delivery jobs, 4096 spent IDs,
 1–120 second effect deadlines, 64 KiB per child output stream and 1 MiB discarded
 HTTP body. System DNS waits are bounded; up to two credential-free OS resolver
@@ -278,7 +317,7 @@ Magician need no API, source or storage migration for these standalone additions
   daemon, browser adapter, MCP or extension as dependencies. Embedded consumers
   keep their own roots, key identities, policy and execution ownership.
 - **Authorization before material:** client/field/origin/document policy and
-  native per-use consent precede custody resolution and delivery. No raw-value
+  native per-use or human-created exact-use consent precede custody resolution and delivery. No raw-value
   model tool or production auto-approval switch is part of the contract.
 - **Transport separation:** agent IPC is reference-only; trusted native/CDP
   transport can carry values. Shipped executables compile dependency payload

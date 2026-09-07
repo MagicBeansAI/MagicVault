@@ -111,7 +111,12 @@ async fn options_eval(peer: &mut CdpPeer, session: &str, expression: &str) -> Va
     );
     result["result"]["value"].clone()
 }
-async fn connection(peer: &mut CdpPeer, session: &str, connected: bool) -> Value {
+async fn connection(
+    peer: &mut CdpPeer,
+    session: &str,
+    connected: bool,
+    startup: Option<(&Path, &SyntheticHuman)>,
+) -> Value {
     let mut diagnostic = json!({});
     let result = tokio::time::timeout(Duration::from_secs(15), async {
         loop {
@@ -131,9 +136,23 @@ async fn connection(peer: &mut CdpPeer, session: &str, connected: bool) -> Value
         }
     })
     .await;
-    result.unwrap_or_else(|_| panic!("extension connection did not settle (expected {connected}): {diagnostic}"))
+    result.unwrap_or_else(|_| {
+        // Fixture-owned counts only: never log a native frame, capability,
+        // browser state dump, or command arguments while diagnosing startup.
+        let stages = startup.map(|(marker, human)| {
+            json!({"wrapper_launches":fs::metadata(marker).map(|m|m.len()).unwrap_or(0),
+                "synthetic_confirmations":human.confirmations.load(Ordering::SeqCst)})
+        });
+        panic!("extension connection did not settle (expected {connected}): {diagnostic}; fixture stages: {stages:?}")
+    })
 }
-async fn load(owner: &DisposableBrowser, assets: &Path) -> (CdpPeer, String, String) {
+async fn load(
+    owner: &DisposableBrowser,
+    assets: &Path,
+    marker: &Path,
+    human: &SyntheticHuman,
+) -> (CdpPeer, String, String) {
+    let started = Instant::now();
     let mut peer = owner.peer().await;
     let result = peer
         .command("Extensions.loadUnpacked", json!({"path":assets}), None)
@@ -146,7 +165,11 @@ async fn load(owner: &DisposableBrowser, assets: &Path) -> (CdpPeer, String, Str
         ))
         .await;
     let (_, page) = peer.open_page(&format!("{}/login", owner.origin)).await;
-    connection(&mut peer, &options, true).await;
+    connection(&mut peer, &options, true, Some((marker, human))).await;
+    eprintln!(
+        "native extension startup settled in {:?}",
+        started.elapsed()
+    );
     (peer, options, page)
 }
 
@@ -221,19 +244,28 @@ async fn real_extension_mcp_fill_denial_profiles_pause_and_reconnect() {
         &serde_json::to_vec(&config).unwrap(),
         0o600,
     );
+    let marker = root.path().join("host-starts");
+    let quoted_marker = marker.to_str().unwrap().replace('\'', "'\\''");
+    // Count entry into the fixture wrapper before exec, independently of the
+    // synthetic daemon. This never intercepts or records native protocol bytes.
+    let wrapper = native::wrapper(&config).unwrap().replacen(
+        "#!/bin/sh\n",
+        &format!("#!/bin/sh\nprintf . >> '{quoted_marker}'\n"),
+        1,
+    );
     private_file(
         &root.path().join("native-host-launch"),
-        native::wrapper(&config).unwrap().as_bytes(),
+        wrapper.as_bytes(),
         0o700,
     );
     let assets = extension_assets(root.path());
     let manifest = native::manifest(&config).unwrap();
     let first = DisposableBrowser::with_native_host(true, &manifest).await;
-    let (mut a, options_a, page_a) = load(&first, &assets).await;
+    let (mut a, options_a, page_a) = load(&first, &assets, &marker, &human).await;
     let second = DisposableBrowser::with_native_host(true, &manifest).await;
-    let (mut b, options_b, _) = load(&second, &assets).await;
-    let info_a = connection(&mut a, &options_a, true).await;
-    let info_b = connection(&mut b, &options_b, true).await;
+    let (mut b, options_b, _) = load(&second, &assets, &marker, &human).await;
+    let info_a = connection(&mut a, &options_a, true, None).await;
+    let info_b = connection(&mut b, &options_b, true, None).await;
     assert_ne!(info_a["profile_id"], info_b["profile_id"]);
     assert_ne!(info_a["browser_handle"], info_b["browser_handle"]);
     client
@@ -489,7 +521,10 @@ async fn real_extension_mcp_fill_denial_profiles_pause_and_reconnect() {
         "chrome.runtime.sendMessage({action:'disconnect'})",
     )
     .await;
-    assert_eq!(connection(&mut a, &options_a, false).await["paused"], true);
+    assert_eq!(
+        connection(&mut a, &options_a, false, None).await["paused"],
+        true
+    );
     let Response::Browsers(rows) = invoke("list_browsers", json!({})).await else {
         panic!("browsers");
     };
@@ -501,12 +536,12 @@ async fn real_extension_mcp_fill_denial_profiles_pause_and_reconnect() {
         "chrome.runtime.sendMessage({action:'connect'})",
     )
     .await;
-    let reconnected = connection(&mut a, &options_a, true).await;
+    let reconnected = connection(&mut a, &options_a, true, None).await;
     assert_ne!(reconnected["browser_handle"], info_a["browser_handle"]);
     assert_eq!(reconnected["profile_id"], info_a["profile_id"]);
     assert_eq!(human.confirmations.load(Ordering::SeqCst), count);
     assert_eq!(
-        connection(&mut b, &options_b, true).await["browser_handle"],
+        connection(&mut b, &options_b, true, None).await["browser_handle"],
         info_b["browser_handle"]
     );
     let audit = fs::read_to_string(

@@ -9,6 +9,43 @@
   into linked guides, retain existing entry-point anchors, and separate packaged
   extension instructions from source builds without hiding native acceptance gaps.
 
+## 0.8.1 — 2026-09-08 — Native cancellation receipts
+
+- Correct pending process/HTTP cancellation receipts when the native prompt
+  provider returns `denied` while being torn down: report `cancelled`, consistent
+  with browser fills. A genuine human denial remains `denied`; an explicit
+  expiry remains `expired`. No recipient is dispatched by this correction.
+- Add process/HTTP regression cases for explicit cancellation, consent reset,
+  genuine denial and expiry precedence. Native acceptance found the discrepancy;
+  the original refusal remained fail-closed with no delivery or saved grant.
+- CLI/MCP/service `0.8.1`; protocol/effect `0.6.0`, agent wire `4`, extension
+  `0.6.1` and shared core/primitives/MagicRun remain unchanged. No Magician update
+  or vault migration is required. See [qualification](docs/qualification/results-cancellation-2026-09-08.md).
+
+## 0.8.0 — 2026-09-08 — Exact-use consent source alpha
+
+- Add native **Allow once** and **Always allow** credential-use choices, with
+  Deny as the default. Pairing, enrollment and registration remain separate.
+  Models cannot submit allow decisions or arbitrary grant scopes.
+- Remember exact paired-client/destination-profile uses, or exact browser
+  identity/origin/frame-kind/credential/selector mappings. Native extension
+  grants survive reconnect/restart; live CDP grants do not. Existing site,
+  document, executable digest, cancellation and no-retry boundaries remain.
+- Add human CLI `list-consents`, `revoke-consent` and `clear-consents`. Durable
+  revocation cancels affected work and invalidates late native decisions.
+  Bound grants to 16 records of 12 KiB, with a 1.25 MiB registry and unchanged
+  reply limit. Add exact-scope, persistence, cancellation and failure coverage.
+- CLI/MCP/service `0.8.0`, protocol/effect `0.6.0`, agent wire `4`; update the
+  standalone bundle together. Extension `0.6.1` clarifies consent wording while
+  retaining its bridge/profile handshake. Shared core/primitives, vault/key
+  identity, MagicRun and Magician remain unchanged. Prior `0.7.0` results do not
+  qualify this new consent policy; native acceptance is a separate gate.
+- Document [consent scope, revocation and compatibility](docs/consent.md).
+  No signing, publication or production-security certification is implied.
+- Record [local consent qualification](docs/qualification/results-consent-2026-09-08.md),
+  including unresolved native-extension startup timeouts and value-free fixture
+  diagnostics. Passing synthetic consent tests does not qualify native selections.
+
 ## 0.7.0 — 2026-09-08 — Narrowed discovery source alpha
 
 - Add optional exact `top_origin` and backend `tab_id` narrowing to MCP

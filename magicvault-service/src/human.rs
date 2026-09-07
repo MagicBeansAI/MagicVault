@@ -4,9 +4,30 @@ use magicvault_protocol::{ErrorCode, CONSENT_TTL_SECS};
 use tokio_util::sync::CancellationToken;
 use zeroize::Zeroizing;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UseDecision {
+    Deny,
+    AllowOnce,
+    AlwaysAllow,
+}
+
 #[async_trait]
 pub trait HumanInteraction: Send + Sync {
     async fn confirm(&self, message: &str, cancel: CancellationToken) -> Result<bool, ErrorCode>;
+    /// Trusted human seam only. Existing embedders remain one-use by default.
+    async fn confirm_use(
+        &self,
+        message: &str,
+        cancel: CancellationToken,
+    ) -> Result<UseDecision, ErrorCode> {
+        self.confirm(message, cancel).await.map(|allow| {
+            if allow {
+                UseDecision::AllowOnce
+            } else {
+                UseDecision::Deny
+            }
+        })
+    }
     async fn secret(
         &self,
         message: &str,
@@ -24,6 +45,7 @@ pub(crate) const MAX_PROMPT_BYTES: usize = 16 * 1024;
 async fn dialog(
     message: &str,
     secret: bool,
+    remember: bool,
     cancel: CancellationToken,
 ) -> Result<Zeroizing<String>, ErrorCode> {
     use std::{process::Stdio, time::Duration};
@@ -38,9 +60,16 @@ async fn dialog(
     // Only metadata enters argv. The hidden answer travels in a private pipe.
     const CONFIRM: &str = "on run argv\nset r to display dialog (item 1 of argv) with title \"MagicVault — human decision\" buttons {\"Deny\", \"Allow\"} default button \"Deny\" cancel button \"Deny\" giving up after 120\nif gave up of r then error number -128\nreturn button returned of r\nend run";
     const SECRET: &str = "on run argv\nset r to display dialog (item 1 of argv) with title \"MagicVault — enroll credential\" default answer \"\" with hidden answer buttons {\"Cancel\", \"Save\"} default button \"Cancel\" cancel button \"Cancel\" giving up after 120\nif gave up of r then error number -128\nreturn text returned of r\nend run";
+    const USE: &str = "on run argv\nset r to display dialog (item 1 of argv) with title \"MagicVault — credential use\" buttons {\"Deny\", \"Allow once\", \"Always allow\"} default button \"Deny\" cancel button \"Deny\" giving up after 120\nif gave up of r then error number -128\nreturn button returned of r\nend run";
     let mut child = tokio::process::Command::new("/usr/bin/osascript")
         .arg("-e")
-        .arg(if secret { SECRET } else { CONFIRM })
+        .arg(if secret {
+            SECRET
+        } else if remember {
+            USE
+        } else {
+            CONFIRM
+        })
         .arg("--")
         .arg(message)
         .stdin(Stdio::null())
@@ -92,7 +121,31 @@ impl HumanInteraction for NativeHuman {
     async fn confirm(&self, message: &str, cancel: CancellationToken) -> Result<bool, ErrorCode> {
         #[cfg(target_os = "macos")]
         {
-            return dialog(message, false, cancel).await.map(|v| &*v == "Allow");
+            return dialog(message, false, false, cancel)
+                .await
+                .map(|v| &*v == "Allow");
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = (message, cancel);
+            Err(ErrorCode::Unavailable)
+        }
+    }
+    async fn confirm_use(
+        &self,
+        message: &str,
+        cancel: CancellationToken,
+    ) -> Result<UseDecision, ErrorCode> {
+        #[cfg(target_os = "macos")]
+        {
+            return dialog(message, false, true, cancel)
+                .await
+                .and_then(|v| match v.as_str() {
+                    "Allow once" => Ok(UseDecision::AllowOnce),
+                    "Always allow" => Ok(UseDecision::AlwaysAllow),
+                    "Deny" => Ok(UseDecision::Deny),
+                    _ => Err(ErrorCode::Denied),
+                });
         }
         #[cfg(not(target_os = "macos"))]
         {
@@ -107,7 +160,7 @@ impl HumanInteraction for NativeHuman {
     ) -> Result<Zeroizing<String>, ErrorCode> {
         #[cfg(target_os = "macos")]
         {
-            return dialog(message, true, cancel).await;
+            return dialog(message, true, false, cancel).await;
         }
         #[cfg(not(target_os = "macos"))]
         {

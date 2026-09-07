@@ -1,13 +1,13 @@
 [package]
 name = "magicvault-mcp"
-version = "0.7.0"
+version = "0.8.1"
 edition = "2021"
 rust-version = "1.88"
 license = "MIT OR Apache-2.0"
 description = "Official-SDK MCP client surface for the MagicVault daemon"
 
 [dependencies]
-magicvault-service = { path = "../magicvault-service", version = "0.7.0" }
+magicvault-service = { path = "../magicvault-service", version = "0.8.1" }
 rmcp = { version = "=3.1.0", default-features = false, features = ["server", "transport-async-rw"] }
 clap = { version = "4", features = ["derive"] }
 serde = "1"

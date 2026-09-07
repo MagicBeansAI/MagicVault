@@ -9,8 +9,14 @@ that would not replace destination, custody, transport or output-boundary tests.
 
 Use the [public release gate matrix](release.md) to separate automated conformance,
 human desktop acceptance and publisher/registry authorization. The
-[broader release results](results-release-2026-09-08.md) record qualification of
-the committed `0.7.0` revision, including CI and repeated fresh browser starts.
+[0.8.1 cancellation record](results-cancellation-2026-09-08.md) records the current
+receipt correction, automated/package passes, installed native pending-consent
+cancellation and process-grant restart/reuse passes. The
+[0.8.0 consent results](results-consent-2026-09-08.md) record local/native
+consent conformance, unresolved startup failures and the original reset-receipt
+failure. The
+[broader release results](results-release-2026-09-08.md) apply only to the prior
+committed `0.7.0` revision, including CI and repeated fresh browser starts.
 
 | Surface | Runnable evidence | Remaining gate |
 | --- | --- | --- |

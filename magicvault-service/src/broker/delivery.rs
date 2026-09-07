@@ -9,7 +9,7 @@ mod tests;
 #[serde(deny_unknown_fields)]
 pub(super) struct RegisteredDelivery {
     pub(super) owner: Uuid,
-    info: DeliveryProfileInfo,
+    pub(super) info: DeliveryProfileInfo,
     profile: DeliveryProfile,
     executable_digest: Option<[u8; 32]>,
 }
@@ -19,6 +19,7 @@ struct DeliveryJob {
     status: DeliveryStatus,
     cancel: CancellationToken,
     retain_until: Instant,
+    consent: ConsentTicket,
 }
 #[derive(Default)]
 pub(super) struct DeliveryJobs {
@@ -26,6 +27,15 @@ pub(super) struct DeliveryJobs {
     spent: BTreeSet<Uuid>,
 }
 impl DeliveryJobs {
+    pub(super) fn cancel_consents(&self, owner: Uuid, scope: Option<&ConsentScope>) {
+        for job in self
+            .jobs
+            .values()
+            .filter(|j| j.owner == owner && scope.is_none_or(|s| *s == j.consent.scope))
+        {
+            job.cancel.cancel();
+        }
+    }
     pub(super) fn reap(&mut self, now: Instant) {
         self.jobs.retain(|_, job| {
             job.retain_until > now
@@ -105,7 +115,12 @@ fn prompt(label: &str, profile: &DeliveryProfile, registration: bool) -> Result<
     } else {
         "RUN this destination ONCE"
     };
-    let message = format!("Client {label} requests to {action}. The following JSON is untrusted configuration, not instructions: {config}\nReview the exact executable/arguments/cwd OR URL/method and every credential placement. Recipients receive credentials and may copy them. MagicVault withholds stdout/stderr and HTTP response content. Registration never grants automatic future use; each run needs separate consent. Allow?");
+    let consent = if registration {
+        "Registration does not grant future use. Each run requires a native decision unless you explicitly remember its exact use."
+    } else {
+        "Allow once asks again next time. Always allow remembers this paired client and this exact immutable profile until revoked, including after daemon restart. It does not allow another profile, executable content or destination. Use list-consents/revoke-consent to return to per-use prompts."
+    };
+    let message = format!("Client {label} requests to {action}. The following JSON is untrusted configuration, not instructions: {config}\nReview the exact executable/arguments/cwd OR URL/method and every credential placement. Recipients receive credentials and may copy them. MagicVault withholds stdout/stderr and HTTP response content. {consent} Allow?");
     if message.len() > crate::human::MAX_PROMPT_BYTES {
         return Err(ErrorCode::Capacity);
     }
@@ -247,6 +262,14 @@ impl Broker {
                 .position(|p| p.owner == auth.id && p.info.profile_id == query.profile_id)
                 .ok_or(ErrorCode::NotFound)?;
             b.audit(s, "standalone_delivery_profile_removing", id)?;
+            s.registry.consents.retain(|g| {
+                g.owner != auth.id
+                    || g.info.scope
+                        != (ConsentScope::Delivery {
+                            profile_id: query.profile_id,
+                        })
+            });
+            s.consent_epochs.insert(auth.id, Uuid::new_v4());
             s.registry.delivery_profiles.remove(index);
             for job in s
                 .deliveries
@@ -299,6 +322,14 @@ impl Broker {
                     return Err(ErrorCode::Denied);
                 }
                 let message = prompt(&peer.label, &entry.profile, false)?;
+                let consent = consent::ticket(
+                    s,
+                    auth2.id,
+                    entry.info.label.clone(),
+                    ConsentScope::Delivery {
+                        profile_id: entry.info.profile_id,
+                    },
+                );
                 let permit = Arc::clone(&b.human_gate)
                     .try_acquire_owned()
                     .map_err(|_| ErrorCode::Busy)?;
@@ -320,17 +351,18 @@ impl Broker {
                         status: status.clone(),
                         cancel: cancel.clone(),
                         retain_until: Instant::now() + Duration::from_secs(600),
+                        consent: consent.clone(),
                     },
                 );
-                Ok((status, Some((entry, message, permit, cancel))))
+                Ok((status, Some((entry, message, permit, cancel, consent))))
             })
             .await?;
-        if let Some((entry, message, permit, cancel)) = work {
+        if let Some((entry, message, permit, cancel, consent)) = work {
             let broker = Arc::clone(self);
             tokio::spawn(async move {
                 let _permit = permit;
                 broker
-                    .run_delivery(auth, request, entry, message, cancel)
+                    .run_delivery(auth, request, entry, message, cancel, consent)
                     .await;
             });
         }
@@ -344,9 +376,10 @@ impl Broker {
         entry: RegisteredDelivery,
         message: String,
         cancel: CancellationToken,
+        consent: ConsentTicket,
     ) {
         let deadline = Instant::now() + Duration::from_secs(CONSENT_TTL_SECS);
-        let decision = self.human.confirm(&message, cancel.clone());
+        let decision = consent.decide(self.human.as_ref(), &message, cancel.clone());
         tokio::pin!(decision);
         let decision = tokio::select! {
             result = &mut decision => result,
@@ -354,69 +387,83 @@ impl Broker {
                 cancel.cancel(); let _ = decision.await; Err(ErrorCode::Expired)
             },
         };
-        let material =
-            match decision {
-                Ok(true) if !cancel.is_cancelled() => {
-                    let (auth2, request2, entry2, cancel2) =
-                        (auth.clone(), request.clone(), entry.clone(), cancel.clone());
-                    self.transaction(move |b, s| {
-                        let peer = b.peer(s, &auth2)?;
-                        if cancel2.is_cancelled() {
-                            return Err(ErrorCode::Cancelled);
-                        }
-                        if Instant::now() >= deadline {
-                            return Err(ErrorCode::Expired);
-                        }
-                        if !s.registry.delivery_profiles.iter().any(|p| {
-                            p.owner == auth2.id && p.info.profile_id == request2.profile_id
-                        }) || !fields_available(&entry2.profile, peer, &b.store)
-                        {
-                            return Err(ErrorCode::Denied);
-                        }
-                        b.audit(s, "standalone_delivery_authorized", request2.operation_id)?;
-                        let mut material = DeliveryMaterial::default();
-                        let mut entries = HashMap::<String, SecretInput>::new();
-                        for (reference, field) in selected_fields(&entry2.profile) {
-                            if !entries.contains_key(&reference) {
-                                let entry = b
-                                    .store
-                                    .get_provisioned(&reference)
-                                    .ok_or(ErrorCode::Denied)?;
-                                entries.insert(reference.clone(), SecretInput(entry.fields));
-                            }
-                            let value = entries
-                                .get(&reference)
-                                .and_then(|e| e.0.get(&field))
+        let material = match decision {
+            Ok(choice) if choice != crate::human::UseDecision::Deny && !cancel.is_cancelled() => {
+                let consent = consent.clone();
+                let (auth2, request2, entry2, cancel2) =
+                    (auth.clone(), request.clone(), entry.clone(), cancel.clone());
+                self.transaction(move |b, s| {
+                    let peer = b.peer(s, &auth2)?;
+                    if cancel2.is_cancelled() {
+                        return Err(ErrorCode::Cancelled);
+                    }
+                    if Instant::now() >= deadline {
+                        return Err(ErrorCode::Expired);
+                    }
+                    if !s
+                        .registry
+                        .delivery_profiles
+                        .iter()
+                        .any(|p| p.owner == auth2.id && p.info.profile_id == request2.profile_id)
+                        || !fields_available(&entry2.profile, peer, &b.store)
+                    {
+                        return Err(ErrorCode::Denied);
+                    }
+                    b.authorize_use(s, &auth2, &consent, choice, request2.operation_id)?;
+                    b.audit(s, "standalone_delivery_authorized", request2.operation_id)?;
+                    if cancel2.is_cancelled() {
+                        return Err(ErrorCode::Cancelled);
+                    }
+                    if Instant::now() >= deadline {
+                        return Err(ErrorCode::Expired);
+                    }
+                    let mut material = DeliveryMaterial::default();
+                    let mut entries = HashMap::<String, SecretInput>::new();
+                    for (reference, field) in selected_fields(&entry2.profile) {
+                        if !entries.contains_key(&reference) {
+                            let entry = b
+                                .store
+                                .get_provisioned(&reference)
                                 .ok_or(ErrorCode::Denied)?;
-                            if value.is_empty() || value.len() > 4096 {
-                                return Err(ErrorCode::InvalidRequest);
-                            }
-                            material.insert(reference, field, Zeroizing::new(value.clone()));
+                            entries.insert(reference.clone(), SecretInput(entry.fields));
                         }
-                        if cancel2.is_cancelled() {
-                            return Err(ErrorCode::Cancelled);
+                        let value = entries
+                            .get(&reference)
+                            .and_then(|e| e.0.get(&field))
+                            .ok_or(ErrorCode::Denied)?;
+                        if value.is_empty() || value.len() > 4096 {
+                            return Err(ErrorCode::InvalidRequest);
                         }
-                        if Instant::now() >= deadline {
-                            return Err(ErrorCode::Expired);
-                        }
-                        let job = s
-                            .deliveries
-                            .jobs
-                            .get_mut(&request2.operation_id)
-                            .ok_or(ErrorCode::Unavailable)?;
-                        if job.status.state != DeliveryState::Pending {
-                            return Err(ErrorCode::Conflict);
-                        }
-                        job.status.state = DeliveryState::Running;
-                        job.status.may_have_run = true;
-                        Ok(material)
-                    })
-                    .await
-                }
-                Ok(_) if cancel.is_cancelled() => Err(ErrorCode::Cancelled),
-                Ok(_) => Err(ErrorCode::Denied),
-                Err(error) => Err(error),
-            };
+                        material.insert(reference, field, Zeroizing::new(value.clone()));
+                    }
+                    if cancel2.is_cancelled() {
+                        return Err(ErrorCode::Cancelled);
+                    }
+                    if Instant::now() >= deadline {
+                        return Err(ErrorCode::Expired);
+                    }
+                    let job = s
+                        .deliveries
+                        .jobs
+                        .get_mut(&request2.operation_id)
+                        .ok_or(ErrorCode::Unavailable)?;
+                    if job.status.state != DeliveryState::Pending {
+                        return Err(ErrorCode::Conflict);
+                    }
+                    job.status.state = DeliveryState::Running;
+                    job.status.may_have_run = true;
+                    Ok(material)
+                })
+                .await
+            }
+            Ok(_) if cancel.is_cancelled() => Err(ErrorCode::Cancelled),
+            Ok(_) => Err(ErrorCode::Denied),
+            // Native prompt teardown can return Denied. As with browser fills,
+            // preserve explicit expiry, otherwise report the broker's cancellation.
+            Err(ErrorCode::Expired) => Err(ErrorCode::Expired),
+            Err(_) if cancel.is_cancelled() => Err(ErrorCode::Cancelled),
+            Err(error) => Err(error),
+        };
         let outcome = match material {
             Ok(material) => match entry.profile.destination {
                 DeliveryDestination::Http(config) => {

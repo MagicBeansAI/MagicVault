@@ -2,28 +2,42 @@
 
 ## Current component versions
 
-**0.7.0 — narrowed discovery source alpha, 2026-09-08.**
+**0.8.1 — native cancellation receipt correction, 2026-09-08.**
 The [changelog](../CHANGELOG.md) describes the supported functionality and
 [discovery qualification](qualification/results-discovery-2026-09-08.md) records
-execution evidence. A public source repository is not a registry publication,
+prior `0.7.0` evidence, not acceptance of the new [consent policy](consent.md).
+The [consent acceptance record](qualification/results-consent-2026-09-08.md)
+records actual `0.8.0` native selections; the
+[cancellation record](qualification/results-cancellation-2026-09-08.md) covers
+the subsequent fix and its own qualification boundaries.
+A public source repository is not a registry publication,
 binary release, extension store listing or production-safety certification.
 
 | Component | Source version / contract | Compatibility responsibility |
 | --- | --- | --- |
-| `magicvault` CLI, daemon and native-host executable | Package `0.7.0` | Build together from the same checkout; CLI narrowing and native-host forwarding |
-| `magicvault-mcp` | Package `0.7.0` | Optional discovery arguments; matching reference-only client |
-| `magicvault-service` | `0.7.0` | Validates/routes discovery filters; existing consent, installation and custody boundaries |
-| `magicvault-effect` | `0.5.0` | Filtered adapter method/bridge command; bounded extension/CDP discovery |
-| `magicvault-protocol` | `0.5.0` | `BrowserTargetsQuery` and `TargetFilter`; unchanged fill/delivery/IPC framing |
-| Chromium extension | Manifest `0.6.0` | Permission-filtered, loaded-tab discovery with exact narrowing; document binding, fixed identity, reconnect/backoff, pause and site controls retained |
-| Local agent protocol | Wire version `3` | Version mismatches fail closed; not the package version |
+| `magicvault` CLI, daemon and native-host executable | Package `0.8.1` | Matching wire-4 bundle; CLI-only consent inspection/revocation; native-host forwarding |
+| `magicvault-mcp` | Package `0.8.1` | Matching reference-only client; no tool can grant consent |
+| `magicvault-service` | `0.8.1` | Exact-use native consent, bounded durable grants and revocation; destination, installation and custody checks retained |
+| `magicvault-effect` | `0.6.0` | Matching protocol types; delivery adapters and bounded extension/CDP discovery retained |
+| `magicvault-protocol` | `0.6.0` | Closed consent scopes/list/revoke/reset variants; existing fill/delivery requests and byte framing retained |
+| Chromium extension | Manifest `0.6.1` | Permission-filtered, loaded-tab discovery with exact narrowing; document binding, fixed identity, reconnect/backoff, pause and site controls retained |
+| Local agent protocol | Wire version `4` | Version mismatches fail closed; not the package version |
 | Native connection | Handshake `2`; effect/config schemas `1` | Matching extension/host/daemon required; no silent downgrade |
 | `magicvault-core` | `0.1.3`, unchanged | Existing embedded custody/API/vault format/key identity retained |
 | `magicvault-primitives` | `0.1.1`, unchanged | Existing utility contract retained |
 | MagicRun `tool-runtime-core` | Public Git dependency `0.1.73` | Existing public coordinator; exact source recorded in Cargo.lock; runtime unchanged |
 | `magicvault-test-support` | `0.4.0`, `publish = false` | Test-only, not a production surface |
 
-The preceding local candidate was `0.6.2` with the same agent wire `3`.
+The preceding local candidate was `0.8.0`, also using wire `4`. This patch changes
+only pending process/HTTP cancellation receipt classification; it does not change
+consent authority, the native provider, adapters or persisted formats. Version
+`0.8.0` introduced wire `4` (replacing `0.7.0` wire `3`) for closed consent
+list/revoke/reset requests. No agent request can
+create a grant. Existing registries load with no grants; saved grant fields
+require the newer standalone reader. Persistent extension/profile grants and
+connection-only CDP grants have different lifetimes, documented in the consent guide.
+
+The retained discovery narrowing was introduced by `0.7.0`:
 The new optional discovery fields preserve unfiltered JSON requests; Rust callers
 use `BrowserTargetsQuery` instead of `BrowserQuery` for discovery (the latter
 still identifies disconnects). Protocol/effect minor versions mark those public
@@ -32,9 +46,10 @@ adapters that can exceed their inspection budget should implement early narrowin
 Filtered native commands require the updated extension/host/daemon: an old
 worker refuses them, never silently falls back to broader delivery. Upgrade the
 matching bundle and verify the loaded extension version before using narrowing.
-The change adds no agent tool or credential-delivery authority. Browser
-permissions, destination profiles, encrypted vault formats and key identities
-are preserved. No credential gains a recipient merely because software is installed.
+The consent change adds no model-facing grant tool. Browser permissions,
+destination profiles, encrypted vault formats and key identities are preserved.
+No credential gains a recipient merely because software is installed. Only a
+native Always allow decision grants repeated exact-use authority.
 
 Shared libraries version independently. Magician does not acquire CLI, MCP,
 daemon, extension, HTTP or MagicRun adapter dependencies by importing custody
@@ -52,7 +67,7 @@ release or store listing is asserted.
 
 For managed installations, update matching npm packages and explicitly run
 `magicvault upgrade`; npm itself never replaces a daemon. For manual installations,
-stop the daemon, use matching 0.7.x CLI/MCP/native-host binaries and extension 0.6.x,
+stop the daemon, use matching 0.8.x CLI/MCP/native-host binaries and extension 0.6.x,
 then restart and rediscover fresh handles. Run `magicvault setup` (or source
 `extension install`) to select the fixed bundled identity. The old path-derived
 extension may need removal/reloading and explicit restoration of grants/blocks;

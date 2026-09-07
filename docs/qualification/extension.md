@@ -48,10 +48,10 @@ existing host registration to make a test pass.
 | X-04 permission removal | Remove site permission and attempt a freshly bound fill | Refused; no implicit regrant or fallback to another browser transport |
 | X-05 controls/frames | Use `/controls` and `/frames` case matrix | Strict refusal/partial semantics; correct same-origin frame; opaque target never receives a value |
 | X-06 consent race | Navigate/close tab while fill consent is pending | Replacement/closed target is not filled |
-| X-07 reconnect | Restart worker, host or daemon after approval | Automatic reconnect with backoff and fresh handles; no repeated approval or replay of pending/uncertain effects |
+| X-07 reconnect | Restart worker, host or daemon after approval | Automatic reconnect with backoff and fresh handles; no repeated connection approval or replay of pending/uncertain effects; use consent remains separate |
 | X-08 channel boundary | Inspect CLI/MCP result and sanitized audit | No values, page dumps, raw exceptions or full query URLs in own agent channels |
 | X-09 removal | Disconnect, unload extension, then remove exact managed host | Only managed definitions removed; foreign/modified files refused; vault/key/pairing untouched |
-| X-10 all HTTPS | In a fresh profile, deny then approve **Allow all HTTPS websites**; use synthetic data and a trusted HTTPS test origin | Denial preserves grants; approval discovers HTTPS without per-site grants; local HTTP still requires its own grant; credential policy and per-fill native consent still apply |
+| X-10 all HTTPS | In a fresh profile, deny then approve **Allow all HTTPS websites**; use synthetic data and a trusted HTTPS test origin | Denial preserves grants; approval discovers HTTPS without per-site grants; local HTTP still requires its own grant; credential policy and native per-use or exact remembered consent still apply |
 | X-11 selected reset | Grant all HTTPS and local HTTP, then **Clear HTTPS access — use selected sites** | HTTPS grants cleared, local HTTP and blocks retained; individual HTTPS grants work afterward |
 | X-12 site blocks | Disable allowed top/frame origins, including after discovery but before fill approval; repeat with alternate ports/trailing-dot host | Blocked targets omitted/refused even under all-HTTPS grant; a blocked top excludes all frames; unrelated sites remain usable |
 | X-13 restart/settings | Reopen setup in two tabs, block/unblock, restart worker/browser; allow a blocked site | Stored blocks remain; setup tabs refresh; allowing a site does not clear its block; re-enable removes only the block, not credential checks |
@@ -63,6 +63,9 @@ existing host registration to make a test pass.
 | X-19 revocation | Disconnect one native browser through CLI, then separately revoke its client | Profile cannot auto-reconnect; unrelated profiles survive profile revocation; all client profiles stop after client revocation |
 | X-20 outage | Leave daemon unavailable through several alarms; reopen options/restart worker | 30–300-second backoff (up to five seconds jitter, Chrome may delay); no overlapping hosts, prompt floods or operation replay |
 | X-21 large profile | With many unrelated or granted tabs, discover using exact `top_origin` and optionally backend `tab_id` | Narrowing happens before inspection bounds; only matching permitted targets returned; exact ports and actual documents rechecked. Oversized matching sets still return `capacity`, not a partial list; no grant changes or unrelated tab closure |
+| X-22 consent modes | Allow once, deny the next new use; then Always allow and request a fresh matching fill | Allow once does not persist; Always allow skips only exact matching use prompts; fresh target/document validation still runs |
+| X-23 remembered permission removal | With an exact-use grant, remove fixture site access or block the site, then attempt a fresh fill | No delivery despite remembered use; no regrant/fallback; restoring site access does not itself delete the remembered use grant |
+| X-24 remembered scope/recovery | Change selector/frame mapping or use another profile; reconnect the approved profile; finally revoke the use grant | Changed scope asks separately; exact extension-profile grant survives reconnect; revoked scope asks again; no pending operation replay |
 
 For X-09 use the same explicit root:
 

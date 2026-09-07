@@ -2,6 +2,21 @@
 
 ## Current evidence
 
+The [0.8.1 cancellation record](qualification/results-cancellation-2026-09-08.md)
+records 251 Rust and 84 JavaScript passes, packaged qualification and genuine
+installed HTTP-reset/process-cancellation passes, subsequent human denial and
+process-grant restart/reuse. It also records upgrade readiness recovery after
+human Keychain approval and automatic extension reconnection. Original failures
+remain recorded, not replaced by later passes.
+
+The [0.8.0 consent record](qualification/results-consent-2026-09-08.md) covers
+248 Rust and 84 JavaScript tests, compilation, exact-use policy review and local
+packaged/real-browser conformance. Its genuine native cases separately cover
+process/HTTP consent modes, revocation and HTTP grant persistence. Source and
+packaged extension startup timeouts reproduced; later
+passing diagnostic trials do not establish a fix. Prior version results below
+must not be treated as acceptance of the new policy.
+
 The [0.7.0 discovery and installed acceptance record](qualification/results-discovery-2026-09-08.md)
 adds permission-aware large-profile enumeration and exact origin/tab narrowing.
 It records 235 Rust tests, 84 JavaScript tests, actual CDP/CLI/native-extension
@@ -46,7 +61,9 @@ for counts, commands, environments and limits. Real-browser cases stay ignored
 in the default suite and run through explicit targets. Versioned test results
 remain technical evidence, not a production-readiness claim.
 
-No coverage-percentage tool or CI ran in these local qualification sessions.
+No coverage-percentage tool ran. The separate
+[committed 0.7.0 CI results](qualification/results-release-2026-09-08.md) do not
+qualify the new 0.8.1 working tree.
 Automated CLI/native-extension lanes use test-only human and key providers;
 the separately recorded installed acceptance uses genuine native UI/keychain.
 Small-sample local latency is measured, not a production benchmark. Browser

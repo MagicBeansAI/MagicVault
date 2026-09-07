@@ -26,8 +26,8 @@ automatic mutation retries. The SDK MCP transport separately limits inbound
 messages to 32 KiB and replies to 1 MiB, and routes at most eight active tool calls.
 Its writes/close have five-second deadlines; a partial-write failure closes the
 writer without retry. The registry is bounded to 32 clients × 256 references
-and 1 MiB of serialized state including at most 64 browser-permission rows and
-16 delivery profiles of at most 12 KiB each.
+and 1.25 MiB of serialized state including at most 64 browser-permission rows and
+16 delivery profiles and 16 remembered-use grants of at most 12 KiB each.
 Enrollment allows eight 4096-byte text fields.
 Native consent metadata is bounded to 16 KiB so valid browser rules and escaped
 selectors are not silently truncated. Secret answers remain bounded to 4096 bytes.
@@ -35,7 +35,7 @@ After SDK completion the MCP client bounds runtime teardown to 250 ms so an
 uncancellable Tokio stdio task cannot indefinitely hold the process open. This
 client owns no store writes; the custody daemon does not use bounded teardown.
 
-Envelope fields: `version: 3`, UUID `request_id`, daemon `epoch` (from status),
+Envelope fields: `version: 4`, UUID `request_id`, daemon `epoch` (from status),
 optional pairing `token`, and a tagged `request` with `method` / optional `params`.
 Every non-status request binds the current epoch. No caller sends a grant decision
 or plaintext vault field through this protocol. Parse/OS/keychain errors use
@@ -62,10 +62,17 @@ closed codes; raw diagnostic text and process output are never replies.
 | `register_delivery_profile {label, destination}` | Paired human CLI; full bounded reference-only profile, native consent and process digest capture; no effect |
 | `list_delivery_profiles` | Only own profile IDs, labels and kinds |
 | `remove_delivery_profile {profile_id}` | Owning paired CLI; narrows authority and cancels related work |
-| `secure_new_process {operation_id, profile_id}` | Exact registered process; fresh native consent; receipt only |
-| `secure_new_http {operation_id, profile_id}` | Exact registered HTTP request; fresh native consent; receipt only |
+| `secure_new_process {operation_id, profile_id}` | Exact registered process; native per-use or remembered exact-profile consent; receipt only |
+| `secure_new_http {operation_id, profile_id}` | Exact registered HTTP request; native per-use or remembered exact-profile consent; receipt only |
 | `delivery_status {operation_id}` | Only owning paired client; closed receipt, available after audit failure |
 | `cancel_delivery {operation_id}` | Cancellation request, not proof of non-dispatch or rollback |
+| `list_consents` | Human CLI: only this paired client's grant IDs/labels/reference-only scopes |
+| `revoke_consent {grant_id}` | Owning CLI: remove one grant, cancel matching effects, invalidate pending native decisions |
+| `clear_consents` | Owning CLI: remove all own grants and cancel own effect jobs; never grants authority |
+
+These consent-management methods are deliberately absent from MCP. Only the
+daemon's native use dialog can create Always allow grants. See [consent scope,
+durability, bounds and recovery](consent.md).
 
 MCP translates `request_approval` to `request_access`, and `vault_status` to
 `status`. Its catalog is a fixed subset, not automatic exposure of every request.
@@ -80,7 +87,7 @@ with a fixed script, metadata argv, private bounded answer pipe and discarded st
 `ai.magicbeans.magicvault`, account `instance-UUID`, never Magician's names.
 The daemon caches the loaded key for its lifetime. `clients.json` contains
 versioned paired-client hashes, metadata ACLs, explicit standalone browser
-permissions and caller-owned fixed delivery profiles/digests. Core vault bytes stay in
+permissions, caller-owned fixed delivery profiles/digests and optional exact-use consent grants. Core vault bytes stay in
 `ROOT/vault`, using existing encryption/partition formats. No key/vault import,
 replacement, migration, automatic data cleanup or ambient credential discovery.
 Initialization syncs the parent entry naming the private root before creating
@@ -237,4 +244,4 @@ extension page. Its trusted local storage includes a profile-pairing capability,
 not enrolled credentials. Independent profiles coexist; simultaneous duplicate
 identities fail closed. Reconnect gets fresh handles. `disconnect_browser` now
 also revokes an extension profile's remembered reconnection grant; CDP semantics
-and local agent wire 3 are unchanged. Host configuration remains version 1.
+are unchanged; local agent wire 4 adds closed consent management. Host configuration remains version 1.

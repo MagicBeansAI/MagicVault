@@ -123,6 +123,15 @@ enum Command {
         request_file: PathBuf,
     },
     ListDeliveryProfiles,
+    /// List this client's exact-use Always allow grants (never credential values).
+    ListConsents,
+    /// Return one exact use to native per-use prompts; cancel matching work.
+    RevokeConsent {
+        #[arg(long)]
+        grant_id: Uuid,
+    },
+    /// Forget all this client's Always allow grants and cancel its effect jobs.
+    ClearConsents,
     /// Remove this client's profile and cancel its pending/running deliveries.
     RemoveDeliveryProfile {
         #[arg(long)]
@@ -410,6 +419,11 @@ async fn run(cli: Cli) -> Result<serde_json::Value, ErrorCode> {
                     )
                 }
                 Command::ListDeliveryProfiles => Request::ListDeliveryProfiles,
+                Command::ListConsents => Request::ListConsents,
+                Command::RevokeConsent { grant_id } => {
+                    Request::RevokeConsent(ConsentQuery { grant_id })
+                }
+                Command::ClearConsents => Request::ClearConsents,
                 Command::RemoveDeliveryProfile { profile_id } => {
                     Request::RemoveDeliveryProfile(ProfileQuery { profile_id })
                 }

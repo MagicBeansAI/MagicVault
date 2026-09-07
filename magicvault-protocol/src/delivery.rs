@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use uuid::Uuid;
 
-// Reserve room alongside the maximum metadata ACL and browser-permission
-// registry in the existing 1 MiB durable standalone state format.
+// Reserve room alongside metadata ACLs, browser permissions and remembered
+// consent. The service tests aggregate capacity against its durable state cap.
 pub const MAX_DELIVERY_PROFILES: usize = 16;
 pub const MAX_DELIVERY_JOBS: usize = 32;
 pub const MAX_PROFILE_BYTES: usize = 12 * 1024;

@@ -2,7 +2,7 @@
   <h1>MagicVault</h1>
   <p><strong>Let agents use credentials without seeing them</strong></p>
   <p>
-    <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/source-v0.7.0%20alpha-7C3AED.svg" alt="Source version 0.7.0 alpha" /></a>
+    <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/source-v0.8.1%20alpha-7C3AED.svg" alt="Source version 0.8.1 alpha" /></a>
     <a href="#quick-start"><img src="https://img.shields.io/badge/standalone-macOS-lightgrey.svg" alt="Standalone host: macOS" /></a>
     <a href="#license"><img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg" alt="MIT or Apache-2.0 license" /></a>
   </p>
@@ -24,8 +24,9 @@ the credential, and separate browser tools can still read it afterward.
 > [!WARNING]
 > **Source alpha.** No public release or npm registry installation yet; local
 > candidate packages only. Basic installed-browser/keychain/native-consent
-> acceptance passed on one macOS/Chrome setup; broader lifecycle and signed-release
-> qualification remain open.
+> acceptance passed for 0.7.0 on one macOS/Chrome setup. The new remembered-consent
+> policy, remaining recovery cases and signed-release qualification have separate
+> acceptance gates.
 > Start with synthetic credentials. [Evidence and limits](docs/testing.md).
 
 ## How it works
@@ -33,7 +34,8 @@ the credential, and separate browser tools can still read it afterward.
 1. **You enroll and authorize** through native prompts—not chat.
 2. **The agent requests a use** with `secure_fill`, `secure_new_http` or
    `secure_new_process`, passing references instead of values.
-3. **You approve each delivery.** MagicVault checks the destination and returns
+3. **You control consent.** Approve each delivery or explicitly remember an exact
+   use with **Always allow**. MagicVault checks the destination and returns
    a receipt. Your browser tool still owns navigation and submission.
 
 <a id="choose-your-interface"></a>
@@ -57,8 +59,8 @@ These are local filenames, **not published npm package names**.
 ```bash
 export MAGICVAULT_NPM_DIR="$HOME/.local/share/magicvault-npm"
 npm install --prefix "$MAGICVAULT_NPM_DIR" --ignore-scripts \
-  ./magicvault-local-magicvault-darwin-arm64-0.7.0.tgz \
-  ./magicvault-local-magicvault-0.7.0.tgz
+  ./magicvault-local-magicvault-darwin-arm64-0.8.1.tgz \
+  ./magicvault-local-magicvault-0.8.1.tgz
 export PATH="$MAGICVAULT_NPM_DIR/node_modules/.bin:$PATH"
 magicvault --profile agent setup
 magicvault --profile agent doctor
@@ -78,6 +80,9 @@ Keep the daemon running.
 Choose your client. These commands use the default paths and paired profile
 `agent`; custom installations should use the configuration printed by `setup`.
 MCP does not start the daemon or bypass native consent.
+
+[Consent modes and revocation](docs/consent.md): per-use is the default; only the
+human can create an exact-use Always allow grant. Website access is separate.
 
 ```bash
 # Codex

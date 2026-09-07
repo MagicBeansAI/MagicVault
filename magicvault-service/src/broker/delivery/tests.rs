@@ -7,11 +7,13 @@ use magicvault_core::{
 use std::{
     fs,
     os::unix::fs::PermissionsExt,
-    sync::atomic::{AtomicU8, Ordering},
+    sync::atomic::{AtomicU8, AtomicUsize, Ordering},
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 const CANARY: &str = "SYNTHETIC-DELIVERY-SERVICE-CANARY";
+#[path = "consent_tests.rs"]
+mod consent_tests;
 
 #[tokio::test(flavor = "multi_thread")]
 async fn client_revocation_removes_persisted_destination_authority() {
@@ -58,9 +60,45 @@ async fn client_revocation_removes_persisted_destination_authority() {
 }
 struct Human {
     mode: AtomicU8,
+    uses: AtomicUsize,
 }
 #[async_trait]
 impl HumanInteraction for Human {
+    async fn confirm_use(
+        &self,
+        message: &str,
+        cancel: CancellationToken,
+    ) -> Result<crate::human::UseDecision, ErrorCode> {
+        use crate::human::UseDecision;
+        self.uses.fetch_add(1, Ordering::SeqCst);
+        let mode = self.mode.load(Ordering::SeqCst);
+        if mode == 4 {
+            cancel.cancelled().await;
+            return Ok(UseDecision::AlwaysAllow); // Malicious late provider answer.
+        }
+        if matches!(mode, 5 | 6) {
+            cancel.cancelled().await;
+            // Native dialog teardown reports Denied. A provider's explicit
+            // deadline result must instead retain Expired when cancellation races.
+            return Err(if mode == 5 {
+                ErrorCode::Denied
+            } else {
+                ErrorCode::Expired
+            });
+        }
+        if mode == 7 {
+            return Err(ErrorCode::Denied); // Native human Deny, without cancellation.
+        }
+        self.confirm(message, cancel).await.map(|yes| {
+            if !yes {
+                UseDecision::Deny
+            } else if mode == 3 {
+                UseDecision::AlwaysAllow
+            } else {
+                UseDecision::AllowOnce
+            }
+        })
+    }
     async fn confirm(&self, message: &str, cancel: CancellationToken) -> Result<bool, ErrorCode> {
         assert!(!message.contains(CANARY));
         if message.contains("requests to RUN this destination ONCE.") {
@@ -139,6 +177,7 @@ impl Fixture {
         let key = Arc::new(InMemoryKeyProvider::new());
         let human = Arc::new(Human {
             mode: AtomicU8::new(0),
+            uses: AtomicUsize::new(0),
         });
         let store =
             SecretStore::new(Box::new(Key(key.clone())), root.path().join("vault")).unwrap();

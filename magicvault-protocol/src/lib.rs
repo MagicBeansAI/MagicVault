@@ -8,10 +8,12 @@ mod browser;
 pub use browser::*;
 mod delivery;
 pub use delivery::*;
+mod consent;
+pub use consent::*;
 
 // Closed enums require matching standalone executables; persisted vault and
 // registry formats and embedded core APIs are independent of this wire version.
-pub const VERSION: u32 = 3;
+pub const VERSION: u32 = 4;
 pub const MAX_FRAME_BYTES: usize = 32 * 1024;
 pub const MAX_REPLY_BYTES: usize = 256 * 1024;
 pub const MAX_FIELDS: usize = 8;
@@ -68,6 +70,9 @@ pub enum Request {
     SecureNewHttp(SecureDelivery),
     DeliveryStatus(FillQuery),
     CancelDelivery(FillQuery),
+    ListConsents,
+    RevokeConsent(ConsentQuery),
+    ClearConsents,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -162,6 +167,8 @@ pub enum Response {
     DeliveryProfiles(Vec<DeliveryProfileInfo>),
     DeliveryProfileRemoved,
     Delivery(DeliveryStatus),
+    Consents(Vec<ConsentGrantInfo>),
+    ConsentRevoked,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -249,6 +256,7 @@ impl Request {
                         == p.field_names.len()
             }
             Self::RequestAccess(p) => valid_reference(&p.credential_ref),
+            Self::RevokeConsent(p) => !p.grant_id.is_nil(),
             Self::RegisterCdp(p) => {
                 valid_label(&p.label)
                     && p.endpoint.len() <= 512

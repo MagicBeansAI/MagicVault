@@ -2,9 +2,13 @@
 
 Use the CLI when your agent has shell access but no MCP support, or when you want
 explicit Bash/tool-wrapper calls. MCP is not required. The same paired daemon,
-destination policy and per-use native consent apply: a script is **not** an
+destination policy and native per-use or explicitly remembered consent apply: a script is **not** an
 unattended/headless-CI credential runner. The CLI also contains human administration
 commands; scripts must not try to grant themselves approval.
+
+See [consent modes](consent.md) for exact scopes and lifetimes. Human administration
+uses `list-consents`, `revoke-consent --grant-id GRANT_UUID`, or `clear-consents`
+to inspect or remove remembered uses. These commands cannot grant approval.
 
 | Operation | MCP tool | CLI command |
 | :--- | :--- | :--- |
@@ -83,7 +87,7 @@ magicvault --profile agent secure-new-http \
 magicvault --profile agent delivery-status --operation-id "$operation_id"
 ```
 
-Registration and each invocation request separate native consent. The agent can
+Registration requests native consent. Invocations need separate native consent unless the human has remembered that exact use. The agent can
 select a profile ID, **not override its destination**. `completed` is a transport/
 process receipt, not proof of application success. Output is deliberately withheld,
 including encoded credential echoes. A missing or uncertain result never means

@@ -15,10 +15,10 @@ const MAX_NATIVE_GRANTS: usize = 128;
 #[serde(deny_unknown_fields)]
 pub(super) struct NativeGrant {
     pub client_id: Uuid,
-    extension_id: String,
-    profile_id: Uuid,
+    pub(super) extension_id: String,
+    pub(super) profile_id: Uuid,
     token_hash: [u8; 32],
-    allowed: bool,
+    pub(super) allowed: bool,
 }
 
 pub(super) fn valid_native_grants(registry: &Registry) -> bool {
@@ -81,6 +81,7 @@ struct FillJob {
     status: FillStatus,
     cancel: CancellationToken,
     retain_until: Instant,
+    consent: ConsentTicket,
 }
 
 #[derive(Default)]
@@ -93,6 +94,18 @@ pub(super) struct BrowserState {
     used_operations: BTreeSet<Uuid>,
 }
 impl BrowserState {
+    pub(super) fn session_live(&self, handle: Uuid) -> bool {
+        self.instances.contains_key(&handle)
+    }
+    pub(super) fn cancel_consents(&self, owner: Uuid, scope: Option<&ConsentScope>) {
+        for job in self
+            .fills
+            .values()
+            .filter(|j| j.owner == owner && scope.is_none_or(|s| *s == j.consent.scope))
+        {
+            job.cancel.cancel();
+        }
+    }
     pub(super) fn reap(&mut self, now: Instant) {
         self.instances.retain(|_, b| b.adapter.connected());
         for job in self
@@ -171,7 +184,7 @@ fn allowed(state: &State, auth: &Auth, target: &Target, field: &FillField) -> bo
 }
 
 fn rule_prompt(label: &str, credential: &str, rule: &BrowserRule) -> String {
-    format!("Configure browser use for client {label}: credential {credential} ({}), fields {}. Exact permitted origins for BOTH page and selected frame: {}. An empty origin list removes permission. Each fill still requires its own human decision. Websites receive the filled values; other browser tools can observe them. Allow?",rule.credential_ref,rule.field_names.join(", "),rule.origins.join(", "))
+    format!("Configure browser use for client {label}: credential {credential} ({}), fields {}. Exact permitted origins for BOTH page and selected frame: {}. An empty origin list removes permission. This resets remembered fills using this credential; future fills need a native decision unless you explicitly remember their exact use. Websites receive the filled values; other browser tools can observe them. Allow?",rule.credential_ref,rule.field_names.join(", "),rule.origins.join(", "))
 }
 
 fn fill_prompt(label: &str, request: &SecureFill, target: &Target) -> String {
@@ -377,7 +390,7 @@ impl Broker {
             Ok(())
         })
         .await?;
-        if !self.human.confirm(&format!("Allow automatic browser connections for client {label}, extension {}, profile {profile_id}? Check the profile ID on its setup page. This remembers target-discovery access on permitted sites, not credential use. Every fill still needs separate permission and consent. Disconnecting this browser through MagicVault revokes reconnection.", hello.extension_id), cancel.clone()).await? {
+        if !self.human.confirm(&format!("Allow automatic browser connections for client {label}, extension {}, profile {profile_id}? Check the profile ID on its setup page. This remembers target-discovery access on permitted sites, not credential use. Every fill still needs separate credential permission and native per-use or explicitly remembered exact-use consent. Disconnecting this browser through MagicVault revokes reconnection.", hello.extension_id), cancel.clone()).await? {
             return Err(ErrorCode::Denied);
         }
         let auth2 = auth.clone();
@@ -466,6 +479,9 @@ impl Broker {
                 return Err(ErrorCode::Capacity);
             }
             b.audit(s, "standalone_browser_policy_requested", id)?;
+            s.consent_epochs.insert(auth.id, Uuid::new_v4());
+            s.registry.consents.retain(|g| g.owner != auth.id || !matches!(&g.info.scope,
+                ConsentScope::Browser { fields, .. } if fields.iter().any(|f| f.credential_ref == rule.credential_ref)));
             s.registry.browser_permissions.retain(|p| {
                 !(p.client_id == auth.id && p.rule.credential_ref == rule.credential_ref)
             });
@@ -671,6 +687,27 @@ impl Broker {
                 .ok_or(ErrorCode::NotFound)?;
             browser.adapter.disconnect();
             let native_profile = browser.native_profile.clone();
+            s.registry.consents.retain(|g| {
+                g.owner != auth.id
+                    || !match &g.info.scope {
+                        ConsentScope::Browser {
+                            browser: ConsentBrowser::Session { browser_handle },
+                            ..
+                        } => *browser_handle == query.browser_handle,
+                        ConsentScope::Browser {
+                            browser:
+                                ConsentBrowser::Extension {
+                                    extension_id,
+                                    profile_id,
+                                },
+                            ..
+                        } => native_profile.as_ref().is_some_and(|p| {
+                            p.extension_id == *extension_id && p.profile_id == *profile_id
+                        }),
+                        _ => false,
+                    }
+            });
+            s.consent_epochs.insert(auth.id, Uuid::new_v4());
             if let Some(profile) = native_profile {
                 for grant in s.registry.native_grants.iter_mut().filter(|g| {
                     g.client_id == auth.id
@@ -679,8 +716,8 @@ impl Broker {
                 }) {
                     grant.allowed = false;
                 }
-                b.save(s)?;
             }
+            b.save(s)?;
             s.browsers.instances.remove(&query.browser_handle);
             s.browsers
                 .targets
@@ -746,6 +783,32 @@ impl Broker {
                         .ok_or(ErrorCode::StaleTarget)?
                         .adapter,
                 );
+                let browser = s
+                    .browsers
+                    .instances
+                    .get(&req2.browser_handle)
+                    .ok_or(ErrorCode::StaleTarget)?;
+                let identity = match &browser.native_profile {
+                    Some(p) => ConsentBrowser::Extension {
+                        extension_id: p.extension_id.clone(),
+                        profile_id: p.profile_id,
+                    },
+                    None => ConsentBrowser::Session {
+                        browser_handle: req2.browser_handle,
+                    },
+                };
+                let consent = consent::ticket(
+                    s,
+                    auth2.id,
+                    browser.info.label.clone(),
+                    ConsentScope::Browser {
+                        browser: identity,
+                        top_origin: bound.target.top_origin.clone(),
+                        frame_origin: bound.target.origin.clone(),
+                        is_main_frame: bound.target.is_main_frame,
+                        fields: req2.fields.clone(),
+                    },
+                );
                 let permit = Arc::clone(&b.human_gate)
                     .try_acquire_owned()
                     .map_err(|_| ErrorCode::Busy)?;
@@ -769,18 +832,22 @@ impl Broker {
                         status: status.clone(),
                         cancel: cancel.clone(),
                         retain_until: Instant::now() + Duration::from_secs(600),
+                        consent: consent.clone(),
                     },
                 );
-                Ok((status, Some((label, bound, adapter, permit, cancel))))
+                Ok((
+                    status,
+                    Some((label, bound, adapter, permit, cancel, consent)),
+                ))
             })
             .await?;
         let (status, work) = reserved;
-        if let Some((label, bound, adapter, permit, cancel)) = work {
+        if let Some((label, bound, adapter, permit, cancel, consent)) = work {
             let broker = Arc::clone(self);
             tokio::spawn(async move {
                 let _permit = permit; // Held through native cleanup and final audit.
                 broker
-                    .run_fill(auth, request, label, bound, adapter, cancel)
+                    .run_fill(auth, request, label, bound, adapter, cancel, consent)
                     .await;
             });
         }
@@ -795,11 +862,17 @@ impl Broker {
         bound: BoundTarget,
         adapter: Arc<dyn BrowserAdapter>,
         cancel: CancellationToken,
+        consent: ConsentTicket,
     ) {
         let id = request.operation_id;
         let count = request.fields.len();
-        let message = fill_prompt(&label, &request, &bound.target);
-        let decision = self.human.confirm(&message, cancel.clone());
+        let lifetime = if consent::session_scope(&consent.scope).is_some() {
+            "this live browser connection only; disconnect/restart forgets it"
+        } else {
+            "this exact extension profile, including after reconnect/restart"
+        };
+        let message = format!("{}\nAllow once asks again next time. Always allow remembers this paired client, {lifetime}, exact page/frame origins, main-frame versus iframe, and the full credential/selector mapping (not a single tab or document). Revoke with list-consents/revoke-consent. Site permission and document checks still apply.", fill_prompt(&label, &request, &bound.target));
+        let decision = consent.decide(self.human.as_ref(), &message, cancel.clone());
         tokio::pin!(decision);
         let confirmed = tokio::select! {
             result = &mut decision => result,
@@ -808,7 +881,8 @@ impl Broker {
             },
         };
         let delivery = match confirmed {
-            Ok(true) if !cancel.is_cancelled() => {
+            Ok(choice) if choice != crate::human::UseDecision::Deny && !cancel.is_cancelled() => {
+                let consent = consent.clone();
                 let (auth2, req2, target2, cancel2) = (
                     auth.clone(),
                     request.clone(),
@@ -832,6 +906,7 @@ impl Broker {
                     if !s.browsers.instances.contains_key(&req2.browser_handle) {
                         return Err(ErrorCode::StaleTarget);
                     }
+                    b.authorize_use(s, &auth2, &consent, choice, id)?;
                     b.audit(s, "standalone_fill_authorized", id)?;
                     if cancel2.is_cancelled() {
                         return Err(ErrorCode::Cancelled);

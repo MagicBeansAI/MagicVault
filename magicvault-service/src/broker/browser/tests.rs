@@ -1,4 +1,6 @@
 use super::*;
+#[path = "consent_tests.rs"]
+mod consent_tests;
 #[path = "native_tests.rs"]
 mod native_tests;
 use async_trait::async_trait;
@@ -118,9 +120,26 @@ struct Human {
     deny_fill: AtomicBool,
     block_fill: AtomicBool,
     prompts: AtomicUsize,
+    remember: AtomicBool,
 }
 #[async_trait]
 impl HumanInteraction for Human {
+    async fn confirm_use(
+        &self,
+        message: &str,
+        cancel: CancellationToken,
+    ) -> Result<crate::human::UseDecision, ErrorCode> {
+        use crate::human::UseDecision;
+        self.confirm(message, cancel).await.map(|allow| {
+            if !allow {
+                UseDecision::Deny
+            } else if self.remember.load(Ordering::SeqCst) {
+                UseDecision::AlwaysAllow
+            } else {
+                UseDecision::AllowOnce
+            }
+        })
+    }
     async fn confirm(&self, message: &str, cancel: CancellationToken) -> Result<bool, ErrorCode> {
         assert!(!message.contains(CANARY));
         if message.starts_with("Allow automatic browser") {
@@ -243,6 +262,7 @@ impl Fixture {
             deny_fill: AtomicBool::new(false),
             block_fill: AtomicBool::new(false),
             prompts: AtomicUsize::new(0),
+            remember: AtomicBool::new(false),
         });
         let broker = Broker::with_components(lease, store, human.clone()).unwrap();
         let Response::Paired(pair) = invoke(

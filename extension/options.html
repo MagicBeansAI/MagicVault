@@ -11,7 +11,7 @@
 <strong id="access-mode">Checking browser permissions…</strong>
 <span>Browser permission only. Disabled sites, Chrome site restrictions and credential approvals still apply.</span>
 </div>
-<p>Allow all HTTPS websites once, or grant selected websites individually. Neither choice authorizes a credential: MagicVault still enforces exact page/frame origins, selected fields and native approval for every fill. Existing installations keep their permissions; no broad access is granted automatically.</p>
+<p>Allow all HTTPS websites once, or grant selected websites individually. Neither choice authorizes a credential: MagicVault still enforces exact page/frame origins, selected fields and native credential approval. The daemon asks each time unless you explicitly choose Always allow for an exact use. Existing installations keep their permissions; no broad access is granted automatically.</p>
 <div><button id="allow-all">Allow all HTTPS websites</button><button id="selected-only">Clear HTTPS access — use selected sites</button></div>
 <p id="permission-status" role="status"></p>
 <p>Clearing HTTPS access removes all HTTPS grants; then allow individual sites below. Local HTTP grants and disabled sites are retained. Broad access increases the extension’s reach if compromised. Chrome can still restrict site access.</p>

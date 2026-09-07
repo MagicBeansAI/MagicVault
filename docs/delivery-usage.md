@@ -11,6 +11,10 @@ See [setup](setup.md), [security](../SECURITY.md) and [qualification](qualificat
 
 ## Register once; approve each invocation
 
+Per-use approval is the default. The native use dialog can remember an exact
+registered profile with **Always allow**; registration itself never does so.
+[Scope and returning to per-use prompts](consent.md).
+
 1. Pair a client and enroll a synthetic credential using the human CLI. If it
    belongs to another client, explicitly approve metadata access first.
 2. Copy [process-profile.json](../examples/process-profile.json) or
@@ -78,7 +82,7 @@ Each `InputValue` is one of:
 Prefix/suffix are optional fixed text, not expressions. There is no environment,
 shell, file, URL, recursive JSON or arbitrary template evaluation. The broker
 checks that every selected reference and field belongs to the paired client.
-Resolution happens only after fresh consent and durable authorization audit.
+Resolution happens only after native per-use or a revalidated human-created exact-use grant and durable authorization audit.
 
 Profiles are bounded to 12 KiB serialized JSON, 80-byte labels, eight distinct
 credential fields, 4096-byte literals and 256-byte prefixes/suffixes. Profile

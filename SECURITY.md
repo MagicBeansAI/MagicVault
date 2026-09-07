@@ -1,8 +1,9 @@
 # Security boundary and reporting
 
-MagicVault `0.6.0` is a source alpha with scoped automated and historical real-CDP evidence,
-not a production-qualified release. Installed-extension/native-human/keychain
-and broader qualification remain open. Do not use valuable credentials until
+MagicVault `0.8.1` is a source alpha, not a production-qualified release.
+Basic installed-browser/native-human/keychain acceptance passed on one host for
+`0.7.0`; the new remembered-consent policy and broader qualification need separate
+native acceptance. Do not use valuable credentials until
 the relevant [qualification gates](docs/testing.md) pass. Source review, a
 `secure_` name, or password masking is not proof of safety.
 
@@ -21,9 +22,10 @@ embedders must explicitly address their own dependency logging as described in
 
 Authorization is separate from discovery: pairing and metadata consent do not
 grant browser delivery. Browser use needs per-client field/origin permission and
-a native human decision for each document-bound fill. Both top-page and frame
-origins are checked. New-process and HTTP delivery requires human-registered
-fixed recipient profiles plus fresh per-use consent. Profile literals/labels
+a native per-use decision or an explicitly human-created exact-use grant. Both
+top-page and frame origins are checked on each operation. New-process and HTTP
+delivery requires human-registered fixed recipient profiles plus per-use or
+remembered consent for that exact profile and paired client. Profile literals/labels
 are public configuration, not places for credentials. No model-facing raw read, arbitrary JavaScript, generic
 dispatch, material-delivery or human-grant endpoint is provided.
 
@@ -67,7 +69,9 @@ frame sites; it does not revoke Chrome permissions or protect against a compromi
 extension. Trusted local storage contains site settings and a random browser-profile
 pairing capability, never enrolled credentials or fill payloads. The daemon stores
 only the capability hash and remembered authorization/refusal. This authorizes
-reconnection/discovery, not credential use; each fill still needs approval.
+reconnection/discovery, not credential use. Separately, the daemon can remember an
+explicit Always allow decision for an exact browser/field scope; [consent scope
+and revocation](docs/consent.md) describe its wider lifetime and limits.
 Pause stops local retries; daemon-side browser/client revocation removes authority.
 Neither recalls dispatched fills. Reinstalling clears local settings but does not
 revoke the old daemon-side grant. The public manifest key fixes unpacked identity,

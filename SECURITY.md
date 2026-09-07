@@ -73,4 +73,4 @@ profile, and identify the affected version and integration surface.
 
 There is no declared production-supported release or response-time SLA for this
 alpha. Security fixes and their limits are recorded in the changelog and the
-linked review ledger without disclosing user credentials or private operations.
+linked technical documentation without disclosing user credentials or private operations.

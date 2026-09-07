@@ -17,8 +17,9 @@ that would not replace destination, custody, transport or output-boundary tests.
 
 The [browser runbook](browser.md) describes the local pages, exact commands and
 outcome checks. [The dated results](results-2026-09-07.md) distinguish actual
-execution from manual and future gates. Phase 3 and this qualification work
-change **MagicVault only**; MagicRun and embedded Magician code remain unchanged.
+execution from manual and future gates. Browser delivery uses MagicVault's
+standalone surfaces; it does not require MagicRun or change embedded Magician's
+shared custody contract. See the [architecture](../architecture.md).
 
 ## Safety rules
 

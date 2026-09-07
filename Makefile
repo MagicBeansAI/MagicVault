@@ -1,11 +1,38 @@
-export CARGO_TARGET_DIR ?= $(CURDIR)/target
+# Prefer an available external build volume without requiring it on other hosts.
+# An explicit environment/command-line target always wins.
+BUILD_VOLUME ?= /Volumes/SSD1
+ifeq ($(origin CARGO_TARGET_DIR),undefined)
+CARGO_TARGET_DIR := $(shell sh scripts/cargo-target-dir.sh magicvault "$(CURDIR)" "$(BUILD_VOLUME)")
+endif
+ifeq ($(strip $(CARGO_TARGET_DIR)),)
+$(error CARGO_TARGET_DIR must not be empty)
+endif
+export CARGO_TARGET_DIR
 .DEFAULT_GOAL := help
 
 help:
 	@echo "MagicVault: test-compatibility | test-foundation | test-browser | test-browser-native | test-cli-native | test-public-web | test-qualification-fixtures | fixture-site | build-standalone | package-extension | sync-lockfile"
 	@echo "check/test are full lanes; run only when explicitly authorized. Browser native tests require a disposable Chrome/Chromium installation."
+	@echo "Cargo artifacts: $(CARGO_TARGET_DIR) (print-target-dir; override CARGO_TARGET_DIR or BUILD_VOLUME)"
+	@echo "Architecture: check-architecture | test-architecture | architecture-snapshot (candidate only)"
 
-check:
+print-target-dir:
+	@printf '%s\n' "$(CARGO_TARGET_DIR)"
+
+# Routing regression tests only; no Rust compilation or application execution.
+test-build-paths:
+	python3 scripts/tests/test_build_paths.py
+
+check-architecture:
+	python3 scripts/check_architecture.py
+
+architecture-snapshot:
+	@python3 scripts/check_architecture.py --snapshot
+
+test-architecture:
+	python3 scripts/tests/test_architecture.py
+
+check: check-architecture
 	python3 scripts/check_store_durability_adoption.py
 	cargo check --locked --workspace --all-targets
 
@@ -50,7 +77,7 @@ test-cli-native:
 test-public-web:
 	cargo test --locked -p magicvault-effect --test chromium_public -- --ignored --test-threads=1
 
-# Real local HTTP/child processes. These qualify fixture contracts, not Phase 4.
+# Real local HTTP/child processes. These qualify fixtures, not product effects.
 test-qualification-fixtures:
 	node --test scripts/tests/qualification-fixtures.test.mjs
 
@@ -70,4 +97,4 @@ package-extension:
 sync-lockfile:
 	cargo update --workspace
 
-.PHONY: help check test test-compatibility test-foundation test-browser test-browser-native test-cli-native test-public-web test-qualification-fixtures fixture-site build-standalone package-extension sync-lockfile
+.PHONY: help print-target-dir test-build-paths check-architecture architecture-snapshot test-architecture check test test-compatibility test-foundation test-browser test-browser-native test-cli-native test-public-web test-qualification-fixtures fixture-site build-standalone package-extension sync-lockfile

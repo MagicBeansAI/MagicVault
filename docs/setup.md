@@ -13,6 +13,8 @@ the exact `rmcp 3.1.0` SDK dependency. See [testing](testing.md) and
 When build/verification is authorized, follow the focused lanes in
 [testing](testing.md), then use `make build-standalone`.
 The Makefile exports `CARGO_TARGET_DIR`; binaries are under its `release/`.
+Use `make -s print-target-dir` to locate them. Builds prefer an available SSD1
+volume and otherwise use `target/`; see [build location and overrides](testing.md#build-and-test-artifact-location).
 Put `magicvault`, `magicvault-mcp`, and (for the extension)
 `magicvault-native-host` in a stable, trusted executable location.
 The examples assume that location is already on PATH.
@@ -107,7 +109,7 @@ access through that capability and does not erase material or revoke providers.
 
 ## Upgrade and recovery
 
-Phase 3 standalone packages use source version `0.3.0` and local protocol version
+Standalone packages use source version `0.3.0` and local protocol version
 `2`. This is a source alpha, not an announcement of published registry packages
 or an installer. See the [component version matrix](versioning.md).
 Upgrade `magicvault`, `magicvault-mcp` and `magicvault-native-host` together and
@@ -141,5 +143,5 @@ quarantine evidence (`vault/*.corrupt-*`), ACLs referencing missing material,
 or a missing registry beside existing material prevent a healthy empty restart.
 Restore a consistent instance/key/vault/registry backup or reconcile offline with
 a trusted operator. No automatic quarantine deletion, orphan adoption, lost-key
-recovery, or repair tool is shipped in this phase. Do not deploy over valuable
+recovery, or repair tool is currently shipped. Do not deploy over valuable
 credentials before these recovery procedures and the native host are qualified.

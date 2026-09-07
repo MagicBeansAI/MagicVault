@@ -6,9 +6,8 @@
 CLI-to-daemon-to-Chrome, and opt-in public-page smoke cases also pass on the
 recorded Chrome version.** See the [current qualification results](qualification/results-2026-09-07.md)
 for counts, commands, environments and limits. Real-browser cases stay ignored
-in the default suite and run through explicit targets. The
-[earlier verification record](phase3-verification-2026-09-07.md) retains the initial
-build/full-suite and release-mode logging-safeguard evidence.
+in the default suite and run through explicit targets. Versioned test results
+remain technical evidence, not a production-readiness claim.
 
 No installed-extension/native-human/keychain workflow, benchmark,
 coverage-percentage tool or CI ran. Real CLI qualification uses test-only human
@@ -17,14 +16,52 @@ all consumer regressions, broader browser compatibility or production readiness.
 The [qualification index](qualification/README.md) separates executable
 conformance tests, manual acceptance runbooks and future process gates.
 
-Earlier [foundation results](targeted-tests-2026-09-06.md) and
-[durable-audit results](deep-review-2026-09-07.md) belong to their recorded
-revisions. They are not passing evidence for current 0.3.x standalone code.
+## Architecture consistency
+
+`make check-architecture` checks the [versioned architecture](architecture.md)
+against its reviewed source/document fingerprints without compiling. `make check`
+includes it. `make test-architecture` exercises source addition/removal, dependency,
+version and document drift with synthetic fixtures. Baseline refresh is an
+explicit review action, never automatic; see the architecture document.
+
+## Build and test artifact location
+
+All Makefile Cargo lanes—check, build, test, native qualification and dependency
+resolution—export the same `CARGO_TARGET_DIR`. The default is
+`/Volumes/SSD1/magicvault/builds` when the volume and existing path components are
+writable directories; otherwise it is the checkout's ignored `target/`. An
+explicit environment or command-line `CARGO_TARGET_DIR` always wins. Selection
+does not create a missing mount, follow a cache-directory symlink or move data.
+
+```bash
+make print-target-dir
+make build-standalone
+make test
+
+# Another external mount, still with automatic checkout-local fallback:
+make BUILD_VOLUME=/mnt/fast-disk print-target-dir
+
+# Explicit location, or the same routing for raw Cargo commands:
+make CARGO_TARGET_DIR=/absolute/path/to/build-cache build-standalone
+export CARGO_TARGET_DIR="$(make -s print-target-dir)"
+cargo test --locked --workspace
+```
+
+MagicRun uses its own `/Volumes/SSD1/magicrun/builds`, never MagicVault's or an
+embedded consumer's artifact tree. Multiple checkouts/worktrees of the same
+project should use distinct explicit targets when building concurrently.
+Only Cargo artifacts move: source checkouts, dependency downloads, vault/keychain,
+OS-managed fixture temporary directories, `dist/` extension packaging and ignored
+`output/` inspection artifacts keep their existing locations. Existing caches
+are not copied or deleted. Keep the drive connected while builds run or while
+executables installed from that target are in use.
+
+`make test-build-paths` runs small routing regressions with a fake Cargo recorder:
+available/missing/read-only paths, file/symlink refusal, explicit overrides and
+environment propagation. It does not compile Rust, launch a browser or run the
+application suites.
 
 ## Focused lanes, when execution is authorized
-
-The Makefile exports `CARGO_TARGET_DIR`. Set it explicitly when using a shared
-external build volume, so artifacts stay in one intended location.
 
 | Lane | Scope | Real browser / native service? |
 | --- | --- | --- |
@@ -40,7 +77,8 @@ external build volume, so artifacts stay in one intended location.
 `make check` and `make test` are full workspace lanes, not prerequisites that
 should be run when only targeted work is authorized. No automated workflow is
 dispatched by setup. Dependency-only `make sync-lockfile` resolves the lock without
-compiling or running tests; its execution, if any, is recorded in the review ledger.
+compiling or running tests. Record any executed verification with its exact source
+revision and environment in the qualification results.
 
 The JS fixtures use Node's built-in test runner and VM with synthetic browser/DOM
 objects, without a third-party DOM package. They cover the actual fixed fill

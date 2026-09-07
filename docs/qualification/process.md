@@ -1,7 +1,7 @@
 # Process and running-service qualification contract
 
 **MagicVault does not yet implement `secure_new_process` or `secure_new_http`.**
-Phase 3 changes only MagicVault's browser surfaces. These fixtures prepare later
+The current standalone delivery surfaces support browsers. These fixtures prepare future
 integration with MagicRun; they do not implement or qualify a process credential
 delivery feature, and do not require changes to MagicRun now.
 
@@ -26,7 +26,7 @@ hard-coded public fake value. Its passing fixture test proves that the adversari
 probe works, not that MagicVault filters it. Never supply real credentials to it.
 Fixture subprocesses have timeouts and are killed/reaped by the owning runner.
 
-## Required product gates when Phase 4 exists
+## Required gates for a process-delivery integration
 
 | Case | Required end-to-end property | Current status |
 | --- | --- | --- |

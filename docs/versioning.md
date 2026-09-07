@@ -1,9 +1,9 @@
 # Versions, compatibility and distribution
 
-## Current source checkpoint
+## Current component versions
 
 **0.3.0 — browser-delivery source alpha, 2026-09-07.** The
-[changelog](../CHANGELOG.md) describes the implementation and
+[changelog](../CHANGELOG.md) describes the functionality and
 [dated qualification record](qualification/results-2026-09-07.md) states what
 actually ran. A public source repository is not a package registry publication,
 binary release, extension store listing or production-safety certification.
@@ -20,15 +20,14 @@ binary release, extension store listing or production-safety certification.
 | `magicvault-test-support` | `0.3.0`, `publish = false` | Test-only; not a production integration surface |
 
 The preceding standalone application version was `0.2.2` with protocol crate
-`0.2.0` / wire version `1`. Phase 3 adds browser delivery and an incompatible
+`0.2.0` / wire version `1`. This update adds browser delivery and an incompatible
 standalone protocol, hence the `0.3.0` minor version. Qualification and
-documentation developed before this first `0.3.0` checkpoint belong to this same
-version; they do not invent a separate `0.3.1` release.
+documentation changes do not by themselves require a shared-library version bump.
 
 Shared libraries have independent versions. Do not bump them simply because
 standalone surfaces change: embedded consumers such as Magician do not acquire
 the daemon, MCP, CLI, CDP adapter or extension through this checkpoint. MagicRun
-is not a dependency of Phase 3 browser delivery.
+is not a dependency of browser delivery.
 
 ## Installing and upgrading
 
@@ -56,8 +55,10 @@ standalone binary is not guaranteed to read it.
   extension manifest consistent with the intended component versions. CLI/MCP
   version reporting derives from their package metadata.
 - Record features, compatibility changes, known limits and actual evidence in
-  the changelog and linked runbooks. Preserve dated historical test reports;
-  do not silently rewrite a no-test checkpoint as an executed one.
+  the changelog and linked technical runbooks. Do not claim unexecuted tests pass.
+- Keep [architecture.md](architecture.md) and its fingerprint baseline aligned
+  with the reviewed source and component versions. Run `make check-architecture`
+  before accepting source/dependency changes; baseline renewal requires review.
 - Scope test claims to the recorded source and environment. The current 195
   passing cases do not replace the open installed-extension/native-human/keychain,
   performance, broader-platform or consumer-owned runtime gates.

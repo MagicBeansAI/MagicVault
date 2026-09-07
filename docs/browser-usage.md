@@ -1,6 +1,6 @@
 # Browser credential fills
 
-Phase 3 alpha procedures. Automated tests and disposable headed/headless Chrome
+Browser-delivery alpha. Automated tests and disposable headed/headless Chrome
 and CLI-to-Chrome cases [pass](qualification/results-2026-09-07.md) on the recorded
 configuration. The installed-extension/native-human/keychain workflow remains a
 [manual acceptance gate](qualification/extension.md). Begin with synthetic
@@ -51,7 +51,8 @@ browser_profile=$(mktemp -d)
   --remote-debugging-address=127.0.0.1 --remote-debugging-port=9222
 ```
 
-Use `--headless=new` for the planned modern-headless workflow. Do not reuse a
+Add `--headless=new` for modern headless Chrome; native approval still requires
+the daemon's interactive desktop session. Do not reuse a
 personal/default profile or expose the port to the network. Manage and remove
 only the disposable profile you created, after closing that browser.
 

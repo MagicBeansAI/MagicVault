@@ -114,9 +114,9 @@ retries after lost transport replies or make other mutations idempotent.
 Shutdown cancels prompts, stops admission, drains connections/human work, and
 retains the instance lease through outstanding blocking commits. A second owner
 cannot race a still-running write. The service must be requalified before it is
-deployed over valuable credentials. Only [targeted synthetic fixtures](targeted-tests-2026-09-06.md)
-have run on earlier revisions, not current Phase 3 or native-host/full regression
-qualification. See the current [coverage and execution ledger](testing.md).
+deployed over valuable credentials. Automated and scoped real-CDP/CLI cases pass;
+installed-extension/native-human/keychain and broader qualification remain open.
+See [coverage and qualification](testing.md).
 
 ## Browser effects
 

@@ -1,12 +1,36 @@
 # Changelog
 
+## Unreleased
+
+### Development
+
+- Route Makefile Cargo build/check/test artifacts to SSD1 when available, with
+  a checkout-local fallback and explicit target/volume overrides. Add a
+  `print-target-dir` helper and isolated routing tests. Existing caches, stores
+  and runtime behavior are unchanged.
+- Add a version-bound architecture diagram/document and an explicit source/doc
+  drift gate, included in `make check`, with synthetic checker regression tests.
+
+### Documentation
+
+- Restructure the README around the product, with a Bash quick start, CDP and
+  extension setup choices, an MCP configuration example, and explicit coverage
+  for existing browsers, new HTTP requests, processes, terminals and stateful
+  services. Separate available interfaces from unimplemented credential-delivery
+  destinations. Use the headline “Keep secrets away from Agents” while retaining
+  the explicit security boundary.
+- Remove planning and implementation-review journals from the current docs tree;
+  keep technical architecture, contracts, setup and acceptance documentation.
+- Clarify when embedded consumers need a shared-library update. No runtime,
+  protocol or shared-library behavior changes accompany these documentation edits.
+
 ## 0.3.0 — 2026-09-07 — Browser-delivery source alpha
 
-Source version for the Phase 3 implementation and qualification checkpoint.
+Source version for browser credential delivery and its qualification baseline.
 This entry does not announce a registry publication, GitHub release, installer
 or Chrome Web Store listing. It is not a production-qualified release.
 See the [version and distribution policy](docs/versioning.md),
-[review ledger](docs/phase3-review.md) and [qualification](docs/testing.md).
+[architecture](docs/architecture.md) and [qualification](docs/testing.md).
 
 ### Verification
 
@@ -19,11 +43,11 @@ See the [version and distribution policy](docs/versioning.md),
   suite took 17.96 seconds with the warm cache; this is not a latency benchmark.
 - Real Chrome coverage includes headed/headless fills, strict controls/partial
   outcomes, navigation, frames, an actual CLI-to-daemon-to-Chrome flow and a
-  synthetic public-page smoke test. Process fixtures do not implement Phase 4
+  synthetic public-page smoke test. Process fixtures do not implement planned
   product effects. See the [current qualification record](docs/qualification/results-2026-09-07.md).
 - Installed-extension/native-human/keychain, measured performance and broader
-  platform qualification remain outstanding. The [earlier evidence](docs/phase3-verification-2026-09-07.md)
-  remains a historical record, not an installed-extension certification.
+  platform qualification remain outstanding; CDP tests do not certify an installed
+  extension workflow.
 
 ### Added
 
@@ -57,14 +81,14 @@ See the [version and distribution policy](docs/versioning.md),
   downgrade may reject the new registry. Follow the
   [upgrade and recovery instructions](docs/setup.md#upgrade-and-recovery).
 - Shared core `0.1.3` and primitives `0.1.1` source, vault format, key identity
-  and embedded-consumer dependencies are unchanged by this phase.
+  and embedded-consumer dependencies are unchanged by this update.
 - Browser delivery does not filter other tools' later DOM, screenshots, cookies
   or session artifacts. HTTP, new-process and existing-service effects remain
   unimplemented. Publication/distribution qualification is separate.
 
-## Earlier library and foundation checkpoints
+## Shared-library compatibility
 
-The [foundation ledger](docs/phase2-foundation.md),
-[targeted synthetic results](docs/targeted-tests-2026-09-06.md), and
-[durable-audit review](docs/deep-review-2026-09-07.md) retain versioned historical
-evidence. Those results do not qualify the new browser implementation.
+Core `0.1.3` adds opt-in durable typed audit append behavior. Existing consumer
+append-only APIs retain their previous behavior. Primitives `0.1.1` preserve
+private staging-file permissions and relative-path durability. Browser delivery
+does not require embedded consumers to adopt the standalone surfaces.

@@ -2,8 +2,9 @@
 
 MagicVault separates custody, trusted delivery and agent-facing operations. You
 can embed Rust libraries, call the standalone daemon, or integrate an existing
-Chromium extension. No Magician runtime is required. Current browser code is an
-unqualified alpha; [qualification](testing.md) applies to third-party adapters too.
+Chromium extension. No Magician runtime is required. Browser delivery is an
+alpha with scoped CDP/CLI evidence and remaining native acceptance gates;
+[qualification](testing.md) applies to third-party adapters too.
 
 ## Rust application or browser-tool builders
 
@@ -63,8 +64,8 @@ After a daemon restart, discard old handles; missing status is not safe retry.
 Do not make an administrative command into an implicit human-approval bypass.
 
 The shipped CLI is a convenient reference-only client for languages without a
-dedicated SDK. There are no promised Python/Node packages or automatic bindings
-in Phase 3. Setup examples are in [browser usage](browser-usage.md).
+dedicated SDK. Dedicated Python/Node packages and automatic bindings are not
+currently provided. Setup examples are in [browser usage](browser-usage.md).
 
 ## Existing extension builders
 
@@ -117,10 +118,17 @@ or protection against arbitrary programmable consumers.
 
 ## Existing embedded consumers
 
-Phase 3 changes standalone crates and adds `magicvault-effect`; core `0.1.3` and
-primitives `0.1.1` remain unchanged. Magician keeps its direct core integration,
+The `0.3.0` update changes standalone crates and adds `magicvault-effect`; core
+`0.1.3` and primitives `0.1.1` remain unchanged. Magician keeps its direct core integration,
 existing store identity and browser execution owner. It does not consume the new
 standalone registry, CLI, MCP, extension or native host. MagicRun is not required
 for browser fills; it is the intended execution dependency for later new-process
 work. Future shared-core changes require deliberate compatibility review rather
 than a frozen fork or an implicit runtime migration.
+
+A standalone version bump alone does not require an embedded consumer to update
+its shared-library dependency. Compare the actual shared source/API/format and
+dependency changes, not the top-level product version. Consumers can advance
+their reviewed source revision as MagicVault evolves; update the manifest and
+lockfile together and retain consumer-owned regression/attestation checks when
+doing so. Do not add standalone services just to keep a core consumer current.

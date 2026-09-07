@@ -72,7 +72,7 @@
     "magicvault/src/bin/magicvault-native-host.rs": "b2536dde0e3e46a7b4c6d70dc6eedb1707242852d16b0ce35028fe760ef7fecd",
     "magicvault/src/main.rs": "7ad444693b8a2ff8de8c50644aefeb4aca0caf3f37bea1003f50777ac0351d7e",
     "magicvault/src/setup.rs": "b23537c9df4251daaa4455ef9219e324edc46e6d743febb45b0d1b63f4959517",
-    "npm/README.md": "fa4c0947b4305b3c06a4c93378d3c240d55f695edd5160a2bfdd0ad5d1e1a5bc",
+    "npm/README.md": "c0f907319e774e39f9fbb72dbd9c7ea060788726db55932f206acf92456c93c3",
     "npm/cli.cjs": "10255efa0a415dcd99403a2d31b324d15fd6b4a57361ff0f5011228989897a04",
     "npm/launcher.cjs": "8bdb4405158d161867e587acdad94395eda1c35535f657dc0504b839ffeffcdf",
     "npm/mcp.cjs": "2233e6719217ccbb08ae28b97499632ba773905c552c598a554f938a033e402b",

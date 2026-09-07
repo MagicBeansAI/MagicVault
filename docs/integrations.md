@@ -6,6 +6,13 @@ Chromium extension. No Magician runtime is required. Browser delivery is an
 alpha with scoped CDP/CLI evidence and remaining native acceptance gates;
 [qualification](testing.md) applies to third-party adapters too.
 
+If you want an agent to **use** MagicVault, start with the
+[MCP quick start](../README.md#quick-start). For shell-based agents or scripts,
+use the [CLI](../README.md#cli-for-agents-and-scripts). This guide is for developers
+building integrations, not a prerequisite for either user-facing path. Dedicated
+Python/Node SDKs are not shipped; those applications can use the CLI or implement
+the authenticated local protocol. All standalone deliveries retain native consent.
+
 ## Rust application or browser-tool builders
 
 Use `magicvault-core` for custody. Supply `MasterKeyProvider` and, when using

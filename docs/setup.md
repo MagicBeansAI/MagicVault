@@ -78,10 +78,47 @@ do not retry enrollment/mutations blindly or delete a vault/key to repair setup.
 
 ## MCP
 
-Configure a stdio MCP server with the absolute path to `magicvault-mcp` and args
-`["--profile", "agent"]`; include `--root` only for a custom standalone root.
-Pair/enroll using the human CLI first. The process is a client of the already
-running daemon, not an alternative store owner.
+MCP is the recommended routine interface for local agents. Start with the
+[Codex and Claude Code quick start](../README.md#use-with-an-mcp-agent); use the
+[CLI](../README.md#cli-for-agents-and-scripts) for shell-based agents/scripts, or
+the [builder guide](integrations.md) for embedding. MCP is local stdio, not a
+hosted HTTP endpoint. It does not remove human setup or per-use consent.
+
+Normal packaged `setup` prints a `mcpServers` object with the installed executable
+and root/profile arguments. For clients that accept that JSON shape, copy it into
+their personal configuration. A custom-path example is:
+
+```json
+{
+  "mcpServers": {
+    "magicvault": {
+      "command": "/absolute/app-directory/current/bin/magicvault-mcp",
+      "args": ["--root", "/absolute/vault-root", "--profile", "agent"]
+    }
+  }
+}
+```
+
+Replace the placeholders with the values printed by setup; JSON does not perform
+shell expansion of `$HOME` or `$(...)`. Codex uses its own TOML configuration, so
+use its `codex mcp add` command rather than pasting this JSON into `config.toml`.
+For source builds, use the resolved `$(make -s print-target-dir)/release/magicvault-mcp`
+path instead. Never copy pairing capabilities or credentials into client settings.
+Pair/enroll using the human CLI first. The MCP process is a client of the already
+running daemon, not an alternative store owner or a daemon auto-installer.
+`--profile` selects a MagicVault client pairing, not a Chrome browser profile.
+Two agents using that same pairing share its permissions and handles; use
+separately paired/authorized clients when isolation is required. The native-host
+registration selects one client profile, so another client does not automatically
+see its connected extension browsers.
+
+After connecting, ask the agent to call `vault_status` and `list_credentials`.
+Missing browser/destination metadata calls for human setup, never reading a secret
+or making up a destination. Client-side tool approvals and MagicVault's native
+approval are separate; neither authorizes bypassing the other. This is not an
+unattended CI interface. Client commands/formats are documented by
+[OpenAI](https://developers.openai.com/codex/mcp) and
+[Anthropic](https://code.claude.com/docs/en/mcp).
 
 The advertised tools are `vault_status`, `list_credentials`, `request_approval`,
 `approval_status`, `list_browsers`, `browser_targets`, `secure_fill`, `fill_status`

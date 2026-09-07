@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Make the README MCP-first, with Codex/Claude Code connection commands and an
+  agent-led quick start, followed by CLI automation and developer integrations.
+  Clarify one-time human setup, per-use consent, local-only MCP and SDK availability.
+
 ## 0.6.0 — 2026-09-07 — Automatic browser connections source alpha
 
 - Normal packaged setup installs the native host for a fixed public unpacked

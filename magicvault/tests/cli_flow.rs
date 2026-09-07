@@ -9,6 +9,12 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
+// Test-only package qualification seam; never read by production binaries.
+fn cli_binary() -> std::path::PathBuf {
+    std::env::var_os("MAGICVAULT_TEST_CLI").map(Into::into)
+        .unwrap_or_else(|| env!("CARGO_BIN_EXE_magicvault").into())
+}
+
 #[test]
 fn dependency_payload_logging_is_compiled_out_of_shipped_binaries() {
     assert_eq!(log::STATIC_MAX_LEVEL, log::LevelFilter::Off);
@@ -64,7 +70,7 @@ async fn actual_cli_pairs_enrolls_and_discovers_through_the_daemon() {
         vec!["list-credentials"],
         vec!["status"],
     ] {
-        let output = tokio::process::Command::new(env!("CARGO_BIN_EXE_magicvault"))
+        let output = tokio::process::Command::new(cli_binary())
             .arg("--root")
             .arg(root.path())
             .args(args)
@@ -88,13 +94,14 @@ async fn actual_cli_pairs_enrolls_and_discovers_through_the_daemon() {
 async fn rejected_arguments_never_echo_the_rejected_value() {
     for args in [
         vec!["enroll", "--password", "SYNTHETIC-REJECTED-CANARY"],
+        vec!["setup", "--password", "SYNTHETIC-REJECTED-CANARY"],
         vec![
             "approval-status",
             "--approval-id",
             "SYNTHETIC-REJECTED-CANARY",
         ],
     ] {
-        let output = tokio::process::Command::new(env!("CARGO_BIN_EXE_magicvault"))
+        let output = tokio::process::Command::new(cli_binary())
             .args(args)
             .output()
             .await
@@ -202,7 +209,7 @@ async fn actual_cli_secure_fill_reaches_dedicated_cdp_and_returns_no_material() 
     };
     let request_file = root.path().join("reference-only-fill.json");
     fs::write(&request_file, serde_json::to_vec(&request).unwrap()).unwrap();
-    let output = tokio::process::Command::new(env!("CARGO_BIN_EXE_magicvault"))
+    let output = tokio::process::Command::new(cli_binary())
         .arg("--root")
         .arg(root.path())
         .args(["secure-fill", "--request-file"])

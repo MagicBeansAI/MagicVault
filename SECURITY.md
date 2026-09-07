@@ -1,6 +1,6 @@
 # Security boundary and reporting
 
-MagicVault `0.4.0` is a source alpha with scoped automated and historical real-CDP evidence,
+MagicVault `0.5.0` is a source alpha with scoped automated and historical real-CDP evidence,
 not a production-qualified release. Installed-extension/native-human/keychain
 and broader qualification remain open. Do not use valuable credentials until
 the relevant [qualification gates](docs/testing.md) pass. Source review, a

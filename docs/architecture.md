@@ -1,6 +1,6 @@
 # MagicVault architecture
 
-Architecture version: `0.4.0`
+Architecture version: `0.5.0`
 
 Previous immutable baseline tag: `architecture/v0.3.0`. The current reviewed
 source/document baseline is [architecture-baseline.json](architecture-baseline.json).
@@ -55,8 +55,9 @@ generic substring redaction; coarse outcomes and timing remain observable.
 
 | Component | Version | Ownership |
 | --- | --- | --- |
-| `magicvault`, `magicvault-mcp` | `0.4.0` | Human administration and reference-only agent clients; CLI package also builds the daemon/native host |
-| `magicvault-service`, `magicvault-protocol` | `0.4.0` | One standalone store writer; caller authentication, policy, consent, destination profiles, jobs and bounded IPC |
+| `magicvault`, `magicvault-mcp` | `0.5.0` | Human administration and reference-only clients; CLI also builds daemon/native host and owns explicit setup |
+| `magicvault-service` | `0.5.0` | One standalone store writer and separate private application-bundle installer |
+| `magicvault-protocol` | `0.4.0`, unchanged | Caller authentication, policy, consent, destination profiles, jobs and bounded IPC |
 | `magicvault-effect` | `0.4.0` | Dedicated CDP/native fills, HTTP transport and trusted MagicRun process integration |
 | Chromium extension | `0.3.0`, unchanged | Native document-targeted fill; no navigation or submission API |
 | MagicRun `tool-runtime-core` | `0.1.73`, existing public Git dependency | Governed process preparation, digest-bound dispatch, cancellation, output bounds and owned-child cleanup; runtime source unchanged |
@@ -66,6 +67,45 @@ generic substring redaction; coarse outcomes and timing remain observable.
 The local agent wire is version **3**; the native bridge wire remains version **1**.
 Wire versions and crate versions are distinct. See the [protocol](protocol.md)
 for framing, message types and bounds, and [versioning](versioning.md) for upgrades.
+
+## Distribution and stable application lifecycle
+
+```mermaid
+flowchart LR
+    release["Reviewed build / optional explicit Apple signing"] --> bundle["Allowlisted platform package + SHA-256 manifest"]
+    npm["Exact-version npm launcher"] --> bundle
+    npm -->|"stdio / arguments unchanged; no custody"| cli["Native CLI / MCP"]
+    bundle -->|"Explicit setup; bounded streaming copy"| app["Private immutable versions + atomic current symlink"]
+    app --> daemon["Stable LaunchAgent executable"]
+    app --> mcp["Stable MCP configuration"]
+    app --> host["Stable native host / unpacked extension"]
+```
+
+Distribution does not move credential custody into JavaScript. npm has no lifecycle
+hooks, runtime downloads, daemon initialization or native enrollment. The launcher
+checks the selected platform/version and binary hash before an argv-preserving,
+shell-free spawn; stdout belongs exclusively to the native protocol.
+
+`~/.magicvault-app` is separate from `~/.magicvault`, with a root-bound ownership
+marker and installer lock. Fixed-path, bounded, no-follow reads stream into private
+version directories; a durable bundle marker follows all file/directory syncs.
+Activation atomically publishes only a relative `current` symlink after complete
+reverification. Existing versions and ambiguous staging artifacts are retained.
+Same-user unrestricted software and a compromised publisher remain outside this
+isolation boundary; integrity manifests do not replace publisher authentication.
+
+Native setup explicitly initializes/starts/pairs with existing human consent.
+Upgrade/uninstall require exact managed service ownership and wait for the custody
+writer lease after unloading, before activation or recoverable app retirement.
+Stable paths outlive npm/npx caches; reconnect clients/extension after upgrades.
+Uninstall preserves the vault/keychain/pairings. No new agent tool or wire change
+is introduced. Core, primitives, MagicRun and Magician need no source or data
+migration. [Installation/recovery](distribution.md) covers partial-state behavior.
+
+The architecture gate includes npm launchers, package assembly/qualification,
+signing script and distribution workflow as executable trust inputs. Release
+credentials/publication remain separate authorized operator actions; the checked-in
+workflow produces explicitly unsigned local-tarball candidates only.
 
 ## One fill, end to end
 

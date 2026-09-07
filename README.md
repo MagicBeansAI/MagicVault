@@ -2,7 +2,7 @@
   <h1>MagicVault</h1>
   <p><strong>Keep secrete away from Agents</strong></p>
   <p>
-    <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/source-v0.4.0%20alpha-7C3AED.svg" alt="Source version 0.4.0 alpha" /></a>
+    <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/source-v0.5.0%20alpha-7C3AED.svg" alt="Source version 0.5.0 alpha" /></a>
     <a href="#quick-start"><img src="https://img.shields.io/badge/standalone-macOS-lightgrey.svg" alt="Standalone host: macOS" /></a>
     <a href="#rust-toolchain"><img src="https://img.shields.io/badge/Rust-2021%20edition-orange.svg" alt="Rust language edition 2021" /></a>
     <a href="#rust-toolchain"><img src="https://img.shields.io/badge/compiler-1.88%2B-orange.svg" alt="Standalone MCP compiler requirement: Rust 1.88 or newer" /></a>
@@ -67,9 +67,52 @@ See [browser conditions and supported controls](docs/browser-usage.md).
 
 ## Quick start
 
-You need **macOS, Rust 1.88+ and `make`**, plus Chrome/Chromium for browser fills.
-Build from source; there is no installer or Chrome Web Store package in this
-workflow. Native approval dialogs require a logged-in desktop session.
+Prebuilt packages need **macOS Apple Silicon and Node.js 22+**, not Rust.
+Native approval dialogs require a logged-in desktop session. Chrome/Chromium is
+needed only for browser fills. Packaging is implemented; **npm publication and
+Apple-signed/notarized releases have not been performed**. Do not treat an
+unsigned candidate as a verified public release.
+
+### 1. Install matching release-candidate tarballs
+
+Given the two local tarballs produced by the [distribution workflow](docs/distribution.md):
+
+```bash
+# These are LOCAL candidate filenames, not a claim of npm registry availability.
+export MAGICVAULT_NPM_DIR="$HOME/.local/share/magicvault-npm"
+npm install --prefix "$MAGICVAULT_NPM_DIR" --ignore-scripts \
+  ./magicvault-local-magicvault-darwin-arm64-0.5.0.tgz \
+  ./magicvault-local-magicvault-0.5.0.tgz
+export PATH="$MAGICVAULT_NPM_DIR/node_modules/.bin:$PATH"
+magicvault --version
+```
+
+The launcher has no install hooks and does not download executables at runtime.
+Keep npm's optional dependencies enabled. Package installation alone never
+initializes a vault, pairs an agent or starts the daemon.
+
+### 2. Set up the vault and your agent profile
+
+```bash
+magicvault --profile agent setup
+magicvault --profile agent doctor
+magicvault --profile agent enroll --label 'Demo account' --field password
+magicvault --profile agent list-credentials
+export MAGICVAULT_EXAMPLES="$HOME/.magicvault-app/current/examples"
+```
+
+`setup` explicitly copies executables/extension assets into `~/.magicvault-app`,
+initializes the separate `~/.magicvault` and its keychain identity, starts the
+user-session service, and requests native pairing consent. It prints a ready-to-copy
+`mcpServers` configuration using a **stable absolute executable path**, without
+capability tokens. npm/npx cache cleanup cannot remove that installed service.
+Enter a synthetic password only in the hidden native prompt—not in chat or the
+shell. [Setup, upgrades, removal and recovery](docs/distribution.md#setup-and-lifecycle).
+
+For process/HTTP only, continue to [new commands and HTTP requests](#new-commands-and-http-requests).
+
+<details>
+<summary><strong>Developer alternative: build from source</strong></summary>
 
 ### Rust toolchain
 
@@ -81,7 +124,7 @@ and [compiler-version](https://doc.rust-lang.org/cargo/reference/rust-version.ht
 documentation. The [recorded qualification](docs/qualification/results-2026-09-07.md)
 used Rust 1.92.0; it is not a separate test of the minimum toolchain.
 
-### 1. Build and start the vault
+### Build and start the foreground vault
 
 ```bash
 git clone https://github.com/MagicBeansAI/MagicVault.git
@@ -89,6 +132,7 @@ cd MagicVault
 export CARGO_TARGET_DIR="$(make -s print-target-dir)"
 make build-standalone
 export PATH="$CARGO_TARGET_DIR/release:$PATH"
+export MAGICVAULT_EXAMPLES="$PWD/examples"
 
 magicvault --version
 magicvault init
@@ -105,7 +149,7 @@ otherwise this checkout's `target/`. `make print-target-dir` shows the selected
 location; an explicit `CARGO_TARGET_DIR` takes precedence. This moves build/test
 artifacts, not your vault. [Build location and overrides](docs/testing.md#build-and-test-artifact-location).
 
-### 2. Pair and enroll a credential
+### Pair and enroll a credential
 
 In another terminal, enter the same checkout and add its binaries to PATH:
 
@@ -124,6 +168,8 @@ the next steps. Pairing and metadata access alone do not authorize a fill.
 For process/HTTP delivery only, skip the browser steps and continue to
 [new commands and HTTP requests](#new-commands-and-http-requests). Neither CDP
 nor an extension is needed for those operations.
+
+</details>
 
 ### 3. Connect your browser
 
@@ -151,22 +197,18 @@ its tab ID is not enough. Never expose its debugging port to the network.
 <details>
 <summary><strong>Extension — a headed browser without a debugging port</strong></summary>
 
-Package the extension from the same checkout:
-
-```bash
-make package-extension
-```
+Packaged `setup` includes a stable unpacked extension directory. Source builders
+can instead run `make package-extension` and use their checkout's `dist/extension`.
 
 1. Open `chrome://extensions`, enable **Developer mode**, click **Load unpacked**,
-   and choose this checkout's `dist/extension`. Keep that directory stable.
+   and choose `~/.magicvault-app/current/extension` (or the path printed by setup).
 2. Open the extension's setup page and copy its extension ID.
-3. Install the native bridge, using the exact ID and a trusted absolute executable
-   path (the quick-start build puts it under the selected target's `release/`):
+3. Install the native bridge using the exact ID. Packaged installs locate their
+   stable native host automatically:
 
    ```bash
    magicvault --profile agent extension install \
-     --extension-id REPLACE_WITH_EXTENSION_ID \
-     --host-executable "$CARGO_TARGET_DIR/release/magicvault-native-host"
+     --extension-id REPLACE_WITH_EXTENSION_ID
    ```
 
 4. Grant only the required sites on the setup page. With the daemon running,
@@ -177,6 +219,8 @@ Existing definitions are not overwritten. Site permission is separate from the
 vault's field/origin policy below. This path is implemented but its installed
 native workflow still needs [acceptance testing](docs/qualification/extension.md).
 See [extension setup, reconnect and removal](docs/browser-usage.md#chromium-extension).
+Source-only installations must additionally pass
+`--host-executable "$CARGO_TARGET_DIR/release/magicvault-native-host"`.
 
 </details>
 
@@ -202,7 +246,7 @@ handles, an exact CSS selector, and a **fresh operation UUID** from `uuidgen`:
 
 ```bash
 fill_request=$(mktemp /tmp/mv-fill.XXXXXX)
-cp examples/secure-fill.json "$fill_request"
+cp "$MAGICVAULT_EXAMPLES/secure-fill.json" "$fill_request"
 uuidgen
 open -e "$fill_request"
 ```
@@ -229,7 +273,7 @@ URL and `credential_ref`/field. Do not insert a password into the file:
 
 ```bash
 delivery_profile=$(mktemp /tmp/mv-delivery.XXXXXX)
-cp examples/http-profile.json "$delivery_profile"  # Or process-profile.json.
+cp "$MAGICVAULT_EXAMPLES/http-profile.json" "$delivery_profile"  # Or process-profile.json.
 open -e "$delivery_profile"
 # Save after reviewing the exact recipient and every credential placement.
 magicvault --profile agent register-delivery-profile --request-file "$delivery_profile"
@@ -290,7 +334,7 @@ crate does not make arbitrary tools safe. There are no dedicated Python/Node SDK
 yet. See the [builder guide](docs/integrations.md) and [protocol](docs/protocol.md).
 
 Magician embeds the shared core directly; it does not need these standalone
-surfaces. Core `0.1.3` and primitives `0.1.1` remain unchanged in `0.4.0`.
+surfaces. Core `0.1.3` and primitives `0.1.1` remain unchanged in `0.5.0`.
 The standalone process adapter uses MagicRun `0.1.73` through its existing public
 API; no MagicRun runtime or Magician change is required.
 [Embedded-consumer compatibility](docs/integrations.md#existing-embedded-consumers).

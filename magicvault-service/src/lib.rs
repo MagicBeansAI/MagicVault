@@ -3,6 +3,7 @@ pub mod broker;
 pub mod client;
 pub mod human;
 pub mod ipc;
+pub mod installation;
 pub mod launch_agent;
 pub mod native;
 pub mod storage;

@@ -108,3 +108,17 @@ sync-lockfile:
 
 .PHONY: help print-target-dir test-build-paths check-architecture architecture-snapshot test-architecture check test test-compatibility test-foundation test-browser test-browser-native test-cli-native test-public-web test-qualification-fixtures fixture-site build-standalone package-extension sync-lockfile
 .PHONY: test-delivery
+
+# Distribution assembly never publishes, signs, initializes custody or installs a service.
+test-distribution:
+	node --test scripts/tests/distribution.test.mjs
+
+package-npm:
+	@test -n "$(NPM_SCOPE)" -a -n "$(PACKAGE_OUTPUT)" || (echo 'Set NPM_SCOPE and a fresh PACKAGE_OUTPUT directory'; exit 1)
+	node scripts/package-npm.mjs --binary-dir "$(CARGO_TARGET_DIR)/release" --output "$(PACKAGE_OUTPUT)" --scope "$(NPM_SCOPE)"
+
+test-package-install:
+	@test -n "$(PACKAGE_OUTPUT)" -a -n "$(PACKAGE_TEST_OUTPUT)" || (echo 'Set PACKAGE_OUTPUT and a fresh PACKAGE_TEST_OUTPUT directory'; exit 1)
+	node scripts/qualify-package.mjs --packages "$(PACKAGE_OUTPUT)" --work "$(PACKAGE_TEST_OUTPUT)" --with-rust-tests
+
+.PHONY: test-distribution package-npm test-package-install

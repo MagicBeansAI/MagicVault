@@ -2,7 +2,7 @@
 
 ## Current component versions
 
-**0.4.0 — browser, process and HTTP delivery source alpha, 2026-09-07.**
+**0.5.0 — prebuilt distribution and onboarding source alpha, 2026-09-07.**
 The [changelog](../CHANGELOG.md) describes the supported functionality and
 [delivery qualification](qualification/results-delivery-2026-09-07.md) records
 execution evidence. A public source repository is not a registry publication,
@@ -10,8 +10,9 @@ binary release, extension store listing or production-safety certification.
 
 | Component | Source version / contract | Compatibility responsibility |
 | --- | --- | --- |
-| `magicvault` CLI, daemon and native-host executable | Package `0.4.0` | Build together from the same checkout |
-| `magicvault-mcp`, `magicvault-service`, `magicvault-effect`, `magicvault-protocol` | Packages `0.4.0` | Upgrade standalone clients/service/adapters together |
+| `magicvault` CLI, daemon and native-host executable | Package `0.5.0` | Build together from the same checkout |
+| `magicvault-mcp`, `magicvault-service` | Packages `0.5.0` | Managed application installation and reference-only clients |
+| `magicvault-effect`, `magicvault-protocol` | Packages `0.4.0`, unchanged | Existing delivery/IPC contract |
 | Chromium extension | Manifest `0.3.0`, unchanged | Shared fill function and native wire are unchanged |
 | Local agent protocol | Wire version `3` | Version mismatches fail closed; not the package version |
 | Native bridge | Wire version `1`, unchanged | Separate authenticated native contract |
@@ -20,11 +21,10 @@ binary release, extension store listing or production-safety certification.
 | MagicRun `tool-runtime-core` | Public Git dependency `0.1.73` | Existing public coordinator; exact source recorded in Cargo.lock; runtime unchanged |
 | `magicvault-test-support` | `0.4.0`, `publish = false` | Test-only, not a production surface |
 
-The preceding standalone version was `0.3.0` with agent wire `2`.
-The new wire exposes fixed destination profiles and receipt-only process/HTTP
-operations. Existing browser permissions and encrypted vault formats are
-preserved. New profile authority is absent by default; no credential becomes
-deliverable to a new recipient merely because the daemon was upgraded.
+The preceding standalone version was `0.4.0` with the same agent wire `3`.
+Packaging/onboarding adds no agent tool or new delivery authority. Browser
+permissions, destination profiles, encrypted vault formats and key identities
+are preserved. No credential gains a recipient merely because software is installed.
 
 Shared libraries version independently. Magician does not acquire CLI, MCP,
 daemon, extension, HTTP or MagicRun adapter dependencies by importing custody
@@ -34,12 +34,15 @@ a consumer's reviewed Git revision; do not freeze a separate core fork.
 
 ## Installing and upgrading
 
-Use [source build and setup](setup.md) and the
+Use [prebuilt installation and lifecycle](distribution.md), [source build and setup](setup.md) and the
 [extension installation instructions](browser-usage.md#chromium-extension).
-No registry install, downloaded installer or store listing is asserted.
+Local npm tarballs are supported; no registry publication, Apple-verified binary
+release or store listing is asserted.
 `package-extension` creates unpacked assets; it does not publish or install them.
 
-Stop the daemon, use matching 0.4.x standalone binaries, restart and deliberately
+For managed installations, update matching npm packages and explicitly run
+`magicvault upgrade`; npm itself never replaces a daemon. For manual installations,
+stop the daemon, use matching 0.5.x CLI/MCP/native-host binaries, restart and deliberately
 reconnect/rediscover browser handles. The extension's unchanged 0.3.0 assets
 continue using native wire 1; an extension version bump is not needed for these
 non-browser effects. Native-host definitions are OS-user-wide, not Chrome-profile

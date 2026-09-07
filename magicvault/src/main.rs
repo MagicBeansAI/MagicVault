@@ -4,6 +4,7 @@ use magicvault_service::{
 };
 use std::{path::PathBuf, sync::Arc};
 use uuid::Uuid;
+mod setup;
 
 #[derive(Parser)]
 #[command(
@@ -15,12 +16,34 @@ struct Cli {
     root: Option<PathBuf>,
     #[arg(long, global = true, default_value = "default")]
     profile: String,
+    /// Private application directory, separate from the credential vault.
+    #[arg(long, global = true)]
+    app_dir: Option<PathBuf>,
     #[command(subcommand)]
     command: Command,
 }
 
 #[derive(Subcommand)]
 enum Command {
+    /// Install a stable prebuilt bundle, initialize/start the service, and pair.
+    Setup {
+        #[arg(long)]
+        bundle: Option<PathBuf>,
+        /// Copy application files only: no vault, keychain, service or pairing.
+        #[arg(long)]
+        install_only: bool,
+        #[arg(long, default_value = "MagicVault CLI and MCP")]
+        label: String,
+    },
+    /// Read-only installation, integrity and daemon diagnostics.
+    Doctor,
+    /// Drain the owned service before activating a new immutable bundle.
+    Upgrade {
+        #[arg(long)]
+        bundle: Option<PathBuf>,
+    },
+    /// Unload/remove owned integrations and archive app files; preserve the vault.
+    Uninstall,
     /// Create a new standalone instance/keychain identity. Never adopts Magician data.
     Init,
     /// Run the standalone daemon in this user session.
@@ -153,7 +176,7 @@ enum ExtensionAction {
         #[arg(long)]
         extension_id: String,
         #[arg(long)]
-        host_executable: PathBuf,
+        host_executable: Option<PathBuf>,
     },
     Remove,
 }
@@ -196,18 +219,27 @@ async fn run(cli: Cli) -> Result<serde_json::Value, ErrorCode> {
         None => storage::default_root()?,
     };
     match cli.command {
+        Command::Setup {
+            bundle,
+            install_only,
+            label,
+        } => setup::setup(root, cli.profile, cli.app_dir, bundle, install_only, label).await,
+        Command::Doctor => setup::doctor(root, cli.profile, cli.app_dir).await,
+        Command::Upgrade { bundle } => setup::upgrade(root, cli.app_dir, bundle).await,
+        Command::Uninstall => setup::uninstall(root, cli.app_dir).await,
         Command::Extension { action } => {
             let profile = cli.profile;
+            let app_dir = cli.app_dir;
             tokio::task::spawn_blocking(move || match action {
                 ExtensionAction::Install {
                     extension_id,
                     host_executable,
-                } => magicvault_service::native::install(
-                    &root,
-                    &profile,
-                    &extension_id,
-                    &host_executable,
-                ),
+                } => match host_executable {
+                    Some(path) => {
+                        magicvault_service::native::install(&root, &profile, &extension_id, &path)
+                    }
+                    None => setup::install_extension(&root, &profile, &extension_id, app_dir),
+                },
                 ExtensionAction::Remove => magicvault_service::native::remove(&root),
             })
             .await

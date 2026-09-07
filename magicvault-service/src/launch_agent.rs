@@ -84,6 +84,72 @@ pub fn remove(root: &Path) -> Result<(), ErrorCode> {
     magicvault_primitives::durable_io::sync_parent_dir_blocking(&path).map_err(|_| ErrorCode::PersistenceUncertain)
 }
 
+/// Stronger ownership check for managed-bundle lifecycle operations. Legacy
+/// low-level commands retain their contract; upgrades require an exact definition.
+#[cfg(target_os = "macos")]
+pub fn verify_executable(root: &Path, executable: &Path) -> Result<Option<PathBuf>, ErrorCode> {
+    let (path, label) = location(root)?;
+    verify_definition(&path, &label, root, executable)
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn verify_definition(path: &Path, label: &str, root: &Path, executable: &Path) -> Result<Option<PathBuf>, ErrorCode> {
+    match path.symlink_metadata() {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(_) => return Err(ErrorCode::Unavailable),
+        Ok(_) => {}
+    }
+    if storage::read_private(path, 16 * 1024)?.as_slice() != plist(executable, root, label)?.as_bytes() {
+        return Err(ErrorCode::Conflict);
+    }
+    Ok(Some(path.to_owned()))
+}
+
+/// Read-only launchd query, no output or environment-derived program execution.
+#[cfg(target_os = "macos")]
+pub async fn loaded(root: &Path) -> Result<bool, ErrorCode> {
+    use std::{process::Stdio, time::Duration};
+    let (_, label) = managed(root)?;
+    let mut child = tokio::process::Command::new("/bin/launchctl")
+        .args(["print", &format!("gui/{}/{label}", unsafe { libc::geteuid() })])
+        .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).kill_on_drop(true)
+        .spawn().map_err(|_| ErrorCode::Unavailable)?;
+    match tokio::time::timeout(Duration::from_secs(10), child.wait()).await {
+        Ok(Ok(status)) => Ok(status.success()),
+        Ok(Err(_)) => Err(ErrorCode::Unavailable),
+        Err(_) => { let _ = child.kill().await; let _ = child.wait().await; Err(ErrorCode::TransportUncertain) }
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn verify_executable(_: &Path, _: &Path) -> Result<Option<PathBuf>, ErrorCode> { Err(ErrorCode::Unavailable) }
+#[cfg(not(target_os = "macos"))]
+pub async fn loaded(_: &Path) -> Result<bool, ErrorCode> { Err(ErrorCode::Unavailable) }
+
+#[cfg(test)]
+mod ownership_tests {
+    use super::*;
+    use std::{fs, os::unix::fs::{symlink, PermissionsExt}};
+
+    #[test]
+    fn lifecycle_requires_exact_private_definition_not_just_a_marker() {
+        let temp = tempfile::tempdir().unwrap();
+        let file = temp.path().join("fixture.plist");
+        let vault = Path::new("/tmp/synthetic-vault");
+        let exe = Path::new("/tmp/synthetic-app/current/bin/magicvault");
+        assert!(verify_definition(&file, "fixture", vault, exe).unwrap().is_none());
+        fs::write(&file, plist(exe, vault, "fixture").unwrap()).unwrap();
+        fs::set_permissions(&file, fs::Permissions::from_mode(0o600)).unwrap();
+        assert!(verify_definition(&file, "fixture", vault, exe).unwrap().is_some());
+        assert!(verify_definition(&file, "fixture", vault, Path::new("/tmp/other-executable")).is_err());
+        fs::set_permissions(&file, fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(verify_definition(&file, "fixture", vault, exe).is_err());
+        fs::remove_file(&file).unwrap();
+        symlink(temp.path().join("missing"), &file).unwrap();
+        assert!(verify_definition(&file, "fixture", vault, exe).is_err());
+    }
+}
+
 #[cfg(not(target_os = "macos"))]
 pub fn install(_: &Path, _: &Path) -> Result<PathBuf, ErrorCode> { Err(ErrorCode::Unavailable) }
 #[cfg(not(target_os = "macos"))]

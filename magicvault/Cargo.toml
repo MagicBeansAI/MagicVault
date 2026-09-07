@@ -1,13 +1,13 @@
 [package]
 name = "magicvault"
 default-run = "magicvault"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "MagicVault human CLI and standalone daemon"
 
 [dependencies]
-magicvault-service = { path = "../magicvault-service", version = "0.4.0" }
+magicvault-service = { path = "../magicvault-service", version = "0.5.0" }
 magicvault-effect = { path = "../magicvault-effect", version = "0.4.0" }
 clap = { version = "4", features = ["derive"] }
 serde_json = "1"

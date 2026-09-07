@@ -1,0 +1,88 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { createRequire } from 'node:module';
+import { execFileSync } from 'node:child_process';
+import { assemble, binaries } from '../package-npm.mjs';
+
+const require = createRequire(import.meta.url);
+const { resolveBinary } = require('../../npm/launcher.cjs');
+const repo = path.resolve(import.meta.dirname, '../..');
+function fixture(t) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'magicvault-package-test-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const bin = path.join(root, 'bin');
+  fs.mkdirSync(bin);
+  for (const name of binaries) {
+    const bytes = Buffer.alloc(64);
+    bytes.writeUInt32LE(0xfeedfacf); bytes.writeUInt32LE(0x0100000c, 4);
+    fs.writeFileSync(path.join(bin, name), bytes);
+  }
+  const output = path.join(root, 'packages');
+  const build = () => assemble({ repo, binaryDir: bin, output, scope: '@magicvault-local' });
+  return { root, bin, output, build };
+}
+function install(f) {
+  f.build();
+  const modules = path.join(f.output, 'launcher/node_modules/@magicvault-local');
+  fs.mkdirSync(modules, { recursive: true });
+  fs.renameSync(path.join(f.output, 'native'), path.join(modules, 'magicvault-darwin-arm64'));
+  return { main: path.join(f.output, 'launcher/package.json'), native: path.join(modules, 'magicvault-darwin-arm64') };
+}
+test('assembly includes only explicit assets and exact platform dependency, with no install hooks', t => {
+  const f = fixture(t); f.build();
+  const main = JSON.parse(fs.readFileSync(path.join(f.output, 'launcher/package.json')));
+  const native = JSON.parse(fs.readFileSync(path.join(f.output, 'native/package.json')));
+  assert.equal(main.optionalDependencies[native.name], native.version);
+  assert.equal(main.scripts, undefined); assert.equal(native.scripts, undefined);
+  assert.deepEqual(native.os, ['darwin']); assert.deepEqual(native.cpu, ['arm64']);
+  const manifest = JSON.parse(fs.readFileSync(path.join(f.output, 'native/bundle.json')));
+  assert.equal(Object.keys(manifest.files).length, 14);
+  assert.equal(fs.existsSync(path.join(f.output, 'native/Cargo.lock')), false);
+  assert.throws(f.build); // Cannot overwrite an output directory.
+});
+test('assembly refuses binary symlinks and wrong architecture before producing output', t => {
+  const f = fixture(t);
+  fs.unlinkSync(path.join(f.bin, 'magicvault'));
+  fs.symlinkSync(path.join(f.bin, 'magicvault-mcp'), path.join(f.bin, 'magicvault'));
+  assert.throws(f.build); assert.equal(fs.existsSync(f.output), false);
+  fs.unlinkSync(path.join(f.bin, 'magicvault'));
+  fs.writeFileSync(path.join(f.bin, 'magicvault'), 'not a Mach-O');
+  assert.throws(f.build);
+});
+test('launcher verifies exact version and bytes; unsupported platforms fail closed', t => {
+  const f = fixture(t); const p = install(f);
+  assert.equal(resolveBinary('magicvault', p.main, 'darwin', 'arm64'), fs.realpathSync(path.join(p.native, 'bin/magicvault')));
+  assert.throws(() => resolveBinary('magicvault', p.main, 'linux', 'arm64'));
+  assert.throws(() => resolveBinary('magicvault-native-host', p.main, 'darwin', 'arm64'));
+  fs.appendFileSync(path.join(p.native, 'bin/magicvault'), 'tamper');
+  assert.throws(() => resolveBinary('magicvault', p.main, 'darwin', 'arm64'));
+  const file = path.join(p.native, 'package.json');
+  const metadata = JSON.parse(fs.readFileSync(file)); metadata.version = '99.0.0';
+  fs.writeFileSync(file, JSON.stringify(metadata));
+  assert.throws(() => resolveBinary('magicvault-mcp', p.main, 'darwin', 'arm64'));
+});
+test('launcher refuses a native executable symlink', t => {
+  const f = fixture(t); const p = install(f);
+  fs.unlinkSync(path.join(p.native, 'bin/magicvault'));
+  fs.symlinkSync(path.join(p.native, 'bin/magicvault-mcp'), path.join(p.native, 'bin/magicvault'));
+  assert.throws(() => resolveBinary('magicvault', p.main, 'darwin', 'arm64'));
+});
+
+test('FIFO and oversized metadata are refused without unbounded reads', t => {
+  const f = fixture(t); const p = install(f);
+  const file = path.join(p.native, 'bundle.json');
+  fs.writeFileSync(file, ' '.repeat(64 * 1024 + 1));
+  assert.throws(() => resolveBinary('magicvault', p.main, 'darwin', 'arm64'));
+  fs.unlinkSync(file);
+  execFileSync('/usr/bin/mkfifo', [file]);
+  assert.throws(() => resolveBinary('magicvault', p.main, 'darwin', 'arm64'));
+});
+
+test('signing helper parses and rejects relative paths before any signing action', () => {
+  const script = path.join(repo, 'scripts/sign-release.sh');
+  execFileSync('/bin/sh', ['-n', script]);
+  assert.throws(() => execFileSync('/bin/sh', [script, 'relative'], { stdio: 'pipe' }));
+});

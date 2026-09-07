@@ -70,6 +70,19 @@ def snapshot(root):
             if source.is_file():
                 files[source.relative_to(root).as_posix()] = digest(source)
         versions["extension"] = json.loads((extension / "manifest.json").read_text(encoding="utf8"))["version"]
+        # Packaging/installation and the release workflow are executable trust
+        # boundaries too, not merely documentation around the Rust code.
+        if (root / "npm").is_symlink():
+            raise ValueError("distribution source directories must not be symlinks")
+        distribution = list((root / "npm").glob("*.cjs"))
+        if (root / "npm/README.md").exists():
+            distribution.append(root / "npm/README.md")
+        distribution += [root / name for name in (
+            "scripts/package-npm.mjs", "scripts/qualify-package.mjs",
+            "scripts/sign-release.sh", ".github/workflows/distribution.yml",
+        ) if (root / name).exists()]
+        for source in sorted(distribution):
+            files[source.relative_to(root).as_posix()] = digest(source)
     version = versions[primary]
     document = root / DOCUMENT
     document_hash = digest(document)

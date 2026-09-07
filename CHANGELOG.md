@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.5.0 — 2026-09-07 — Prebuilt distribution source alpha
+
+- Add explicit-scope macOS Apple Silicon npm package assembly, exact-version thin
+  CLI/MCP launchers and an unsigned candidate workflow. No npm publication or
+  Apple signing/notarization is performed automatically.
+- Add native `setup`, `doctor`, `upgrade` and recoverable `uninstall`, with private
+  immutable application bundles separate from custody, integrity validation,
+  installer locking, stable service/MCP/extension paths and writer-drain gating.
+- Let packaged extension setup find its stable native host without a build path.
+  Preserve existing source/manual setup commands and native consent requirements.
+- Add offline packaged-install qualification, synthetic installer failure cases,
+  installed CLI/MCP transport test seams, and public installation/signing docs.
+- CLI/native host, MCP and service advance to `0.5.0`. Core `0.1.3`, primitives
+  `0.1.1`, protocol/effect `0.4.0`, extension `0.3.0`, wires and MagicRun are
+  unchanged; Magician requires no source/API/storage migration.
+- Public registry, signed/quarantined-download and real native setup/extension
+  acceptance remain separate release gates. See [distribution](docs/distribution.md).
+
 ## 0.4.0 — 2026-09-07 — Process and HTTP delivery source alpha
 
 Source-only alpha; no registry, binary, extension-store or production release is

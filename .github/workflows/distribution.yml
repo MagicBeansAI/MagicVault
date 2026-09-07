@@ -1,0 +1,44 @@
+name: Unsigned distribution candidate
+# Explicit candidate build only: no publisher credentials, notarization or publish.
+on:
+  workflow_dispatch:
+    inputs:
+      npm_scope:
+        description: 'Explicit npm scope for local tarballs (must be owned before publication)'
+        required: true
+        default: '@magicvault-local'
+        type: string
+permissions:
+  contents: read
+jobs:
+  candidate:
+    runs-on: macos-15
+    timeout-minutes: 30
+    env:
+      CARGO_BUILD_JOBS: '4'
+      CARGO_TARGET_DIR: ${{ runner.temp }}/magicvault-builds
+      NPM_SCOPE: ${{ inputs.npm_scope }}
+      PACKAGE_PARENT: ${{ runner.temp }}/magicvault-distribution
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - name: Select the qualified toolchain and verify architecture
+        run: |
+          test "$(uname -m)" = arm64
+          rustup toolchain install 1.92.0 --profile minimal
+          rustup override set 1.92.0
+      - run: make test-distribution test-build-paths test-architecture check test build-standalone
+      - name: Assemble allowlisted packages
+        run: |
+          mkdir "$PACKAGE_PARENT"
+          node scripts/package-npm.mjs --binary-dir "$CARGO_TARGET_DIR/release" --output "$PACKAGE_PARENT/packages" --scope "$NPM_SCOPE"
+      - name: Qualify offline npm installation, native lifecycle and real IPC
+        run: node scripts/qualify-package.mjs --packages "$PACKAGE_PARENT/packages" --work "$PACKAGE_PARENT/qualification" --with-rust-tests
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: MagicVault-UNSIGNED-darwin-arm64
+          path: ${{ runner.temp }}/magicvault-distribution/qualification/*.tgz
+          if-no-files-found: error
+          retention-days: 14

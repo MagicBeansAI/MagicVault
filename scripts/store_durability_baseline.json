@@ -1,6 +1,6 @@
 {
-  "_comment": "Three existing production counts transferred from Magician aef928c, not removed by relocation. Two reviewed test-only renames (browser and delivery) retain synthetic journals before injecting post-effect audit failures; neither is atomic publication. Shared durable primitive definitions are intentionally not scanned.",
-  "total_violations": 5,
+  "_comment": "Three existing production counts transferred from Magician aef928c. Two test-only renames retain synthetic browser/delivery journals. Installation adds two reviewed non-byte-store operations: atomic current symlink publication and recoverable app-directory retirement; both sync the parent and preserve ambiguous artifacts. Shared durable primitive definitions are intentionally not scanned.",
+  "total_violations": 7,
   "files": {
     "magicvault-core/src/store.rs": {
       "hand_rolled_atomic_write": 3
@@ -10,6 +10,9 @@
     },
     "magicvault-service/src/broker/delivery/tests.rs": {
       "hand_rolled_atomic_write": 1
+    },
+    "magicvault-service/src/installation.rs": {
+      "hand_rolled_atomic_write": 2
     }
   }
 }

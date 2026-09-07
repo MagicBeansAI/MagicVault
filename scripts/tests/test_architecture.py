@@ -87,6 +87,20 @@ class Architecture(unittest.TestCase):
         self.assertIn("extension/worker.js", changed)
         self.assertIn("Cargo.lock", changed)
 
+    def test_distribution_launchers_scripts_and_workflow_are_covered(self):
+        self.write("magicvault/Cargo.toml", '[package]\nname = "magicvault"\nversion = "0.5.0"\n')
+        self.write("Cargo.lock", "# synthetic\n")
+        self.write("extension/manifest.json", '{"version":"0.3.0"}\n')
+        self.write("docs/architecture.md", "Architecture version: `0.5.0`\n")
+        before = GATE.snapshot(self.root)
+        for name in ["npm/launcher.cjs", "scripts/package-npm.mjs", "scripts/sign-release.sh", ".github/workflows/distribution.yml"]:
+            self.write(name, "synthetic distribution input\n")
+            self.assertIn(name, GATE.differences(before, GATE.snapshot(self.root)))
+        (self.root / "npm/launcher.cjs").unlink()
+        (self.root / "npm/launcher.cjs").symlink_to(self.root / "Cargo.lock")
+        with self.assertRaises(ValueError):
+            GATE.snapshot(self.root)
+
 
 if __name__ == "__main__":
     unittest.main()

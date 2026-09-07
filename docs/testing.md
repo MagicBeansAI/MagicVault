@@ -2,6 +2,11 @@
 
 ## Current evidence
 
+The [0.5.0 distribution qualification](qualification/results-distribution-2026-09-07.md)
+adds offline npm tarball installation, real packaged CLI/MCP IPC, stable application
+paths after npm removal, and app-only lifecycle/negative cases. It does not qualify
+Apple signing, registry publishing or live LaunchAgent/keychain setup.
+
 The [0.4.0 delivery qualification](qualification/results-delivery-2026-09-07.md)
 records current browser/process/HTTP regressions, builds and their limits.
 Real headed/headless Chrome, CLI-to-daemon-to-Chrome, and opt-in public-page
@@ -25,6 +30,23 @@ against its reviewed source/document fingerprints without compiling. `make check
 includes it. `make test-architecture` exercises source addition/removal, dependency,
 version and document drift with synthetic fixtures. Baseline refresh is an
 explicit review action, never automatic; see the architecture document.
+
+## Packaged-install qualification
+
+`make test-distribution` runs small artifact/launcher denial cases without building
+or installing the application. `make package-npm` assembles a fresh local output;
+it never publishes, signs or runs custody setup. See [candidate commands](distribution.md#build-local-candidates).
+
+`make test-package-install` uses a fresh caller-selected directory, an isolated
+npm cache/config/home and offline local tarballs. The client PATH contains Node
+and system utilities, not Rust. It exercises version/doctor, application-only
+setup, activation, npm removal, stable executables and recoverable uninstall.
+Existing CLI/MCP/native-host tests are then reused with their synthetic broker/key/UI and the
+actual installed launchers. Their `MAGICVAULT_TEST_CLI`/`MAGICVAULT_TEST_MCP`
+and `MAGICVAULT_TEST_NATIVE_HOST` overrides exist only in test binaries, never in production. The test driver needs
+Rust; installed clients do not. No test invokes full native `setup` or a real
+service/keychain installer. Use a disposable OS account for the separate
+[native acceptance runbook](qualification/distribution.md).
 
 ## Build and test artifact location
 

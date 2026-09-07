@@ -1,5 +1,11 @@
 # Standalone setup (macOS alpha)
 
+For prebuilt CLI/MCP packages without a Rust toolchain, start with
+[installation and lifecycle](distribution.md) or the [quick start](../README.md#quick-start).
+`setup` creates a stable application installation separate from the vault;
+`doctor`, `upgrade` and `uninstall` manage that installation explicitly.
+The foreground/source workflow below remains supported.
+
 Builds, automated tests and disposable Chrome/CLI qualification
 [pass](qualification/results-delivery-2026-09-07.md) on the recorded configuration.
 Native prompts/keychain and the installed-extension workflow remain manual gates;
@@ -114,10 +120,10 @@ access through that capability and does not erase material or revoke providers.
 
 ## Upgrade and recovery
 
-Standalone packages use source version `0.4.0` and local protocol version
+CLI/MCP/service packages use source version `0.5.0` and unchanged local protocol version
 `3`. The unchanged extension uses `0.3.0` / native bridge wire `1`.
-This is a source alpha, not an announcement of published registry packages
-or an installer. See the [component version matrix](versioning.md).
+This is a source alpha with local prebuilt npm packaging, not an announcement of
+published registry packages or Apple-verified releases. See the [component version matrix](versioning.md).
 Upgrade `magicvault`, `magicvault-mcp` and `magicvault-native-host` together and
 restart the standalone daemon. Older/newer mismatched wire versions fail closed;
 there is no automatic downgrade or transport fallback. Existing vault framing,

@@ -97,7 +97,8 @@ async fn shipped_native_host_authenticates_and_bridges_an_actual_daemon_fill() {
         instance_id: instance.id,
         profile: "extension".into(),
         extension_id: extension_id.clone(),
-        executable: env!("CARGO_BIN_EXE_magicvault-native-host").into(),
+        executable: std::env::var_os("MAGICVAULT_TEST_NATIVE_HOST")
+            .unwrap_or_else(|| env!("CARGO_BIN_EXE_magicvault-native-host").into()).into(),
     };
     fs::write(
         config_path(root.path()),
@@ -105,7 +106,8 @@ async fn shipped_native_host_authenticates_and_bridges_an_actual_daemon_fill() {
     )
     .unwrap();
     fs::set_permissions(config_path(root.path()), fs::Permissions::from_mode(0o600)).unwrap();
-    let mut host = tokio::process::Command::new(env!("CARGO_BIN_EXE_magicvault-native-host"))
+    let mut host = tokio::process::Command::new(std::env::var_os("MAGICVAULT_TEST_NATIVE_HOST")
+        .unwrap_or_else(|| env!("CARGO_BIN_EXE_magicvault-native-host").into()))
         .arg("--config")
         .arg(config_path(root.path()))
         .arg("--")
@@ -231,7 +233,8 @@ async fn shipped_native_host_authenticates_and_bridges_an_actual_daemon_fill() {
 
 #[tokio::test]
 async fn native_host_rejected_arguments_are_never_echoed() {
-    let output = tokio::process::Command::new(env!("CARGO_BIN_EXE_magicvault-native-host"))
+    let output = tokio::process::Command::new(std::env::var_os("MAGICVAULT_TEST_NATIVE_HOST")
+        .unwrap_or_else(|| env!("CARGO_BIN_EXE_magicvault-native-host").into()))
         .args(["--token", "SYNTHETIC-REJECTED-CANARY"])
         .output()
         .await

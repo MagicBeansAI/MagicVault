@@ -15,11 +15,13 @@ that would not replace destination, custody, transport or output-boundary tests.
 | Public demo pages | Opt-in `make test-public-web` | Non-gating compatibility smoke, not login/provider qualification |
 | New process / HTTP requests | `make test-delivery`: real local HTTP/TLS and MagicRun children, shipped CLI/MCP | Native profile approval/keychain and measured performance; see [delivery runbook](process.md) |
 | Running-service destinations | `make test-qualification-fixtures` exercises a cooperative Node service | Product refresh/rotation integration remains **unimplemented** |
+| Prebuilt CLI/MCP installation | `make test-distribution` and offline `make test-package-install` | Developer ID/quarantined downloads, registry publication and full native lifecycle in [distribution runbook](distribution.md) |
 
 The [browser runbook](browser.md) describes the local pages, exact commands and
 outcome checks. [The dated results](results-2026-09-07.md) distinguish actual
 execution from manual and future gates. The [0.4.0 delivery record](results-delivery-2026-09-07.md)
-covers the newer source. MagicRun is now the standalone new-process dependency;
+covers delivery. The [0.5.0 distribution record](results-distribution-2026-09-07.md)
+covers packaging/onboarding. MagicRun is the standalone new-process dependency;
 the shared custody contract and Magician remain unchanged.
 See the [architecture](../architecture.md).
 

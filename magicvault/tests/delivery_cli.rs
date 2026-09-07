@@ -27,7 +27,8 @@ impl HumanInteraction for Human {
 async fn cli(root: &Path, args: &[&str]) -> Value {
     let output = tokio::time::timeout(
         Duration::from_secs(5),
-        tokio::process::Command::new(env!("CARGO_BIN_EXE_magicvault"))
+        tokio::process::Command::new(std::env::var_os("MAGICVAULT_TEST_CLI")
+            .unwrap_or_else(|| env!("CARGO_BIN_EXE_magicvault").into()))
             .arg("--root")
             .arg(root)
             .args(args)

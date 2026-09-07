@@ -19,6 +19,12 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
+// Test-only package qualification seam; never read by production binaries.
+fn mcp_binary() -> std::path::PathBuf {
+    std::env::var_os("MAGICVAULT_TEST_MCP").map(Into::into)
+        .unwrap_or_else(|| env!("CARGO_BIN_EXE_magicvault-mcp").into())
+}
+
 #[test]
 fn dependency_payload_logging_is_compiled_out_of_shipped_mcp() {
     assert_eq!(log::STATIC_MAX_LEVEL, log::LevelFilter::Off);
@@ -114,7 +120,7 @@ async fn sdk_mcp_to_shared_client_to_real_ipc_to_core_returns_only_metadata() {
     };
 
     // Exercise the shipped stdio binary, not only a handler constructed here.
-    let mut server = tokio::process::Command::new(env!("CARGO_BIN_EXE_magicvault-mcp"))
+    let mut server = tokio::process::Command::new(mcp_binary())
         .arg("--root")
         .arg(root.path())
         .args(["--profile", "mcp"])
@@ -400,7 +406,7 @@ async fn sdk_mcp_to_shared_client_to_real_ipc_to_core_returns_only_metadata() {
 
 #[tokio::test]
 async fn mcp_rejected_arguments_never_echo_input() {
-    let output = tokio::process::Command::new(env!("CARGO_BIN_EXE_magicvault-mcp"))
+    let output = tokio::process::Command::new(mcp_binary())
         .args(["--token", "SYNTHETIC-REJECTED-CANARY"])
         .output()
         .await

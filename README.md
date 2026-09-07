@@ -1,10 +1,11 @@
 <div align="center">
   <h1>MagicVault</h1>
-  <p><strong>Keep secrets away from Agents</strong></p>
+  <p><strong>Keep secrete away from Agents</strong></p>
   <p>
     <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/source-v0.3.0%20alpha-7C3AED.svg" alt="Source version 0.3.0 alpha" /></a>
     <a href="#quick-start"><img src="https://img.shields.io/badge/standalone-macOS-lightgrey.svg" alt="Standalone host: macOS" /></a>
-    <a href="#quick-start"><img src="https://img.shields.io/badge/Rust-1.88%2B-orange.svg" alt="Rust 1.88 or newer" /></a>
+    <a href="#rust-toolchain"><img src="https://img.shields.io/badge/Rust-2021%20edition-orange.svg" alt="Rust language edition 2021" /></a>
+    <a href="#rust-toolchain"><img src="https://img.shields.io/badge/compiler-1.88%2B-orange.svg" alt="Standalone MCP compiler requirement: Rust 1.88 or newer" /></a>
     <a href="#license"><img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg" alt="MIT or Apache-2.0 license" /></a>
   </p>
   <p>
@@ -65,6 +66,16 @@ See [browser conditions and supported controls](docs/browser-usage.md).
 You need **macOS, Rust 1.88+ and `make`**, plus Chrome/Chromium for browser fills.
 Build from source; there is no installer or Chrome Web Store package in this
 workflow. Native approval dialogs require a logged-in desktop session.
+
+### Rust toolchain
+
+MagicVault's crates use **edition 2021**, like MagicRun and Magician. The separate
+**Rust 1.88+ compiler requirement** comes from the standalone MCP package and its
+`rmcp 3.1.0` dependency. An edition selects language rules; it is not a compiler
+version. See Cargo's [edition](https://doc.rust-lang.org/cargo/reference/manifest.html#the-edition-field)
+and [compiler-version](https://doc.rust-lang.org/cargo/reference/rust-version.html)
+documentation. The [recorded qualification](docs/qualification/results-2026-09-07.md)
+used Rust 1.92.0; it is not a separate test of the minimum toolchain.
 
 ### 1. Build and start the vault
 

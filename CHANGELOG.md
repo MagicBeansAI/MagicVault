@@ -13,11 +13,13 @@
 
 ### Documentation
 
+- Label Rust edition 2021 and the standalone MCP compiler requirement of 1.88+
+  separately; explain the SDK requirement and the recorded qualification toolchain.
 - Restructure the README around the product, with a Bash quick start, CDP and
   extension setup choices, an MCP configuration example, and explicit coverage
   for existing browsers, new HTTP requests, processes, terminals and stateful
   services. Separate available interfaces from unimplemented credential-delivery
-  destinations. Use the headline “Keep secrets away from Agents” while retaining
+  destinations. Use the headline “Keep secrete away from Agents” while retaining
   the explicit security boundary.
 - Remove planning and implementation-review journals from the current docs tree;
   keep technical architecture, contracts, setup and acceptance documentation.

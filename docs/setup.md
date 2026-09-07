@@ -4,8 +4,10 @@ Builds, automated tests and disposable Chrome/CLI qualification
 [pass](qualification/results-2026-09-07.md) on the recorded configuration.
 Native prompts/keychain and the installed-extension workflow remain manual gates;
 the real CLI test uses test-only human/key providers, never a live credential store.
-Start with synthetic data and disposable profiles. Rust 1.88+ is required by
-the exact `rmcp 3.1.0` SDK dependency. See [testing](testing.md) and
+Start with synthetic data and disposable profiles. The crates use Rust edition
+2021; the separate Rust 1.88+ compiler requirement comes from the standalone
+MCP package's exact `rmcp 3.1.0` SDK dependency. The edition is not the compiler
+version. See the [toolchain explanation](../README.md#rust-toolchain), [testing](testing.md) and
 [security](../SECURITY.md) for the current evidence and limits.
 
 ## Build and foreground service

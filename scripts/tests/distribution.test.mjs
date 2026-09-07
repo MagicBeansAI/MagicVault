@@ -4,12 +4,24 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
+import { createHash, createPublicKey } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { assemble, binaries } from '../package-npm.mjs';
 
 const require = createRequire(import.meta.url);
 const { resolveBinary } = require('../../npm/launcher.cjs');
+const { fixture: extensionFixture, options: extensionOptions, tick } = require('../../extension/tests/harness.cjs');
 const repo = path.resolve(import.meta.dirname, '../..');
+test('bundled public identity matches the exact native-host default and is a valid public key', () => {
+  const manifest = JSON.parse(fs.readFileSync(path.join(repo, 'extension/manifest.json')));
+  const der = Buffer.from(manifest.key, 'base64');
+  assert.equal(createPublicKey({key: der, format: 'der', type: 'spki'}).type, 'public');
+  const id = [...createHash('sha256').update(der).digest().subarray(0, 16).toString('hex')]
+    .map(x => String.fromCharCode(97 + parseInt(x, 16))).join('');
+  const native = fs.readFileSync(path.join(repo, 'magicvault-service/src/native.rs'), 'utf8');
+  assert(native.includes(`pub const EXTENSION_ID: &str = "${id}";`));
+  assert(manifest.permissions.includes('alarms'));
+});
 function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'magicvault-package-test-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
@@ -51,6 +63,18 @@ test('assembly refuses binary symlinks and wrong architecture before producing o
   fs.unlinkSync(path.join(f.bin, 'magicvault'));
   fs.writeFileSync(path.join(f.bin, 'magicvault'), 'not a Mach-O');
   assert.throws(f.build);
+});
+
+test('assembled extension boots actual worker imports and wires site-access setup', async t => {
+  const f = fixture(t); f.build();
+  const directory = path.join(f.output, 'native/extension');
+  const extension = extensionFixture({directory});
+  const ui = extensionOptions(extension); await tick();
+  await ui.click('allow-all'); assert(extension.grants.has('https://*/*'));
+  ui.element('origin').value = 'https://example.com'; await ui.click('block');
+  assert.deepEqual(extension.stored.sitePolicy.blockedSites, ['https://example.com']);
+  fs.unlinkSync(path.join(directory, 'fill.js'));
+  assert.throws(() => extensionFixture({directory}), /ENOENT/, 'a missing imported asset must fail startup');
 });
 test('launcher verifies exact version and bytes; unsupported platforms fail closed', t => {
   const f = fixture(t); const p = install(f);

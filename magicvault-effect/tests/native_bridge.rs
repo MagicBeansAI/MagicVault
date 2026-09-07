@@ -17,6 +17,65 @@ fn target() -> Target {
 }
 
 #[tokio::test]
+async fn quiet_native_host_eof_is_detected_without_consuming_a_reply() {
+    let (daemon, mut host) = tokio::net::UnixStream::pair().unwrap();
+    let bridge = NativeBridge::authenticated(daemon);
+    assert!(bridge.connected());
+    bridge.initialize(b"{}").await.unwrap();
+    read_frame(&mut host).await.unwrap();
+    write_frame(&mut host, b"{}").await.unwrap();
+    assert!(bridge.connected()); // Peek does not consume buffered bytes.
+    bridge.disconnect();
+    let (daemon, host) = tokio::net::UnixStream::pair().unwrap();
+    let bridge = NativeBridge::authenticated(daemon);
+    drop(host);
+    assert!(!bridge.connected());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn concurrent_health_polling_never_contends_with_delivery() {
+    let (daemon, mut host) = tokio::net::UnixStream::pair().unwrap();
+    let bridge = NativeBridge::authenticated(daemon);
+    bridge.initialize(b"{}").await.unwrap();
+    read_frame(&mut host).await.unwrap();
+    let worker = tokio::spawn(async move {
+        for _ in 0..200 {
+            let request: BridgeCommand =
+                serde_json::from_slice(&read_frame(&mut host).await.unwrap()).unwrap();
+            write_frame(
+                &mut host,
+                &serde_json::to_vec(&BridgeReply {
+                    request_id: request.request_id,
+                    result: BridgeResult::Targets(vec![]),
+                })
+                .unwrap(),
+            )
+            .await
+            .unwrap();
+        }
+        host
+    });
+    let monitor = bridge.clone();
+    let polling = std::thread::spawn(move || {
+        for _ in 0..100_000 {
+            assert!(monitor.connected());
+        }
+    });
+    for _ in 0..200 {
+        assert!(bridge
+            .targets(CancellationToken::new())
+            .await
+            .unwrap()
+            .is_empty());
+    }
+    let mut host = worker.await.unwrap();
+    polling.join().unwrap();
+    bridge.disconnect();
+    // Shutdown must reach the peer even while the monitor descriptor is owned.
+    assert!(read_frame(&mut host).await.is_err());
+}
+
+#[tokio::test]
 async fn trusted_bridge_has_separate_material_requests_and_value_free_replies() {
     let (daemon, mut host) = tokio::net::UnixStream::pair().unwrap();
     let bridge = NativeBridge::authenticated(daemon);

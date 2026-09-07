@@ -2,7 +2,7 @@
   <h1>MagicVault</h1>
   <p><strong>Keep secrete away from Agents</strong></p>
   <p>
-    <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/source-v0.5.0%20alpha-7C3AED.svg" alt="Source version 0.5.0 alpha" /></a>
+    <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/source-v0.6.0%20alpha-7C3AED.svg" alt="Source version 0.6.0 alpha" /></a>
     <a href="#quick-start"><img src="https://img.shields.io/badge/standalone-macOS-lightgrey.svg" alt="Standalone host: macOS" /></a>
     <a href="#rust-toolchain"><img src="https://img.shields.io/badge/Rust-2021%20edition-orange.svg" alt="Rust language edition 2021" /></a>
     <a href="#rust-toolchain"><img src="https://img.shields.io/badge/compiler-1.88%2B-orange.svg" alt="Standalone MCP compiler requirement: Rust 1.88 or newer" /></a>
@@ -81,8 +81,8 @@ Given the two local tarballs produced by the [distribution workflow](docs/distri
 # These are LOCAL candidate filenames, not a claim of npm registry availability.
 export MAGICVAULT_NPM_DIR="$HOME/.local/share/magicvault-npm"
 npm install --prefix "$MAGICVAULT_NPM_DIR" --ignore-scripts \
-  ./magicvault-local-magicvault-darwin-arm64-0.5.0.tgz \
-  ./magicvault-local-magicvault-0.5.0.tgz
+  ./magicvault-local-magicvault-darwin-arm64-0.6.0.tgz \
+  ./magicvault-local-magicvault-0.6.0.tgz
 export PATH="$MAGICVAULT_NPM_DIR/node_modules/.bin:$PATH"
 magicvault --version
 ```
@@ -199,28 +199,52 @@ its tab ID is not enough. Never expose its debugging port to the network.
 
 Packaged `setup` includes a stable unpacked extension directory. Source builders
 can instead run `make package-extension` and use their checkout's `dist/extension`.
+Do not load the raw `extension/` source directory: packaging adds the required
+shared `fill.js` asset.
 
 1. Open `chrome://extensions`, enable **Developer mode**, click **Load unpacked**,
    and choose `~/.magicvault-app/current/extension` (or the path printed by setup).
-2. Open the extension's setup page and copy its extension ID.
-3. Install the native bridge using the exact ID. Packaged installs locate their
-   stable native host automatically:
+2. Normal `magicvault setup` installs the native bridge automatically for the
+   bundled extension's fixed ID. No copying or pasting an extension ID is needed.
+   For an existing installation, rerun setup after upgrading to select this ID:
 
    ```bash
-   magicvault --profile agent extension install \
-     --extension-id REPLACE_WITH_EXTENSION_ID
+   magicvault --profile agent setup
    ```
 
-4. Grant only the required sites on the setup page. With the daemon running,
-   click **Connect**, approve the native connection dialog, and refresh status.
+3. Choose **Allow all HTTPS websites** for one-time browser permission, or use
+   **Allow site** for selected websites. Local HTTP development sites require
+   separate grants. **Disable site in MagicVault** excludes a site from discovery
+   and fills without changing Chrome's underlying permission. With the daemon running,
+   the extension connects automatically. Match its browser profile ID in the
+   first native approval dialog. Every credential fill still needs approval.
+
+Normal setup also checks native-host registration and whether an extension profile
+has connected. To check again after loading/enabling the extension:
+
+```bash
+magicvault --profile agent doctor
+```
+
+Read `extension.native_host`, `extension.connection` and `extension.next_steps`.
+An unconfirmed installation does **not** mean the extension is missing: Chrome
+may be closed, the extension paused, or approval/retry pending. A connection does
+not grant website access or authorize fills. [Diagnostic states](docs/browser-usage.md#checking-extension-readiness).
 
 Native-host definitions are **OS-user-wide**, not isolated by a Chrome profile.
-Existing definitions are not overwritten. Site permission is separate from the
+Separate browser profiles maintain independent, remembered connections. Transient
+failures retry with a 30-second to 5-minute backoff; **Pause connection** survives
+browser restarts. Denial/revocation or a copied-profile conflict stops retries.
+Only exact managed host definitions can be repaired; foreign files are refused.
+Site permission is separate from the
 vault's field/origin policy below. This path is implemented but its installed
 native workflow still needs [acceptance testing](docs/qualification/extension.md).
 See [extension setup, reconnect and removal](docs/browser-usage.md#chromium-extension).
-Source-only installations must additionally pass
-`--host-executable "$CARGO_TARGET_DIR/release/magicvault-native-host"`.
+Source-only installations instead use `magicvault extension install`
+with `--host-executable "$CARGO_TARGET_DIR/release/magicvault-native-host"`.
+Broad browser access never authorizes credentials automatically. Existing grants
+are preserved with the fixed identity on future upgrades; legacy path-derived
+IDs need a one-time reload/regrant migration. Enabling all HTTPS is always explicit.
 
 </details>
 
@@ -334,7 +358,7 @@ crate does not make arbitrary tools safe. There are no dedicated Python/Node SDK
 yet. See the [builder guide](docs/integrations.md) and [protocol](docs/protocol.md).
 
 Magician embeds the shared core directly; it does not need these standalone
-surfaces. Core `0.1.3` and primitives `0.1.1` remain unchanged in `0.5.0`.
+surfaces. Core `0.1.3` and primitives `0.1.1` remain unchanged in `0.6.0`.
 The standalone process adapter uses MagicRun `0.1.73` through its existing public
 API; no MagicRun runtime or Magician change is required.
 [Embedded-consumer compatibility](docs/integrations.md#existing-embedded-consumers).

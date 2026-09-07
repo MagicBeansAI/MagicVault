@@ -3,7 +3,7 @@
 use clap::Parser;
 use magicvault_effect::bridge::{self, BridgeCommand, BridgeReply, BridgeRequest, BridgeResult};
 use magicvault_service::{
-    native::{self, NativeReady},
+    native::{self, BrowserHello, NativeGreeting, NATIVE_VERSION},
     protocol::ErrorCode,
 };
 use std::{path::PathBuf, time::Duration};
@@ -28,7 +28,25 @@ fn main() -> std::process::ExitCode {
     else {
         return std::process::ExitCode::FAILURE;
     };
-    let result = runtime.block_on(run(args));
+    let result = runtime.block_on(async {
+        let result = run(args).await;
+        #[cfg(unix)]
+        if let Err(code) = result {
+            // Closed codes only, including denial/revocation. Chrome's generic
+            // host-exited diagnostic cannot distinguish safe retry from refusal.
+            if let Ok(bytes) = serde_json::to_vec(&NativeGreeting::Error {
+                version: NATIVE_VERSION,
+                code,
+            }) {
+                let _ = tokio::time::timeout(
+                    Duration::from_secs(5),
+                    bridge::write_frame(&mut tokio::io::stdout(), &bytes),
+                )
+                .await;
+            }
+        }
+        result
+    });
     // The host owns no custody writes. Bound uncancellable stdio teardown;
     // the separate daemon remains responsible for draining durable writes.
     runtime.shutdown_timeout(Duration::from_millis(250));
@@ -42,7 +60,19 @@ fn main() -> std::process::ExitCode {
 #[cfg(unix)]
 async fn run(args: Args) -> Result<(), ErrorCode> {
     let config = native::load_config(&args.config, &args.origin)?;
-    let hello = native::hello(&config)?;
+    let mut input = tokio::io::stdin();
+    let mut output = tokio::io::stdout();
+    let bytes = tokio::time::timeout(Duration::from_secs(5), bridge::read_frame(&mut input))
+        .await
+        .map_err(|_| ErrorCode::UnsupportedVersion)??;
+    let browser: BrowserHello =
+        serde_json::from_slice(&bytes).map_err(|_| ErrorCode::UnsupportedVersion)?;
+    drop(bytes);
+    if !browser.valid() {
+        return Err(ErrorCode::UnsupportedVersion);
+    }
+    let mut hello = native::hello(&config)?;
+    hello.browser = Some(browser);
     let mut socket = tokio::time::timeout(
         Duration::from_secs(3),
         tokio::net::UnixStream::connect(config.root.join("bridge.sock")),
@@ -65,17 +95,21 @@ async fn run(args: Args) -> Result<(), ErrorCode> {
     .map_err(|_| ErrorCode::TransportUncertain)??;
     drop(bytes);
     drop(hello);
-    let ready = tokio::time::timeout(Duration::from_secs(190), bridge::read_frame(&mut socket))
-        .await
-        .map_err(|_| ErrorCode::Expired)??;
-    let ready: NativeReady =
-        serde_json::from_slice(&ready).map_err(|_| ErrorCode::TransportUncertain)?;
-    if ready.version != bridge::BRIDGE_VERSION {
-        return Err(ErrorCode::UnsupportedVersion);
+    let ready = tokio::select! {
+        ready = tokio::time::timeout(Duration::from_secs(190), bridge::read_frame(&mut socket)) => ready.map_err(|_| ErrorCode::Expired)??,
+        _ = bridge::read_frame(&mut input) => return Ok(()),
+    };
+    let ready: NativeGreeting =
+        serde_json::from_slice(&ready).map_err(|_| ErrorCode::UnsupportedVersion)?;
+    match &ready {
+        NativeGreeting::Ready {
+            version,
+            browser_handle,
+        } if *version == NATIVE_VERSION && !browser_handle.is_nil() => {}
+        NativeGreeting::Error { version, code } if *version == NATIVE_VERSION => return Err(*code),
+        _ => return Err(ErrorCode::UnsupportedVersion),
     }
-    let mut input = tokio::io::stdin();
-    let mut output = tokio::io::stdout();
-    let bytes = serde_json::to_vec(&serde_json::json!({"kind":"ready","version":ready.version,"browser_handle":ready.browser_handle})).map_err(|_|ErrorCode::Unavailable)?;
+    let bytes = serde_json::to_vec(&ready).map_err(|_| ErrorCode::Unavailable)?;
     tokio::time::timeout(
         Duration::from_secs(5),
         bridge::write_frame(&mut output, &bytes),

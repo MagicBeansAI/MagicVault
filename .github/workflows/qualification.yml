@@ -17,5 +17,5 @@ jobs:
       - run: make test-architecture
       - run: make check
       - run: make test
-      - run: node --test extension/tests/fill.test.cjs extension/tests/worker.test.cjs
+      - run: make test-extension
       - run: make test-qualification-fixtures

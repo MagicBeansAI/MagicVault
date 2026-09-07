@@ -86,21 +86,32 @@ extension, instead of asking users to install a second extension. The shipped
 `extension/worker.js` is a reference implementation; packaging adds the fixed
 fill function from `magicvault-effect/src/fill.js`.
 
-1. Obtain explicit site permissions and connect to native host
+1. Obtain explicit selected-site or all-HTTPS browser permission and connect to native host
    `ai.magicbeans.magicvault` from your service worker/extension context.
 2. Install a manifest allowlisting your exact extension ID. The native host and
    daemon also validate instance, paired profile and configured extension ID.
-3. Wait for the native host's value-free ready message. Do not send material
+3. Send `BrowserHello` handshake v2 with a profile-local random ID/capability and
+   explicit manual-retry flag, then wait for the host's value-free ready message. Do not send material
    requests from the extension or expose a website/content-script relay endpoint.
 4. Implement `targets` with safe origins and stable tab/frame/document identities.
    Never return full URLs with query credentials, page dumps or input values.
 5. On a daemon-authorized `fill`, independently recheck permission, actual page/
    frame origin, document IDs and supported controls. Execute only a fixed function
    in an isolated world targeting that exact document, and return closed statuses.
-6. On disconnect or replacement, reject stale work and rebind deliberately. Never
+6. On disconnect, reject stale work and obtain fresh handles. Retry only transient
+   transport/busy failures with durable backoff; honor pause, denial and revocation. Never
    replay an in-flight fill, persist values in extension storage, or log payloads.
 
-Bridge wire version 1 is separate from agent protocol version 3. See
+The reference extension also enforces a local, human-managed site blocklist for
+both discovery and fill, independently of Chrome grants and daemon credential
+policy. Its trusted-context-only storage contains at most 256 site entries and a
+random profile reconnect capability plus pause/backoff state, not enrolled credentials. Custom builders offering this control must enforce it for top/frame
+sites and recheck it before dispatch, fail closed on policy errors, and explain
+that a behavioral blocklist is not browser-enforced permission revocation.
+
+Native handshake version 2 is separate from unchanged effect schemas (v1) and
+agent protocol version 3. Custom builders must implement the profile handshake;
+there is no insecure v1 fallback. Explicit `--extension-id ID` remains supported. See
 [the native channel](protocol.md#native-integration-channel) and its Rust
 `BridgeCommand`, `BridgeReply`, `BridgeRequest` and `BridgeResult` definitions.
 The bridge carries plaintext into trusted code; it is not an agent API. Chrome's
@@ -130,7 +141,8 @@ or protection against arbitrary programmable consumers.
 
 ## Existing embedded consumers
 
-The `0.4.0` update changes standalone crates and adds process/HTTP adapters; core
+Standalone `0.6.0` adds profile-specific automatic browser connections and retains
+the existing process/HTTP adapters; core
 `0.1.3` and primitives `0.1.1` remain unchanged. Magician keeps its direct core integration,
 existing store identity and browser execution owner. It does not consume the new
 standalone registry, CLI, MCP, extension or native host. The effect crate now

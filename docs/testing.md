@@ -2,6 +2,16 @@
 
 ## Current evidence
 
+The [automatic connection qualification](qualification/results-extension-connections-2026-09-07.md)
+records profile isolation, reconnect/backoff, pause/refusal, managed installation
+repair and unchanged delivery regression checks for standalone 0.6.0 / extension 0.5.0.
+
+The [extension 0.4.0 access qualification](qualification/results-extension-access-2026-09-07.md)
+records 48 focused JS/package cases after the access-indicator and ID-chip follow-ups,
+24 tooling cases and a disposable Chrome
+startup/blocklist smoke check. Native browser permission approval and full
+installed-extension credential delivery remain separate manual gates.
+
 The [0.5.0 distribution qualification](qualification/results-distribution-2026-09-07.md)
 adds offline npm tarball installation, real packaged CLI/MCP IPC, stable application
 paths after npm removal, and app-only lifecycle/negative cases. It does not qualify
@@ -92,6 +102,7 @@ application suites.
 | `make test-compatibility` | Shared custody/metadata/audit and primitive compatibility fixtures | No |
 | `make test-foundation` | Protocol, custody service, retained broker/storage/encoder unit cases, CLI and official SDK MCP integration | Synthetic local IPC/subprocesses only |
 | `make test-browser` | Closed fill schema, CDP peer, native bridge, daemon effects, real CLI/MCP/native-host subprocesses, extension JS fixtures | Synthetic local transports/human/key providers only |
+| `make test-extension` | Actual worker/imports and setup scripts, site grants/blocks, mutation races, malformed storage, assembled npm extension assets | Synthetic Chrome APIs/DOM; no native installation or Rust build |
 | `make test-delivery` | Closed process/HTTP profiles, real local HTTP/TLS and child processes, MagicRun integration, consent/lifecycle/audit failures, shipped CLI/MCP | Synthetic local recipients/human/key providers; no public provider or native dialogs |
 | `make test-browser-native` | Headed/headless fills, controls, frames and stale documents against disposable Chrome | Yes, explicit executable required |
 | `make test-cli-native` | Shipped CLI → real daemon/IPC → real Chrome, allowed and denied fills | Yes; test-only human/key providers |
@@ -107,7 +118,11 @@ revision and environment in the qualification results.
 
 The JS fixtures use Node's built-in test runner and VM with synthetic browser/DOM
 objects, without a third-party DOM package. They cover the actual fixed fill
-function and worker dispatcher, but are not real Chromium conformance evidence.
+function, worker dispatcher and setup page, but are not real Chromium conformance
+evidence. The packaging fixture loads actual packaged worker imports and rejects
+a missing `fill.js`. Site tests cover broad/selected permissions, local HTTP
+separation, persistent top/frame blocks, revocation before dispatch, late-change
+semantics, concurrent settings pages and closed storage failures.
 The Rust transport fixtures use `magicvault-test-support`, a non-production,
 unpublished workspace helper. Its opt-in browser module also owns disposable
 Chrome children and fixed local pages; generic test-only CDP helpers are not
@@ -121,6 +136,9 @@ exported by a production model tool.
 | Loopback endpoint, exact origins and safe metadata projection | `magicvault-effect/tests/cdp_transport.rs` |
 | System-unique context, stale document, lost/malformed response, no replay | CDP transport fixtures and ignored `chromium.rs` |
 | Native material/reply separation, initialization, IDs, frame caps and disconnect | `magicvault-effect/tests/native_bridge.rs` |
+| Independent profile grants, copied-profile conflict, durable denial/restart and client/profile revocation | `magicvault-service/src/broker/browser/native_tests.rs` |
+| Automatic backoff, stale events, durable pause, zero capability projection and live setup status | `extension/tests/connection.test.cjs` |
+| Exact managed registration repair, interrupted identity migration and foreign-file refusal | `magicvault-service/src/native.rs` tests |
 | Metadata is not effect permission; actual-use consent; caller/origin/expiry binding | `magicvault-service/src/broker/browser/tests.rs` |
 | Single-use handles, spent-ID retention, partial/uncertain outcomes and typed audit | Broker browser fixtures |
 | Post-effect audit failure blocks new work but permits status reconciliation | Broker browser fixtures |

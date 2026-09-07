@@ -63,7 +63,11 @@ test-browser:
 	cargo test --locked -p magicvault-service --lib native::tests
 	cargo test --locked -p magicvault --test cli_flow --test native_host
 	cargo test --locked -p magicvault-mcp --test end_to_end
-	node --test extension/tests/fill.test.cjs extension/tests/worker.test.cjs
+	$(MAKE) test-extension
+
+# Fast extension-only JavaScript and actual assembled-asset startup fixtures.
+test-extension:
+	node --test extension/tests/*.test.cjs scripts/tests/distribution.test.mjs
 
 # Real local HTTP/TLS, child processes and shipped clients; synthetic custody/UI.
 test-delivery:
@@ -122,3 +126,4 @@ test-package-install:
 	node scripts/qualify-package.mjs --packages "$(PACKAGE_OUTPUT)" --work "$(PACKAGE_TEST_OUTPUT)" --with-rust-tests
 
 .PHONY: test-distribution package-npm test-package-install
+.PHONY: test-extension

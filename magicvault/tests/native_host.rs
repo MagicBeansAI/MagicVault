@@ -7,7 +7,7 @@ use magicvault_service::{
     client::Client,
     human::HumanInteraction,
     ipc,
-    native::{config_path, HostConfig},
+    native::{self, config_path, HostConfig},
     protocol::*,
     storage,
 };
@@ -98,7 +98,8 @@ async fn shipped_native_host_authenticates_and_bridges_an_actual_daemon_fill() {
         profile: "extension".into(),
         extension_id: extension_id.clone(),
         executable: std::env::var_os("MAGICVAULT_TEST_NATIVE_HOST")
-            .unwrap_or_else(|| env!("CARGO_BIN_EXE_magicvault-native-host").into()).into(),
+            .unwrap_or_else(|| env!("CARGO_BIN_EXE_magicvault-native-host").into())
+            .into(),
     };
     fs::write(
         config_path(root.path()),
@@ -106,20 +107,34 @@ async fn shipped_native_host_authenticates_and_bridges_an_actual_daemon_fill() {
     )
     .unwrap();
     fs::set_permissions(config_path(root.path()), fs::Permissions::from_mode(0o600)).unwrap();
-    let mut host = tokio::process::Command::new(std::env::var_os("MAGICVAULT_TEST_NATIVE_HOST")
-        .unwrap_or_else(|| env!("CARGO_BIN_EXE_magicvault-native-host").into()))
-        .arg("--config")
-        .arg(config_path(root.path()))
-        .arg("--")
-        .arg(format!("chrome-extension://{extension_id}/"))
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .kill_on_drop(true)
-        .spawn()
-        .unwrap();
+    let mut host = tokio::process::Command::new(
+        std::env::var_os("MAGICVAULT_TEST_NATIVE_HOST")
+            .unwrap_or_else(|| env!("CARGO_BIN_EXE_magicvault-native-host").into()),
+    )
+    .arg("--config")
+    .arg(config_path(root.path()))
+    .arg("--")
+    .arg(format!("chrome-extension://{extension_id}/"))
+    .stdin(std::process::Stdio::piped())
+    .stdout(std::process::Stdio::piped())
+    .stderr(std::process::Stdio::piped())
+    .kill_on_drop(true)
+    .spawn()
+    .unwrap();
     let mut read = host.stdout.take().unwrap();
     let mut write = host.stdin.take().unwrap();
+    write_frame(
+        &mut write,
+        &serde_json::to_vec(&magicvault_service::native::BrowserHello {
+            version: magicvault_service::native::NATIVE_VERSION,
+            profile_id: Uuid::new_v4(),
+            capability: "c".repeat(64),
+            manual: false,
+        })
+        .unwrap(),
+    )
+    .await
+    .unwrap();
     let greeting = tokio::time::timeout(Duration::from_secs(3), read_frame(&mut read))
         .await
         .unwrap()
@@ -204,7 +219,12 @@ async fn shipped_native_host_authenticates_and_bridges_an_actual_daemon_fill() {
                 panic!("status");
             };
             if !matches!(status.state, FillState::Pending | FillState::Filling) {
-                assert_eq!(status.state, FillState::Filled);
+                assert_eq!(
+                    status.state,
+                    FillState::Filled,
+                    "closed failure: {:?}",
+                    status.error
+                );
                 break;
             }
             tokio::task::yield_now().await;
@@ -233,13 +253,100 @@ async fn shipped_native_host_authenticates_and_bridges_an_actual_daemon_fill() {
 
 #[tokio::test]
 async fn native_host_rejected_arguments_are_never_echoed() {
-    let output = tokio::process::Command::new(std::env::var_os("MAGICVAULT_TEST_NATIVE_HOST")
-        .unwrap_or_else(|| env!("CARGO_BIN_EXE_magicvault-native-host").into()))
-        .args(["--token", "SYNTHETIC-REJECTED-CANARY"])
-        .output()
-        .await
-        .unwrap();
+    let output = tokio::process::Command::new(
+        std::env::var_os("MAGICVAULT_TEST_NATIVE_HOST")
+            .unwrap_or_else(|| env!("CARGO_BIN_EXE_magicvault-native-host").into()),
+    )
+    .args(["--token", "SYNTHETIC-REJECTED-CANARY"])
+    .output()
+    .await
+    .unwrap();
     assert!(!output.status.success());
     assert!(output.stdout.is_empty());
     assert!(output.stderr.is_empty());
+}
+
+#[tokio::test]
+async fn actual_host_reports_closed_setup_and_version_errors_without_echoing_input() {
+    use tokio::io::AsyncReadExt;
+    let root = tempfile::Builder::new()
+        .permissions(fs::Permissions::from_mode(0o700))
+        .tempdir()
+        .unwrap();
+    let instance = storage::Instance {
+        format_version: 1,
+        id: Uuid::new_v4(),
+    };
+    let config = HostConfig {
+        version: BRIDGE_VERSION,
+        root: root.path().to_owned(),
+        instance_id: instance.id,
+        profile: "fixture".into(),
+        extension_id: "a".repeat(32),
+        executable: "/tmp/synthetic-native-host".into(),
+    };
+    for (path, bytes) in [
+        (
+            root.path().join("instance.json"),
+            serde_json::to_vec(&instance).unwrap(),
+        ),
+        (
+            config_path(root.path()),
+            serde_json::to_vec(&config).unwrap(),
+        ),
+    ] {
+        fs::write(&path, bytes).unwrap();
+        fs::set_permissions(path, fs::Permissions::from_mode(0o600)).unwrap();
+    }
+    for (origin, expected) in [
+        (
+            format!("chrome-extension://{}/", "b".repeat(32)),
+            ErrorCode::Unauthorized,
+        ),
+        (
+            format!("chrome-extension://{}/", "a".repeat(32)),
+            ErrorCode::UnsupportedVersion,
+        ),
+    ] {
+        let mut host = tokio::process::Command::new(env!("CARGO_BIN_EXE_magicvault-native-host"))
+            .arg("--config")
+            .arg(config_path(root.path()))
+            .arg("--")
+            .arg(origin)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()
+            .unwrap();
+        let mut input = host.stdin.take().unwrap();
+        let mut output = host.stdout.take().unwrap();
+        let _ = write_frame(
+            &mut input,
+            br#"{"version":1,"unexpected":"SYNTHETIC-REJECTED-CANARY"}"#,
+        )
+        .await;
+        let bytes = tokio::time::timeout(Duration::from_secs(3), read_frame(&mut output))
+            .await
+            .unwrap()
+            .unwrap();
+        let greeting: native::NativeGreeting = serde_json::from_slice(&bytes).unwrap();
+        assert!(
+            matches!(greeting, native::NativeGreeting::Error {version: native::NATIVE_VERSION, code} if code == expected)
+        );
+        assert!(!std::str::from_utf8(&bytes).unwrap().contains("CANARY"));
+        drop(input);
+        tokio::time::timeout(Duration::from_secs(3), host.wait())
+            .await
+            .unwrap()
+            .unwrap();
+        let mut stderr = String::new();
+        host.stderr
+            .take()
+            .unwrap()
+            .read_to_string(&mut stderr)
+            .await
+            .unwrap();
+        assert!(stderr.is_empty());
+    }
 }

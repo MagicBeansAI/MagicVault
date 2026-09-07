@@ -24,7 +24,7 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 use zeroize::{Zeroize, Zeroizing};
 mod browser;
-use browser::{BrowserPermission, BrowserState};
+use browser::{BrowserPermission, BrowserState, NativeGrant};
 mod delivery;
 use delivery::{DeliveryJobs, RegisteredDelivery};
 
@@ -44,6 +44,8 @@ struct Registry {
     peers: Vec<Peer>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     browser_permissions: Vec<BrowserPermission>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    native_grants: Vec<NativeGrant>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     delivery_profiles: Vec<RegisteredDelivery>,
 }
@@ -202,6 +204,7 @@ impl Broker {
                     version: 1,
                     peers: Vec::new(),
                     browser_permissions: Vec::new(),
+                    native_grants: Vec::new(),
                     delivery_profiles: Vec::new(),
                 }
             }
@@ -210,6 +213,7 @@ impl Broker {
         if registry.version != 1
             || registry.peers.len() > MAX_CLIENTS
             || !browser::valid_permissions(&registry, &store)
+            || !browser::valid_native_grants(&registry)
             || !delivery::valid_profiles(&registry, &store)
             || registry.peers.iter().any(|p| {
                 !valid_label(&p.label)
@@ -809,6 +813,9 @@ impl Broker {
                 .retain(|p| p.client_id != client_id);
             s.browsers.revoke(client_id);
             s.registry
+                .native_grants
+                .retain(|p| p.client_id != client_id);
+            s.registry
                 .delivery_profiles
                 .retain(|p| p.owner != client_id);
             s.deliveries.revoke(client_id);
@@ -847,6 +854,7 @@ mod tests {
         let registry = Registry {
             version: 1,
             browser_permissions: vec![],
+            native_grants: vec![],
             delivery_profiles: vec![],
             peers: (0..MAX_CLIENTS)
                 .map(|i| Peer {
@@ -861,7 +869,8 @@ mod tests {
         // origins cannot contain raw quotes/backslashes), all field names and
         // each row's IDs, digest and serialization overhead. Keep new profile
         // capacity from making an otherwise valid maximum registry unwritable.
-        let browser_bytes = 64 * (MAX_ORIGINS * (256 + 3) + MAX_FIELDS * (64 + 3) + 512);
+        let browser_bytes =
+            64 * (MAX_ORIGINS * (256 + 3) + MAX_FIELDS * (64 + 3) + 512) + 128 * 512;
         let delivery_bytes = MAX_DELIVERY_PROFILES * (MAX_PROFILE_BYTES + 1024);
         assert!(
             (serde_json::to_vec(&registry).unwrap().len() + browser_bytes + delivery_bytes) as u64
@@ -878,6 +887,7 @@ mod tests {
                 version: 1,
                 peers: vec![],
                 browser_permissions: vec![],
+                native_grants: vec![],
                 delivery_profiles: vec![],
             },
             jobs: HashMap::new(),

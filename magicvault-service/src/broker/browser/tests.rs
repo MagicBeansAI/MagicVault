@@ -1,6 +1,8 @@
 use super::*;
+#[path = "native_tests.rs"]
+mod native_tests;
 use async_trait::async_trait;
-use magicvault_core::InMemoryKeyProvider;
+use magicvault_core::{encryption::SecretEncryptionError, MasterKeyProvider};
 use std::{
     fs,
     os::unix::fs::PermissionsExt,
@@ -8,6 +10,20 @@ use std::{
 };
 
 const CANARY: &str = "SYNTHETIC-BROKER-BROWSER-CANARY";
+
+// Fixed test-only key permits real store/registry reloads without OS keychain.
+struct FixtureKey;
+impl MasterKeyProvider for FixtureKey {
+    fn get_or_create_key(&self) -> Result<[u8; 32], SecretEncryptionError> {
+        Ok([47; 32])
+    }
+    fn delete_key(&self) -> Result<(), SecretEncryptionError> {
+        Ok(())
+    }
+    fn provider_name(&self) -> &str {
+        "synthetic-browser-fixture"
+    }
+}
 
 #[test]
 fn browser_consent_fits_native_limit_without_truncating_valid_requests() {
@@ -35,6 +51,7 @@ fn browser_consent_fits_native_limit_without_truncating_valid_requests() {
         is_main_frame: true,
     };
     let prompt = fill_prompt(&"l".repeat(80), &request, &target);
+    assert!(prompt.contains(&format!("Browser handle: {}", request.browser_handle)));
     assert!(prompt.len() > 4096);
     assert!(prompt.len() <= crate::human::MAX_PROMPT_BYTES);
     let rule = BrowserRule {
@@ -53,6 +70,8 @@ fn browser_consent_fits_native_limit_without_truncating_valid_requests() {
 }
 
 struct Human {
+    deny_native: AtomicBool,
+    native_prompts: AtomicUsize,
     deny_fill: AtomicBool,
     block_fill: AtomicBool,
     prompts: AtomicUsize,
@@ -61,6 +80,10 @@ struct Human {
 impl HumanInteraction for Human {
     async fn confirm(&self, message: &str, cancel: CancellationToken) -> Result<bool, ErrorCode> {
         assert!(!message.contains(CANARY));
+        if message.starts_with("Allow automatic browser") {
+            self.native_prompts.fetch_add(1, Ordering::SeqCst);
+            return Ok(!self.deny_native.load(Ordering::SeqCst));
+        }
         if message.starts_with("Allow ONE") {
             self.prompts.fetch_add(1, Ordering::SeqCst);
             if self.block_fill.load(Ordering::SeqCst) {
@@ -170,11 +193,10 @@ impl Fixture {
         )
         .unwrap();
         let lease = storage::open(root.path()).unwrap();
-        let store = SecretStore::new_empty(
-            Box::new(InMemoryKeyProvider::new()),
-            root.path().join("vault"),
-        );
+        let store = SecretStore::new_empty(Box::new(FixtureKey), root.path().join("vault"));
         let human = Arc::new(Human {
+            deny_native: AtomicBool::new(false),
+            native_prompts: AtomicUsize::new(0),
             deny_fill: AtomicBool::new(false),
             block_fill: AtomicBool::new(false),
             prompts: AtomicUsize::new(0),
@@ -234,6 +256,7 @@ impl Fixture {
                     backend: BrowserBackend::Cdp,
                 },
                 adapter.clone(),
+                None,
             )
             .await
             .unwrap();

@@ -106,6 +106,9 @@ pub async fn write_frame<W: tokio::io::AsyncWrite + Unpin>(
 #[cfg(unix)]
 pub struct NativeBridge {
     socket: Mutex<Option<tokio::net::UnixStream>>,
+    // Separate descriptor: health checks must never contend with effect I/O's
+    // try-lock, otherwise status polling can spuriously refuse an approved fill.
+    monitor: Option<std::os::fd::OwnedFd>,
     stop: CancellationToken,
     initialized: std::sync::atomic::AtomicBool,
 }
@@ -115,14 +118,24 @@ impl NativeBridge {
     /// Must only be called after peer UID, capability, extension identity and
     /// daemon-owned registration consent have all been authenticated.
     pub fn authenticated(socket: tokio::net::UnixStream) -> Arc<Self> {
+        use std::os::fd::AsFd;
+        let monitor = socket.as_fd().try_clone_to_owned().ok();
+        let stop = CancellationToken::new();
+        if monitor.is_none() {
+            stop.cancel();
+        }
         Arc::new(Self {
             socket: Mutex::new(Some(socket)),
-            stop: CancellationToken::new(),
+            monitor,
+            stop,
             initialized: std::sync::atomic::AtomicBool::new(false),
         })
     }
 
     pub async fn initialize(&self, greeting: &[u8]) -> Result<(), ErrorCode> {
+        if self.stop.is_cancelled() {
+            return Err(ErrorCode::Unavailable);
+        }
         let mut guard = self.socket.try_lock().map_err(|_| ErrorCode::Busy)?;
         let socket = guard.as_mut().ok_or(ErrorCode::Unavailable)?;
         match tokio::time::timeout(Duration::from_secs(5), write_frame(socket, greeting)).await {
@@ -133,7 +146,7 @@ impl NativeBridge {
             }
             _ => {
                 guard.take();
-                self.stop.cancel();
+                self.disconnect();
                 Err(ErrorCode::TransportUncertain)
             }
         }
@@ -176,7 +189,7 @@ impl NativeBridge {
         if result.is_ok() {
             *guard = Some(socket);
         } else {
-            self.stop.cancel();
+            self.disconnect();
         }
         result
     }
@@ -242,11 +255,41 @@ impl BrowserAdapter for NativeBridge {
 
     fn disconnect(&self) {
         self.stop.cancel();
+        // A cloned descriptor must not keep the peer connected after shutdown.
+        if let Some(monitor) = &self.monitor {
+            use std::os::fd::AsRawFd;
+            unsafe {
+                libc::shutdown(monitor.as_raw_fd(), libc::SHUT_RDWR);
+            }
+        }
         if let Ok(mut guard) = self.socket.try_lock() {
             guard.take();
         }
     }
     fn connected(&self) -> bool {
-        !self.stop.is_cancelled()
+        if self.stop.is_cancelled() {
+            return false;
+        }
+        let Some(monitor) = &self.monitor else {
+            return false;
+        };
+        // A quiet native host may exit without another effect exchange. Peek
+        // nonblocking, without consuming a reply or acquiring any async lock.
+        use std::os::fd::AsRawFd;
+        let mut byte = 0u8;
+        let result = unsafe {
+            libc::recv(
+                monitor.as_raw_fd(),
+                (&mut byte as *mut u8).cast(),
+                1,
+                libc::MSG_PEEK | libc::MSG_DONTWAIT,
+            )
+        };
+        result > 0
+            || (result < 0
+                && matches!(
+                    std::io::Error::last_os_error().kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted
+                ))
     }
 }

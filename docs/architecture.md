@@ -1,6 +1,6 @@
 # MagicVault architecture
 
-Architecture version: `0.5.0`
+Architecture version: `0.6.0`
 
 Previous immutable baseline tag: `architecture/v0.3.0`. The current reviewed
 source/document baseline is [architecture-baseline.json](architecture-baseline.json).
@@ -35,7 +35,7 @@ flowchart TB
     http -->|"Value-free receipt"| broker
     effect -->|"Dedicated loopback CDP connection"| browser["Existing browser document"]
     effect -->|"Authenticated native bridge"| host["Native messaging host"]
-    host --> extension["Site-permitted Chromium extension"]
+    host --> extension["Chromium extension: browser grants + local site blocks"]
     extension -->|"Fixed isolated fill function"| browser
     browser -->|"Closed delivery outcome"| effect
     effect -->|"Status, never values"| broker
@@ -55,16 +55,17 @@ generic substring redaction; coarse outcomes and timing remain observable.
 
 | Component | Version | Ownership |
 | --- | --- | --- |
-| `magicvault`, `magicvault-mcp` | `0.5.0` | Human administration and reference-only clients; CLI also builds daemon/native host and owns explicit setup |
-| `magicvault-service` | `0.5.0` | One standalone store writer and separate private application-bundle installer |
+| `magicvault`, `magicvault-mcp` | `0.6.0` | Human administration and reference-only clients; CLI also builds daemon/native host and owns explicit setup |
+| `magicvault-service` | `0.6.0` | One standalone store writer and separate private application-bundle installer |
 | `magicvault-protocol` | `0.4.0`, unchanged | Caller authentication, policy, consent, destination profiles, jobs and bounded IPC |
-| `magicvault-effect` | `0.4.0` | Dedicated CDP/native fills, HTTP transport and trusted MagicRun process integration |
-| Chromium extension | `0.3.0`, unchanged | Native document-targeted fill; no navigation or submission API |
+| `magicvault-effect` | `0.4.1` | Dedicated CDP/native fills, HTTP transport and trusted MagicRun process integration |
+| Chromium extension | `0.5.0` | Explicit all-HTTPS or selected-site grants, local blocks and native document-targeted fill; no navigation or submission API |
 | MagicRun `tool-runtime-core` | `0.1.73`, existing public Git dependency | Governed process preparation, digest-bound dispatch, cancellation, output bounds and owned-child cleanup; runtime source unchanged |
 | `magicvault-core` | `0.1.3` | Encryption, credential references, existing policies, scoped stores and typed audit |
 | `magicvault-primitives` | `0.1.1` | Durable filesystem and stack-safe JSON utilities |
 
-The local agent wire is version **3**; the native bridge wire remains version **1**.
+The local agent wire is version **3**, unchanged. The profile-authenticated native
+handshake is version **2**; effect commands and host configuration remain version **1**.
 Wire versions and crate versions are distinct. See the [protocol](protocol.md)
 for framing, message types and bounds, and [versioning](versioning.md) for upgrades.
 
@@ -97,9 +98,23 @@ isolation boundary; integrity manifests do not replace publisher authentication.
 Native setup explicitly initializes/starts/pairs with existing human consent.
 Upgrade/uninstall require exact managed service ownership and wait for the custody
 writer lease after unloading, before activation or recoverable app retirement.
-Stable paths outlive npm/npx caches; reconnect clients/extension after upgrades.
-Uninstall preserves the vault/keychain/pairings. No new agent tool or wire change
-is introduced. Core, primitives, MagicRun and Magician need no source or data
+Stable paths outlive npm/npx caches; clients obtain fresh handles after upgrades.
+Normal setup additionally registers the bundled extension's exact public identity;
+install-only does not. The native installer serializes updates with a private
+root lock and repairs only exact managed definitions, refusing foreign/modified
+files or a different root/client/executable. Config is published last, so an
+interrupted identity migration may deny connections but cannot broaden access.
+Upgrade preserves explicitly selected custom IDs; setup selects the bundled ID.
+Normal setup and `doctor` project an advisory extension-readiness snapshot from
+bounded private native-definition reads and the existing caller-scoped
+`ListBrowsers` RPC (two-second probe deadline). Registration verification checks
+exact manifests/wrapper, executable safety and local pairing structure without
+repairing files; it is not browser-extension installation detection or publisher
+verification. Only a live extension connection confirms presence. No connection
+leaves installation unconfirmed; CDP connections never count. Diagnostics neither
+scan browser profiles nor grant authority, and do not gate other delivery surfaces.
+Uninstall preserves the vault/keychain/pairings. No new agent tool or agent wire
+change is introduced; the native handshake requires a coordinated upgrade. Core, primitives, MagicRun and Magician need no source or data
 migration. [Installation/recovery](distribution.md) covers partial-state behavior.
 
 The architecture gate includes npm launchers, package assembly/qualification,
@@ -107,7 +122,61 @@ signing script and distribution workflow as executable trust inputs. Release
 credentials/publication remain separate authorized operator actions; the checked-in
 workflow produces explicitly unsigned local-tarball candidates only.
 
+## Browser-profile connection lifecycle
+
+```mermaid
+flowchart LR
+    profile["Extension profile: random ID + local capability"] --> host["Exact-origin native host"]
+    host --> auth["Daemon: client + extension + profile + capability hash"]
+    auth -->|"First use / explicit reapproval"| human["Native human decision"]
+    human --> saved["Durable allow / refusal"]
+    saved -->|"Allowed; no duplicate live identity"| live["Independent connection + fresh browser handle"]
+    live -->|"Transport unavailable / busy"| retry["Durable backoff + Chrome alarm"]
+    retry --> auth
+    auth -->|"Denial / revocation / duplicate / version error"| pause["Stop; human Retry required"]
+```
+
+Only the trusted worker stores the random 256-bit reconnect capability, alongside
+site settings, pause state and retry deadline; it never syncs or returns the
+capability through options/agent messages. The daemon persists up to 128 hash-bound
+profile decisions scoped to client/extension/profile, including a refusal before
+first consent. Reconnects reuse approval without taking the human-prompt gate.
+Client revocation removes grants; browser disconnect revokes just its native
+profile. Local Pause does not erase an existing approval. Duplicate/copied profile
+identities never evict a live connection. Nonblocking socket EOF detection reaps
+quiet dead hosts and cancels old pending effects without consuming replies. A
+dedicated cloned socket descriptor keeps health probes off the effect mutex, so
+concurrent status polling cannot make delivery spuriously busy. Disconnect shuts
+down both descriptors' shared socket, rather than retaining a silent open peer.
+
+Chrome alarms implement 30–300-second exponential backoff plus up to five seconds
+of jitter for transport/busy failures, not exact-time scheduling. Worker startup
+restores lost alarms and respects the persisted deadline/pause. Terminal errors
+require explicit Retry; every effect remains one-use, never replayed by reconnect.
+Native framing validates closed greetings and commands; v1 handshake downgrade is
+refused. Browser permissions, per-credential rules and per-fill consent are unchanged.
+The fixed public unpacked identity is not a signing key or a Store listing.
+
 ## One fill, end to end
+
+Extension access is separate from credential authorization. Chrome grants remain
+optional: a human chooses all HTTPS once or selected hosts; local HTTP is always
+separate. Existing grants are retained on upgrade. Resetting to selected sites
+clears HTTPS grants, not local HTTP or blocks. A bounded, versioned site blocklist
+in trusted-context-only `chrome.storage.local` stores no material and does not sync.
+Only the exact extension setup page can ask the worker to mutate it; one writer
+prevents lost updates between setup tabs. Storage failures/corruption fail closed.
+Discovery reads policy once per enumeration; document-bound fills re-read policy
+after asynchronous document checks and recheck Chrome permissions before dispatch.
+Policy-write and permission-change revisions invalidate in-flight preflight;
+changes after dispatch cannot recall an effect. Blocks cover exact scheme/host
+across ports, apply to top and selected frames, and are not Chrome permission
+revocation or protection from compromised extension code. No crate or wire change
+is needed; the fixed fill function and Magician's shared custody remain unchanged.
+The setup page reads its persistent access indicator directly from Chrome,
+independently of worker/blocklist availability. Permission events and page return
+refresh it without polling or caching a user click as authority; stale reads are
+discarded and permission-read failures show an unverified state.
 
 1. A human pairs a client and enrolls values through native hidden inputs. Listing
    metadata does not grant delivery. The human separately authorizes selected

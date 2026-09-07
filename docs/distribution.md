@@ -13,7 +13,7 @@ Rust compilation, shell-command construction or credential handling in Node.
 | --- | --- | --- |
 | CLI and MCP | Local npm tarballs with prebuilt native executables | macOS Apple Silicon; Node 22+; not published to npm yet |
 | Daemon | Explicit native `setup`, private stable install and user LaunchAgent | Interactive macOS desktop for consent/keychain; not started by npm/MCP |
-| Chromium extension and native host | Assets bundled; `extension install` finds the installed host | Load unpacked manually; Chrome/Chromium only; no Web Store listing |
+| Chromium extension and native host | Assets bundled; normal `setup` registers the fixed ID; independent automatic profile connections | Load unpacked manually; Chrome/Chromium only; no Web Store listing |
 | Rust embedders | Existing core/primitives and standalone crate sources | Core API/format unchanged; no dependency on npm or managed setup |
 | Intel macOS, Linux, Windows prebuilt packages | Not shipped | Additional native custody/UI/service backends and qualification required |
 | Apple-verified release, registry provenance | Release procedure provided | No signing, notarization or publication performed by this change |
@@ -47,19 +47,27 @@ Setup returns a `mcpServers` object with the installed MCP executable's absolute
 path and reference-only root/profile arguments. Use that configuration in your
 MCP client. Existing CLI commands and manually run daemons remain supported.
 `doctor` does not initialize custody or read keychain material; inspect its
-`installation` and `daemon` fields, not merely its exit code. Its file-integrity
-check is **not** publisher-signature verification.
+`installation`, `daemon` and `extension` fields, not merely its exit code. Its
+file-integrity check is **not** publisher-signature verification. Normal setup
+also returns the extension diagnostic snapshot, without waiting for browser
+installation/approval or failing non-extension workflows when no browser connects.
+`setup --install-only` does not contact the daemon or inspect native registration.
 
 For the extension, load the printed `extension_directory` in `chrome://extensions`
-using Developer mode → Load unpacked. Copy its extension ID, then:
+using Developer mode → Load unpacked. Normal setup already registered its fixed
+ID with the native host: there is no ID-copying or Connect step. Choose website
+access in the setup page, and approve the first native dialog after matching the
+browser profile ID. Approved profiles reconnect independently with bounded backoff.
+Pause and terminal refusal stop retries. Native definitions are OS-user-wide;
+only exact managed definitions can be repaired, never foreign/modified files. [Full extension instructions](browser-usage.md#chromium-extension).
 
-```bash
-magicvault --profile agent extension install --extension-id REPLACE_WITH_EXTENSION_ID
-```
-
-Grant the exact sites in the extension's setup page, click Connect and approve
-the native prompt. Native definitions are OS-user-wide; another installation's
-definitions are never overwritten. [Full extension instructions](browser-usage.md#chromium-extension).
+`doctor` distinguishes verified/missing/invalid native-host definitions from live
+extension connections. A connected extension confirms presence for that paired
+client; no connection leaves installation **unconfirmed**, not absent. Chrome
+could be closed, the extension disabled/paused or consent/retry pending. It does
+not inspect Chrome profile files, install/enable an extension, resume Pause or
+grant permission. Each diagnostic daemon probe has a two-second deadline; this is
+not an ongoing monitor. [Diagnostic states](browser-usage.md#checking-extension-readiness).
 
 ### Upgrade
 
@@ -78,13 +86,14 @@ the new version. A previously loaded service is restarted and readiness checked.
 An application-only installation can upgrade without creating custody. Downgrades
 are refused. Old complete bundles are retained, not automatically pruned.
 
-Reconnect MCP clients, reload the unpacked extension and reconnect browser handles.
+Reconnect MCP clients, reload the unpacked extension and rediscover fresh browser handles.
 Check that Chrome actually loaded the current assets, not a retained resolved
 version-directory path. If necessary, remove and load unpacked again from the
-printed current directory. Check the extension ID afterward; if it changed,
-remove this instance's native definitions with `extension remove`, then reinstall
-with the new exact ID and approve the connection again. Extension identity is
-not promised to survive every unpacked-directory/browser installation workflow.
+printed current directory. The fixed public ID persists across directory changes.
+The one-time upgrade from a legacy path-derived ID requires running normal `setup`
+to select the bundled ID, then loading the new extension and restoring site
+grants/blocks deliberately. `upgrade` preserves a custom configured ID; explicit
+`extension install --extension-id ID` remains available for custom builders.
 Restart invalidates pending operations/handles; missing status never permits
 automatic replay. Registry permissions, vault bytes and keychain identities are
 not migrated by application installation. Existing service definitions pointing

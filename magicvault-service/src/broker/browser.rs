@@ -8,6 +8,33 @@ use magicvault_effect::{
 mod tests;
 
 const MAX_BROWSER_PERMISSIONS: usize = 64;
+const MAX_NATIVE_GRANTS: usize = 128;
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct NativeGrant {
+    pub client_id: Uuid,
+    extension_id: String,
+    profile_id: Uuid,
+    token_hash: [u8; 32],
+    allowed: bool,
+}
+
+pub(super) fn valid_native_grants(registry: &Registry) -> bool {
+    registry.native_grants.len() <= MAX_NATIVE_GRANTS
+        && registry.native_grants.iter().all(|g| {
+            !g.profile_id.is_nil()
+                && magicvault_effect::bridge::valid_extension_id(&g.extension_id)
+                && registry.peers.iter().any(|p| p.id == g.client_id)
+        })
+        && registry
+            .native_grants
+            .iter()
+            .map(|g| (g.client_id, &g.extension_id, g.profile_id))
+            .collect::<BTreeSet<_>>()
+            .len()
+            == registry.native_grants.len()
+}
 
 #[derive(Serialize)]
 struct FillReceipt {
@@ -28,8 +55,15 @@ pub(super) struct BrowserPermission {
     pub rule: BrowserRule,
 }
 
+#[derive(Clone, PartialEq, Eq)]
+struct NativeIdentity {
+    profile_id: Uuid,
+    extension_id: String,
+}
+
 struct RegisteredBrowser {
     owner: Uuid,
+    native_profile: Option<NativeIdentity>,
     info: BrowserInfo,
     adapter: Arc<dyn BrowserAdapter>,
 }
@@ -60,6 +94,13 @@ pub(super) struct BrowserState {
 impl BrowserState {
     pub(super) fn reap(&mut self, now: Instant) {
         self.instances.retain(|_, b| b.adapter.connected());
+        for job in self
+            .fills
+            .values()
+            .filter(|j| !self.instances.contains_key(&j.request.browser_handle))
+        {
+            job.cancel.cancel();
+        }
         self.targets
             .retain(|_, t| t.expires > now && self.instances.contains_key(&t.browser));
         self.fills.retain(|_, job| {
@@ -141,7 +182,7 @@ fn fill_prompt(label: &str, request: &SecureFill, target: &Target) -> String {
         .map(|f| format!("{}:{} -> {:?}", f.credential_ref, f.credential_field, f.css))
         .collect::<Vec<_>>()
         .join("; ");
-    format!("Allow ONE credential fill for client {label}? Page: {}. Selected frame: {}. Requested fields (untrusted selectors): {selections}. No form submission is requested. The website receives these values and other browser tools may read them.",target.top_origin,target.origin)
+    format!("Allow ONE credential fill for client {label}? Browser handle: {}. Page: {}. Selected frame: {}. Requested fields (untrusted selectors): {selections}. No form submission is requested. The website receives these values and other browser tools may read them.",request.browser_handle,target.top_origin,target.origin)
 }
 
 impl Broker {
@@ -150,22 +191,91 @@ impl Broker {
         self: &Arc<Self>,
         mut stream: tokio::net::UnixStream,
     ) -> Result<(), ErrorCode> {
-        use crate::native::{self, NativeHello, NativeReady};
-        use magicvault_effect::bridge::{self, NativeBridge, BRIDGE_VERSION};
+        use crate::native::{NativeGreeting, NativeHello, NATIVE_VERSION};
+        use magicvault_effect::bridge::{self, NativeBridge};
         if !stream
             .peer_cred()
             .is_ok_and(|p| p.uid() == unsafe { libc::geteuid() })
         {
             return Err(ErrorCode::Unauthorized);
         }
-        let bytes = tokio::time::timeout(Duration::from_secs(5), bridge::read_frame(&mut stream))
+        let cancel = self.shutdown.child_token();
+        let admission = async {
+            let bytes = tokio::time::timeout(Duration::from_secs(5), bridge::read_frame(&mut stream))
+                .await.map_err(|_| ErrorCode::Expired)??;
+            let hello: NativeHello = serde_json::from_slice(&bytes).map_err(|_| ErrorCode::UnsupportedVersion)?;
+            drop(bytes);
+            if hello.version != NATIVE_VERSION { return Err(ErrorCode::UnsupportedVersion); }
+            // Native host EOF cancels a pending consent; a vanished profile cannot
+            // leave a surprise approval dialog or acquire a remembered grant.
+            tokio::select! {
+                result = self.authorize_native(&hello, cancel.clone()) => result,
+                _ = bridge::read_frame(&mut stream) => { cancel.cancel(); Err(ErrorCode::Cancelled) }
+            }
+        }.await;
+        let (auth, identity) = match admission {
+            Ok(admission) => admission,
+            Err(code) => {
+                cancel.cancel();
+                let bytes = serde_json::to_vec(&NativeGreeting::Error {
+                    version: NATIVE_VERSION,
+                    code,
+                })
+                .map_err(|_| ErrorCode::Unavailable)?;
+                let _ = tokio::time::timeout(
+                    Duration::from_secs(5),
+                    bridge::write_frame(&mut stream, &bytes),
+                )
+                .await;
+                return Err(code);
+            }
+        };
+        let adapter = NativeBridge::authenticated(stream);
+        let info = BrowserInfo {
+            browser_handle: Uuid::new_v4(),
+            label: format!("Chromium profile {}", identity.profile_id),
+            backend: BrowserBackend::Extension,
+        };
+        if let Err(code) = self
+            .register_adapter(
+                auth,
+                Uuid::new_v4(),
+                info.clone(),
+                adapter.clone(),
+                Some(identity),
+            )
             .await
-            .map_err(|_| ErrorCode::Unauthorized)??;
-        let hello: NativeHello =
-            serde_json::from_slice(&bytes).map_err(|_| ErrorCode::Unauthorized)?;
-        if hello.version != BRIDGE_VERSION
-            || hello.instance_id != self.lease.instance.id
-            || !bridge::valid_extension_id(&hello.extension_id)
+        {
+            let bytes = serde_json::to_vec(&NativeGreeting::Error {
+                version: NATIVE_VERSION,
+                code,
+            })
+            .map_err(|_| ErrorCode::Unavailable)?;
+            let _ = adapter.initialize(&bytes).await;
+            adapter.disconnect();
+            return Err(code);
+        }
+        let greeting = serde_json::to_vec(&NativeGreeting::Ready {
+            version: NATIVE_VERSION,
+            browser_handle: info.browser_handle,
+        })
+        .map_err(|_| ErrorCode::Unavailable)?;
+        adapter.initialize(&greeting).await
+    }
+
+    async fn authorize_native(
+        self: &Arc<Self>,
+        hello: &crate::native::NativeHello,
+        cancel: CancellationToken,
+    ) -> Result<(Auth, NativeIdentity), ErrorCode> {
+        use crate::native;
+        let browser = hello
+            .browser
+            .as_ref()
+            .filter(|p| p.valid())
+            .ok_or(ErrorCode::UnsupportedVersion)?;
+        if hello.instance_id != self.lease.instance.id
+            || !magicvault_effect::bridge::valid_extension_id(&hello.extension_id)
             || hello.token.len() != 64
             || !hello.token.bytes().all(|b| b.is_ascii_hexdigit())
         {
@@ -173,11 +283,11 @@ impl Broker {
         }
         let root = self.lease.root().to_owned();
         let extension_id = hello.extension_id.clone();
+        let profile_id = browser.profile_id;
+        let profile_digest = token_hash(&browser.capability);
         let digest = token_hash(&hello.token);
-        let _permit = Arc::clone(&self.human_gate)
-            .try_acquire_owned()
-            .map_err(|_| ErrorCode::Busy)?;
-        let (auth, label) = self
+        let manual = browser.manual;
+        let (auth, label, remembered) = self
             .transaction(move |b, s| {
                 b.ready(s)?;
                 let config = native::load_config(
@@ -194,13 +304,27 @@ impl Broker {
                     .iter()
                     .find(|p| equal_digest(&p.token_hash, &digest))
                     .ok_or(ErrorCode::Unauthorized)?;
-                if s.browsers.instances.len() >= MAX_BROWSERS
-                    && !s.browsers.instances.values().any(|browser| {
-                        browser.owner == peer.id
-                            && browser.info.backend == BrowserBackend::Extension
-                    })
-                {
+                if s.browsers.instances.values().any(|p| {
+                    p.owner == peer.id
+                        && p.native_profile.as_ref().is_some_and(|n| {
+                            n.profile_id == profile_id && n.extension_id == extension_id
+                        })
+                }) {
+                    return Err(ErrorCode::Conflict); // Never evict a live profile, even a copied one.
+                }
+                if s.browsers.instances.len() >= MAX_BROWSERS {
                     return Err(ErrorCode::Capacity);
+                }
+                let grant = s.registry.native_grants.iter().find(|g| {
+                    g.client_id == peer.id
+                        && g.extension_id == extension_id
+                        && g.profile_id == profile_id
+                });
+                if grant.is_some_and(|g| !equal_digest(&g.token_hash, &profile_digest)) {
+                    return Err(ErrorCode::Unauthorized);
+                }
+                if grant.is_some_and(|g| !g.allowed) && !manual {
+                    return Err(ErrorCode::Denied);
                 }
                 Ok((
                     Auth {
@@ -208,24 +332,84 @@ impl Broker {
                         digest,
                     },
                     peer.label.clone(),
+                    grant.is_some_and(|g| g.allowed),
                 ))
             })
             .await?;
-        if !self.human.confirm(&format!("Connect browser extension {} for client {label}? Check that this is the extension/profile you opened. This grants target discovery through permitted sites, not credential use. Each fill needs separate permission and consent.",hello.extension_id),self.shutdown.clone()).await? {return Err(ErrorCode::Denied);}
-        let adapter = NativeBridge::authenticated(stream);
-        let info = BrowserInfo {
-            browser_handle: Uuid::new_v4(),
-            label: "Chromium extension".into(),
-            backend: BrowserBackend::Extension,
-        };
-        self.register_adapter(auth, Uuid::new_v4(), info.clone(), adapter.clone())
-            .await?;
-        let greeting = serde_json::to_vec(&NativeReady {
-            version: BRIDGE_VERSION,
-            browser_handle: info.browser_handle,
+        if remembered {
+            return Ok((
+                auth,
+                NativeIdentity {
+                    profile_id,
+                    extension_id: hello.extension_id.clone(),
+                },
+            ));
+        }
+        // Reconnects with an existing approval never contend for the human gate.
+        let _permit = Arc::clone(&self.human_gate)
+            .try_acquire_owned()
+            .map_err(|_| ErrorCode::Busy)?;
+        let auth2 = auth.clone();
+        let extension_id = hello.extension_id.clone();
+        self.transaction(move |b, s| {
+            b.peer(s, &auth2)?;
+            if !s.registry.native_grants.iter().any(|g| {
+                g.client_id == auth2.id
+                    && g.extension_id == extension_id
+                    && g.profile_id == profile_id
+            }) {
+                if s.registry.native_grants.len() >= MAX_NATIVE_GRANTS {
+                    return Err(ErrorCode::Capacity);
+                }
+                // Durable refusal before prompting: crash/denial must not start a
+                // new unattended prompt loop. An explicit Retry can ask again.
+                b.audit(s, "standalone_browser_pairing_requested", profile_id)?;
+                s.registry.native_grants.push(NativeGrant {
+                    client_id: auth2.id,
+                    extension_id,
+                    profile_id,
+                    token_hash: profile_digest,
+                    allowed: false,
+                });
+                b.save(s)?;
+            }
+            Ok(())
         })
-        .map_err(|_| ErrorCode::Unavailable)?;
-        adapter.initialize(&greeting).await
+        .await?;
+        if !self.human.confirm(&format!("Allow automatic browser connections for client {label}, extension {}, profile {profile_id}? Check the profile ID on its setup page. This remembers target-discovery access on permitted sites, not credential use. Every fill still needs separate permission and consent. Disconnecting this browser through MagicVault revokes reconnection.", hello.extension_id), cancel.clone()).await? {
+            return Err(ErrorCode::Denied);
+        }
+        let auth2 = auth.clone();
+        let extension_id = hello.extension_id.clone();
+        self.transaction(move |b, s| {
+            b.peer(s, &auth2)?;
+            if cancel.is_cancelled() {
+                return Err(ErrorCode::Cancelled);
+            }
+            let grant = s
+                .registry
+                .native_grants
+                .iter_mut()
+                .find(|g| {
+                    g.client_id == auth2.id
+                        && g.extension_id == extension_id
+                        && g.profile_id == profile_id
+                        && equal_digest(&g.token_hash, &profile_digest)
+                })
+                .ok_or(ErrorCode::Unauthorized)?;
+            grant.allowed = true;
+            b.save(s)?;
+            b.audit(s, "standalone_browser_paired", profile_id)?;
+            Ok(())
+        })
+        .await?;
+        Ok((
+            auth,
+            NativeIdentity {
+                profile_id,
+                extension_id: hello.extension_id.clone(),
+            },
+        ))
     }
 
     pub(super) async fn configure_browser_credential(
@@ -329,7 +513,7 @@ impl Broker {
             label: params.label,
             backend: BrowserBackend::Cdp,
         };
-        self.register_adapter(auth, id, info, adapter).await
+        self.register_adapter(auth, id, info, adapter, None).await
     }
 
     async fn register_adapter(
@@ -338,41 +522,28 @@ impl Broker {
         id: Uuid,
         info: BrowserInfo,
         adapter: Arc<dyn BrowserAdapter>,
+        native_profile: Option<NativeIdentity>,
     ) -> Result<Response, ErrorCode> {
         self.transaction(move |b, s| {
             b.peer(s, &auth)?;
-            if info.backend == BrowserBackend::Extension {
-                // One configured extension host per instance/client. A human-
-                // approved reconnect replaces stale channels and handles.
-                let old = s
-                    .browsers
-                    .instances
-                    .iter()
-                    .filter(|(_, browser)| {
-                        browser.owner == auth.id
-                            && browser.info.backend == BrowserBackend::Extension
-                    })
-                    .map(|(id, _)| *id)
-                    .collect::<BTreeSet<_>>();
-                for handle in &old {
-                    if let Some(browser) = s.browsers.instances.remove(handle) {
-                        browser.adapter.disconnect();
-                    }
+            if let Some(profile) = &native_profile {
+                if !s.registry.native_grants.iter().any(|g| {
+                    g.client_id == auth.id
+                        && g.profile_id == profile.profile_id
+                        && g.extension_id == profile.extension_id
+                        && g.allowed
+                }) {
+                    return Err(ErrorCode::Denied);
                 }
-                s.browsers
-                    .targets
-                    .retain(|_, target| !old.contains(&target.browser));
-                for job in s
-                    .browsers
-                    .fills
+                if s.browsers
+                    .instances
                     .values()
-                    .filter(|job| old.contains(&job.request.browser_handle))
+                    .any(|p| p.owner == auth.id && p.native_profile.as_ref() == Some(profile))
                 {
-                    job.cancel.cancel();
+                    return Err(ErrorCode::Conflict);
                 }
             }
             if s.browsers.instances.len() >= MAX_BROWSERS {
-                adapter.disconnect();
                 return Err(ErrorCode::Capacity);
             }
             b.audit(s, "standalone_browser_registered", id)?;
@@ -380,6 +551,7 @@ impl Broker {
                 info.browser_handle,
                 RegisteredBrowser {
                     owner: auth.id,
+                    native_profile,
                     info: info.clone(),
                     adapter,
                 },
@@ -484,6 +656,17 @@ impl Broker {
                 .filter(|b| b.owner == auth.id)
                 .ok_or(ErrorCode::NotFound)?;
             browser.adapter.disconnect();
+            let native_profile = browser.native_profile.clone();
+            if let Some(profile) = native_profile {
+                for grant in s.registry.native_grants.iter_mut().filter(|g| {
+                    g.client_id == auth.id
+                        && g.profile_id == profile.profile_id
+                        && g.extension_id == profile.extension_id
+                }) {
+                    grant.allowed = false;
+                }
+                b.save(s)?;
+            }
             s.browsers.instances.remove(&query.browser_handle);
             s.browsers
                 .targets

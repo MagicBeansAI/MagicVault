@@ -2,7 +2,7 @@
 
 ## Current component versions
 
-**0.5.0 — prebuilt distribution and onboarding source alpha, 2026-09-07.**
+**0.6.0 — automatic browser connections source alpha, 2026-09-07.**
 The [changelog](../CHANGELOG.md) describes the supported functionality and
 [delivery qualification](qualification/results-delivery-2026-09-07.md) records
 execution evidence. A public source repository is not a registry publication,
@@ -10,19 +10,20 @@ binary release, extension store listing or production-safety certification.
 
 | Component | Source version / contract | Compatibility responsibility |
 | --- | --- | --- |
-| `magicvault` CLI, daemon and native-host executable | Package `0.5.0` | Build together from the same checkout |
-| `magicvault-mcp`, `magicvault-service` | Packages `0.5.0` | Managed application installation and reference-only clients |
-| `magicvault-effect`, `magicvault-protocol` | Packages `0.4.0`, unchanged | Existing delivery/IPC contract |
-| Chromium extension | Manifest `0.3.0`, unchanged | Shared fill function and native wire are unchanged |
+| `magicvault` CLI, daemon and native-host executable | Package `0.6.0` | Build together from the same checkout |
+| `magicvault-mcp`, `magicvault-service` | Packages `0.6.0` | Managed application installation and reference-only clients |
+| `magicvault-effect` | `0.4.1` | Idle native EOF detection; effect schemas unchanged |
+| `magicvault-protocol` | `0.4.0`, unchanged | Existing agent delivery/IPC contract |
+| Chromium extension | Manifest `0.5.0` | Fixed unpacked identity, profile capability, automatic reconnect/backoff and durable pause; site-access controls |
 | Local agent protocol | Wire version `3` | Version mismatches fail closed; not the package version |
-| Native bridge | Wire version `1`, unchanged | Separate authenticated native contract |
+| Native connection | Handshake `2`; effect/config schemas `1` | Matching extension/host/daemon required; no silent downgrade |
 | `magicvault-core` | `0.1.3`, unchanged | Existing embedded custody/API/vault format/key identity retained |
 | `magicvault-primitives` | `0.1.1`, unchanged | Existing utility contract retained |
 | MagicRun `tool-runtime-core` | Public Git dependency `0.1.73` | Existing public coordinator; exact source recorded in Cargo.lock; runtime unchanged |
 | `magicvault-test-support` | `0.4.0`, `publish = false` | Test-only, not a production surface |
 
-The preceding standalone version was `0.4.0` with the same agent wire `3`.
-Packaging/onboarding adds no agent tool or new delivery authority. Browser
+The preceding standalone version was `0.5.0` with the same agent wire `3`.
+Automatic profile connections add no agent tool or new credential-delivery authority. Browser
 permissions, destination profiles, encrypted vault formats and key identities
 are preserved. No credential gains a recipient merely because software is installed.
 
@@ -42,10 +43,15 @@ release or store listing is asserted.
 
 For managed installations, update matching npm packages and explicitly run
 `magicvault upgrade`; npm itself never replaces a daemon. For manual installations,
-stop the daemon, use matching 0.5.x CLI/MCP/native-host binaries, restart and deliberately
-reconnect/rediscover browser handles. The extension's unchanged 0.3.0 assets
-continue using native wire 1; an extension version bump is not needed for these
-non-browser effects. Native-host definitions are OS-user-wide, not Chrome-profile
+stop the daemon, use matching 0.6.x CLI/MCP/native-host binaries and extension 0.5.x,
+then restart and rediscover fresh handles. Run `magicvault setup` (or source
+`extension install`) to select the fixed bundled identity. The old path-derived
+extension may need removal/reloading and explicit restoration of grants/blocks;
+subsequent fixed-ID upgrades preserve them. `upgrade` preserves a custom selected ID.
+The new extension adds `alarms` and stores a profile capability plus pause/backoff
+state in trusted local storage, never enrolled credentials or fill payloads.
+All-HTTPS access requires explicit approval; upgrades never request it automatically.
+Native-host definitions are OS-user-wide, not Chrome-profile
 resources. Never point the standalone daemon at an embedded consumer's root.
 
 Delivery profiles persist in the standalone registry; effect jobs and their

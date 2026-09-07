@@ -1,6 +1,6 @@
 # Security boundary and reporting
 
-MagicVault `0.5.0` is a source alpha with scoped automated and historical real-CDP evidence,
+MagicVault `0.6.0` is a source alpha with scoped automated and historical real-CDP evidence,
 not a production-qualified release. Installed-extension/native-human/keychain
 and broader qualification remain open. Do not use valuable credentials until
 the relevant [qualification gates](docs/testing.md) pass. Source review, a
@@ -59,7 +59,19 @@ dispatch, material-delivery or human-grant endpoint is provided.
 
 Use a dedicated automation profile and explicit loopback CDP endpoint, never a
 network-exposed debugger. Install only trusted extension/native host code, and
-grant only the required sites. Use trusted, non-world-writable executable
+prefer selected-site grants. The extension also offers explicitly approved
+all-HTTPS access; local HTTP remains opt-in. Broad access increases the impact of
+compromised extension code and discovery's reach, not credential authorization.
+The local site blocklist suppresses MagicVault discovery/fills for both top and
+frame sites; it does not revoke Chrome permissions or protect against a compromised
+extension. Trusted local storage contains site settings and a random browser-profile
+pairing capability, never enrolled credentials or fill payloads. The daemon stores
+only the capability hash and remembered authorization/refusal. This authorizes
+reconnection/discovery, not credential use; each fill still needs approval.
+Pause stops local retries; daemon-side browser/client revocation removes authority.
+Neither recalls dispatched fills. Reinstalling clears local settings but does not
+revoke the old daemon-side grant. The public manifest key fixes unpacked identity,
+not publisher authenticity or resistance to unrestricted same-user impersonation. Use trusted, non-world-writable executable
 locations. Keep the daemon root private and separate from other products.
 
 Never put credentials in labels, field names, locators, command arguments,

@@ -1,6 +1,49 @@
 # Changelog
 
-## Unreleased
+## 0.6.0 — 2026-09-07 — Automatic browser connections source alpha
+
+- Normal packaged setup installs the native host for a fixed public unpacked
+  extension identity. ID copying is no longer needed. Exact managed definitions
+  are idempotently repaired; foreign/modified files remain protected. Install-only
+  remains custody/service/registration-free; upgrade preserves custom IDs.
+- Extension `0.5.0` automatically connects with durable Chrome-alarm backoff,
+  distinct per-profile capabilities, live status and persistent Pause. Denial,
+  revocation, incompatible versions and duplicate-profile conflicts stop retries.
+- Add advisory extension checks to normal setup and `doctor`: verify native-host
+  definitions, count caller-owned extension connections, and give recovery steps.
+  No connection means installation unconfirmed, not absent. Probes are bounded,
+  never scan Chrome profiles or change permissions, and do not block other surfaces.
+- Remember native discovery authorization per client/extension/browser profile;
+  independent profiles no longer replace each other. Disconnect revokes that
+  profile's remembered grant; client revocation clears all its grants. Every fill
+  still requires credential policy and human consent; effects are never replayed.
+- Detect idle native-host EOF and cancel stale pending effects. Add coordinated
+  handshake v2 with closed refusal codes. CLI/MCP/service advance to `0.6.0`,
+  effect to `0.4.1`; agent wire 3, effect/config schemas 1, core, primitives,
+  MagicRun and Magician are unchanged.
+- Document the one-time path-derived to fixed-ID migration, profile capability
+  storage and public-key limitations. This is not signing, registry publication
+  or a Store listing. See [connection qualification](docs/qualification/results-extension-connections-2026-09-07.md).
+
+- Highlight the installed extension ID in a selectable, keyboard-focusable chip
+  with light/dark styling, and show the profile ID used in native consent.
+
+- Make browser access visible in a persistent status banner and disable/relabel
+  the all-HTTPS button after approval. Refresh from Chrome on page return and
+  permission changes; keep browser-grant status independent of blocklist errors.
+  Add regression cases for reopening, denial, revocation and stale reads.
+
+- Include the earlier unreleased site-access changes: one-time all-HTTPS or selected-site grants, with
+  local HTTP separately opt-in. Add a persistent human-managed site blocklist
+  enforced for discovery, top/frame targets and pre-dispatch fills. Keep existing
+  exact credential-origin rules and per-fill consent. Fixed-ID upgrades preserve grants.
+- Add trusted-context-only browser storage for bounded site settings (never
+  enrolled credentials), closed failure handling, concurrent-write protection and access
+  change/preflight regression coverage. Clearing HTTPS access retains local HTTP
+  and blocks; the blocklist is not Chrome permission revocation or effect recall.
+- Add setup UI tests and actual assembled-worker/import startup coverage, including
+  missing `fill.js` rejection; document unpacked-directory selection and reloads.
+  Shared core, MagicRun and Magician remain unchanged.
 
 - Fix distribution workflow validation by exporting runner-dependent artifact
   paths from the first execution step, not unsupported job-level expressions.

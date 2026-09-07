@@ -120,8 +120,11 @@ access through that capability and does not erase material or revoke providers.
 
 ## Upgrade and recovery
 
-CLI/MCP/service packages use source version `0.5.0` and unchanged local protocol version
-`3`. The unchanged extension uses `0.3.0` / native bridge wire `1`.
+CLI/MCP/service packages use source version `0.6.0` and unchanged local protocol
+version `3`. Extension `0.5.0` uses native connection handshake `2`: rebuild/update
+host and daemon together. Effect schemas and host config remain `1`. Normal
+packaged setup now installs the exact bundled native-host identity after pairing;
+install-only does not. See [one-time unpacked migration](browser-usage.md#upgrading-older-unpacked-extensions).
 This is a source alpha with local prebuilt npm packaging, not an announcement of
 published registry packages or Apple-verified releases. See the [component version matrix](versioning.md).
 Upgrade `magicvault`, `magicvault-mcp` and `magicvault-native-host` together and
@@ -138,7 +141,8 @@ Embedded core consumers such as Magician do not read this standalone registry or
 link the new browser/transport packages.
 
 Delivery profiles persist. Browser connections, target handles, pending consent and effect status are
-ephemeral and invalid after restart. Reconnect and rediscover deliberately.
+ephemeral and invalid after restart. Approved extension profiles reconnect
+automatically; clients must rediscover fresh handles and must not replay effects.
 Missing status after restart is not safe-to-retry evidence. A completed durable
 receipt may help a trusted operator reconcile, but no receipt can prove that a
 lost browser, child-process or HTTP reply meant no side effect occurred.

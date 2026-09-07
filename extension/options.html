@@ -3,11 +3,32 @@
 <title>MagicVault browser setup</title><link rel="stylesheet" href="options.css"></head>
 <body><main><h1>MagicVault</h1><p>Keep credentials out of agent messages.</p>
 <p>This extension fills approved credential fields. It does not navigate, submit forms, or filter other browser tools’ observations.</p>
-<h2>1. Install the native bridge</h2><p>Use this extension ID with the documented <code>magicvault extension install</code> command:</p><code id="extension-id"></code>
-<h2>2. Allow a site</h2><p>Enter an HTTPS origin (for example, <code>https://accounts.example.com</code>). Browser site permissions cover that host’s paths and ports. MagicVault separately enforces exact page/frame origins and selected credential fields.</p>
+<h2>1. Set up MagicVault</h2><p>Run <code>magicvault setup</code> once to install the native bridge and start MagicVault. This extension connects automatically. No extension ID needs copying for the bundled build. Source builds can use <code>magicvault extension install --host-executable /absolute/path/to/magicvault-native-host</code>.</p>
+<div class="identity-chip"><span class="identity-label">Extension ID</span><code id="extension-id" tabindex="0" aria-label="Installed extension ID"></code></div>
+<h2>2. Choose website access</h2>
+<div id="access-summary" class="access-summary" data-state="checking" role="status" aria-live="polite" aria-atomic="true">
+<span class="access-label">Current browser access</span>
+<strong id="access-mode">Checking browser permissions…</strong>
+<span>Browser permission only. Disabled sites, Chrome site restrictions and credential approvals still apply.</span>
+</div>
+<p>Allow all HTTPS websites once, or grant selected websites individually. Neither choice authorizes a credential: MagicVault still enforces exact page/frame origins, selected fields and native approval for every fill. Existing installations keep their permissions; no broad access is granted automatically.</p>
+<div><button id="allow-all">Allow all HTTPS websites</button><button id="selected-only">Clear HTTPS access — use selected sites</button></div>
+<p id="permission-status" role="status"></p>
+<p>Clearing HTTPS access removes all HTTPS grants; then allow individual sites below. Local HTTP grants and disabled sites are retained. Broad access increases the extension’s reach if compromised. Chrome can still restrict site access.</p>
+<p>Browser grants: <span id="granted-sites"></span></p>
+<h3>Individual sites and local development</h3>
+<p>Enter an HTTPS origin (for example, <code>https://accounts.example.com</code>), or explicitly allow <code>http://localhost:PORT</code> / <code>http://127.0.0.1:PORT</code> for local development. All-HTTPS access never enables local HTTP. Browser permissions cover the exact host’s paths and ports.</p>
 <label for="origin">Site origin</label><input id="origin" type="url" placeholder="https://accounts.example.com" autocomplete="off">
-<div><button id="allow">Allow site</button><button id="remove">Remove site permission</button></div><p id="permission-status" role="status"></p>
-<h2>3. Connect</h2><p>Start the daemon, then connect and approve its native dialog. Reconnect after daemon/host or extension-worker restart. Old document handles and unfinished operations must not be replayed.</p>
-<button id="connect">Connect</button><button id="disconnect">Disconnect</button><button id="refresh">Refresh status</button><p id="status" role="status"></p>
+<div><button id="allow">Allow site</button><button id="remove">Remove site permission</button><button id="block">Disable site in MagicVault</button></div>
+<h3>Disabled sites</h3>
+<p>Disabled sites are excluded from MagicVault discovery and fills in either mode, including embedded frames. A disabled top-level site also blocks its frames. Entries cover the exact hostname and scheme on all paths and ports; subdomains require separate entries. Up to 256 entries are stored locally, without credentials or browser sync.</p>
+<p>This blocklist does not revoke Chrome’s underlying permission, protect against a compromised extension, or recall an already dispatched fill. Allowing a site does not remove its block.</p>
+<label for="blocked-sites">Disabled sites</label><select id="blocked-sites" size="5"></select>
+<div><button id="unblock">Re-enable selected site</button><button id="refresh-access">Refresh access settings</button></div>
+<p id="block-status" role="status"></p>
+<h2>3. Connection</h2><p>Approve the first native dialog for this profile. Approved profiles reconnect automatically, with a 30-second to 5-minute backoff when MagicVault is unavailable (Chrome may delay retries). Separate profiles keep separate connections. Denial, revoked authorization and conflicting copies of a profile stop retries until you choose Retry / resume. Every credential fill still needs approval.</p>
+<div class="identity-chip"><span class="identity-label">Browser profile ID</span><code id="profile-id" tabindex="0" aria-label="Browser profile ID"></code></div>
+<p>Match this profile ID in the native approval dialog. Pause stops this profile’s automatic connection and survives browser restarts; it does not revoke the remembered approval. To revoke it, use <code>magicvault disconnect-browser --browser-handle HANDLE</code>. New connections get fresh handles; never replay unfinished operations.</p>
+<button id="connect">Retry / resume</button><button id="disconnect">Pause connection</button><button id="refresh">Refresh status</button><p id="status" role="status" aria-live="polite"></p>
 <p>Never paste credentials into this page. Enroll values through MagicVault’s native hidden-input prompts. Websites receive filled values; this is not protection from privileged or unrestricted local software.</p>
 </main><script src="options.js"></script></body></html>

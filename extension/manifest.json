@@ -1,10 +1,11 @@
 {
   "manifest_version": 3,
   "name": "MagicVault — credential fills",
-  "version": "0.3.0",
+  "version": "0.5.0",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAz+1KIVs/EvE8w/iSpAJX9nIzfnMlj5kn+q8O/7tHKLLDH/S3OjoAqDBS94CGnUu4HyTufTg34++DVVBsVLpKifIj1Do4gPxeNZX9IlVYvzjpvkjimvT+NDdC4P5JX5ydvgBcmEk+qmMsDtbHW0Afyt+/OnYjzbeMjMz+fbZ4y1IcparR2WR9uQ4pa7CguPnC06ekX0Ek8+f76K2ap7AKuMc4ChFvFwW2ib9NeMOUZxnwFC33YmH40Q38uMZZ7VUe6xvftATeCkI0GUZOFCF2ezxz1KVv1tBR995Bht5UVJw5/bgGoS748nOPtksCDmauURSPHTomNm15Fikjzsb3AQIDAQAB",
   "minimum_chrome_version": "120",
   "description": "Fill approved credential fields without putting values in agent messages. Requires the MagicVault native host.",
-  "permissions": ["nativeMessaging", "scripting", "webNavigation"],
+  "permissions": ["nativeMessaging", "scripting", "webNavigation", "storage", "alarms"],
   "optional_host_permissions": ["https://*/*", "http://localhost/*", "http://127.0.0.1/*"],
   "background": {"service_worker": "worker.js"},
   "options_page": "options.html",

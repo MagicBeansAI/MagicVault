@@ -35,7 +35,7 @@ enum Command {
         #[arg(long, default_value = "MagicVault CLI and MCP")]
         label: String,
     },
-    /// Read-only installation, integrity and daemon diagnostics.
+    /// Read-only installation, daemon and extension-connection diagnostics.
     Doctor,
     /// Drain the owned service before activating a new immutable bundle.
     Upgrade {
@@ -173,7 +173,7 @@ enum ServiceAction {
 #[derive(Subcommand)]
 enum ExtensionAction {
     Install {
-        #[arg(long)]
+        #[arg(long, default_value = magicvault_service::native::EXTENSION_ID)]
         extension_id: String,
         #[arg(long)]
         host_executable: Option<PathBuf>,

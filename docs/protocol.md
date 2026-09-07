@@ -197,9 +197,15 @@ claimed.
 
 `ROOT/bridge.sock` is a separate same-user, private Unix socket. It is never
 forwarded through MCP or the generic CLI response path. A native host presents
-bridge version 1, instance UUID, configured extension ID and paired capability.
-The daemon validates the configured profile/extension, authenticates the peer and
-asks the human to connect it. No credential material appears in that handshake.
+native handshake version 2, instance UUID, configured extension ID, client
+capability and a `BrowserHello {version, profile_id, capability, manual}` from the
+extension. `BrowserHello` is the extension's first native message. The daemon
+validates both identities/capabilities and asks for first-use profile authorization;
+approved reconnects reuse a persisted hash-bound grant. Denial is persisted before
+prompting to prevent crash/retry prompt loops. Explicit manual retry can request
+new human consent. No enrolled credential material appears in the handshake.
+The response is tagged `ready {version, browser_handle}` or `error {version, code}`;
+only closed error codes cross the host, never native exception text.
 
 After handshake, the daemon sends `BridgeCommand {request_id, request}` with
 `targets` or a trusted `fill {target, fields}`. Here—and only in the trusted
@@ -208,12 +214,16 @@ browser channel—each field carries CSS plus its value. The reply is a closed
 closed discovery error. The host validates IDs and response kind; values cannot
 be represented by the reply schema. Frames use a native/Unix 32-bit little-endian
 length and UTF-8 JSON, bounded to 256 KiB. Unknown fields and wrong IDs close the
-channel. Partial frames, cancellation and disconnect are never retried.
+channel. Effect command/reply schemas remain v1. Partial effects, cancellation
+and disconnect never authorize replay; only transport reconnection is retried.
 
 Chrome's allowed-origin manifest plus the host's invocation-origin/config checks
 bind normal extension connections. This is not protection from arbitrary
 same-user impersonation. The extension service worker owns native messaging;
 it uses document-targeted isolated script execution, not a page message route.
 It stores no credential material and exposes only setup/status to its own
-extension page. Approved reconnect replaces the previous extension channel and
-invalidates unused handles. User reconnection is explicit; no effect is replayed.
+extension page. Its trusted local storage includes a profile-pairing capability,
+not enrolled credentials. Independent profiles coexist; simultaneous duplicate
+identities fail closed. Reconnect gets fresh handles. `disconnect_browser` now
+also revokes an extension profile's remembered reconnection grant; CDP semantics
+and local agent wire 3 are unchanged. Host configuration remains version 1.

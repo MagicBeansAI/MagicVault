@@ -3,4 +3,23 @@ body { margin: 0; } main { max-width: 760px; margin: 3rem auto; padding: 0 1.5re
 h1 { font-size: 2rem; } h2 { margin-top: 2rem; font-size: 1.2rem; }
 label { display: block; } input { width: min(90%, 500px); padding: .5rem; margin: .5rem 0; }
 button { padding: .5rem .8rem; margin: .4rem .5rem .4rem 0; cursor: pointer; }
-code { overflow-wrap: anywhere; } [role=status] { min-height: 1.6em; }
+code, #granted-sites { overflow-wrap: anywhere; } [role=status] { min-height: 1.6em; }
+select { width: min(100%, 550px); padding: .5rem; } button:disabled { cursor: default; }
+h3 { font-size: 1rem; margin-top: 1.5rem; }
+.identity-chip { display: inline-flex; flex-wrap: wrap; align-items: center; gap: .4rem .8rem; max-width: 100%; box-sizing: border-box; padding: .7rem 1rem; border: 1px solid #a5b4fc; border-radius: 1.2rem; background: #eef2ff; color: #312e81; box-shadow: 0 2px 6px rgb(49 46 129 / 10%); }
+.identity-label { font: 600 .75rem/1.5 system-ui, sans-serif; text-transform: uppercase; letter-spacing: .04em; }
+#extension-id { min-width: 0; max-width: 100%; font-size: .95rem; font-weight: 600; user-select: all; cursor: text; }
+#extension-id:focus-visible { outline: 2px solid currentColor; outline-offset: 4px; border-radius: .2rem; }
+.access-summary { display: grid; gap: .25rem; border: 2px solid #64748b; border-radius: .6rem; padding: 1rem; background: #f1f5f9; color: #1e293b; }
+.access-label { font-size: .8rem; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+#access-mode { font-size: 1.25rem; }
+.access-summary[data-state="all"] { border-color: #15803d; background: #f0fdf4; color: #14532d; }
+.access-summary[data-state="selected"] { border-color: #1d4ed8; background: #eff6ff; color: #1e3a8a; }
+.access-summary[data-state="unknown"] { border-color: #a16207; background: #fefce8; color: #713f12; }
+@media (prefers-color-scheme: dark) {
+  .identity-chip { border-color: #818cf8; background: #1e1b4b; color: #e0e7ff; }
+  .access-summary { background: #1e293b; color: #e2e8f0; border-color: #94a3b8; }
+  .access-summary[data-state="all"] { border-color: #4ade80; background: #052e16; color: #dcfce7; }
+  .access-summary[data-state="selected"] { border-color: #60a5fa; background: #172554; color: #dbeafe; }
+  .access-summary[data-state="unknown"] { border-color: #facc15; background: #422006; color: #fef9c3; }
+}

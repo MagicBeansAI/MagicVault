@@ -3,7 +3,7 @@ use magicvault_service::{
     client::Client,
     installation::{self, Installation},
     launch_agent, native,
-    protocol::{valid_name, ErrorCode},
+    protocol::{valid_name, BrowserBackend, ErrorCode, Request, Response},
     storage,
 };
 use serde_json::{json, Value};
@@ -48,9 +48,9 @@ fn exists(path: &Path) -> Result<bool, ErrorCode> {
 fn configuration(app: &Installation, root: &Path, profile: &str) -> Result<Value, ErrorCode> {
     Ok(json!({
         "version": VERSION, "app_directory": app.directory(), "vault_root": root,
-        "extension_directory": app.extension(),
+        "extension_directory": app.extension(), "extension_id": native::EXTENSION_ID,
         "mcpServers": {"magicvault": {"command": app.executable("magicvault-mcp")?, "args": ["--root", root, "--profile", profile]}},
-        "next_steps": ["Enroll credentials with magicvault enroll; values belong only in native prompts.", "For CDP, register a local debugging endpoint. For the extension, load extension_directory in Chrome and run magicvault extension install --extension-id ID.", "Register reference-only destination profiles before new process or HTTP delivery."]
+        "next_steps": ["Enroll credentials with magicvault enroll; values belong only in native prompts.", "For CDP, register a local debugging endpoint. For the extension, load extension_directory in Chrome; normal setup installs the bridge and the extension connects automatically. Approve the first native browser-profile dialog.", "Register reference-only destination profiles before new process or HTTP delivery."]
     }))
 }
 
@@ -132,7 +132,84 @@ pub async fn setup(
     output["installed"] = json!(true);
     output["service_started"] = json!(true);
     output["paired"] = json!(true);
+    let vault = root.clone();
+    let executable = app.executable("magicvault-native-host")?;
+    let host_profile = profile.clone();
+    blocking(move || native::install(&vault, &host_profile, native::EXTENSION_ID, &executable))
+        .await?;
+    output["native_host_installed"] = json!(true);
+    // Advisory only: a closed/paused browser must not fail setup or gate HTTP,
+    // process or CDP use. Never wait for a human prompt or trigger connection.
+    output["extension"] = extension_status(&root, &profile).await;
     Ok(output)
+}
+
+async fn extension_status(root: &Path, profile: &str) -> Value {
+    let vault = root.to_owned();
+    let registration = blocking(move || native::inspect_registration(&vault)).await;
+    let browsers = tokio::time::timeout(Duration::from_secs(2), async {
+        Client::load(root.to_owned(), profile)?
+            .call(Request::ListBrowsers)
+            .await
+    })
+    .await
+    .unwrap_or(Err(ErrorCode::TransportUnavailable));
+    extension_report(profile, registration, browsers)
+}
+
+fn extension_report(
+    profile: &str,
+    registration: Result<Option<native::RegistrationInspection>, ErrorCode>,
+    browsers: Result<Response, ErrorCode>,
+) -> Value {
+    let mut next_steps = Vec::new();
+    let native_host = match registration {
+        Ok(Some(info)) => {
+            if !info.missing_files.is_empty() {
+                next_steps.push("Native-host files are missing. Rerun normal setup for the bundled extension, or extension install for your custom identity; do not delete the vault.");
+            }
+            if info.client_profile != profile {
+                next_steps.push("The native host uses a different CLI/MCP profile. Run doctor with its client_profile to check that profile's connections; registrations are OS-user-wide.");
+            }
+            json!({"state": if info.missing_files.is_empty() {"verified"} else {"incomplete"},
+                "extension_id": info.extension_id, "client_profile": info.client_profile,
+                "matches_selected_profile": info.client_profile == profile, "missing_files": info.missing_files})
+        }
+        Ok(None) => {
+            next_steps.push("Native-host registration is not configured for this vault. Run normal setup, or extension install for a source/custom build.");
+            json!({"state": "not_configured"})
+        }
+        Err(e) => {
+            next_steps.push("Native-host registration could not be verified. Inspect the closed error; foreign or modified definitions require deliberate recovery, not deletion or silent replacement.");
+            json!({"state": "unavailable", "error": e})
+        }
+    };
+    let connections = match browsers {
+        Ok(Response::Browsers(rows)) => Ok(rows
+            .iter()
+            .filter(|b| b.backend == BrowserBackend::Extension)
+            .count()),
+        Ok(_) => Err(ErrorCode::TransportUncertain),
+        Err(e) => Err(e),
+    };
+    let connection = match connections {
+        Ok(count) => {
+            json!({"state": if count > 0 {"connected"} else {"not_connected"}, "connected_profiles": count})
+        }
+        Err(e) => json!({"state": "unavailable", "connected_profiles": null, "error": e}),
+    };
+    if !matches!(connections, Ok(1..)) {
+        next_steps.push("Extension installation is unconfirmed, not necessarily absent. Open Chrome/Chromium and check the extension is installed and enabled; inspect its setup page for Pause, approval or retry status. Automatic retries may take several minutes. Then rerun doctor with the native host's client profile.");
+    }
+    json!({
+        "bundled_extension_id": native::EXTENSION_ID,
+        "client_profile": profile,
+        "native_host": native_host,
+        "connection": connection,
+        "browser_installation": if matches!(connections, Ok(1..)) {"confirmed_connected"} else {"unconfirmed"},
+        "scope": "Snapshot of extension connections visible to this paired CLI/MCP profile, not all browser profiles. Connection confirms presence, not website permission or credential-fill authorization.",
+        "next_steps": next_steps,
+    })
 }
 
 async fn ready(root: &Path) -> Result<(), ErrorCode> {
@@ -244,6 +321,8 @@ mod tests {
             .unwrap();
         assert_eq!(report["installation"]["installed"], false);
         assert_eq!(report["read_only"], true);
+        assert_eq!(report["extension"]["browser_installation"], "unconfirmed");
+        assert_eq!(report["extension"]["connection"]["state"], "unavailable");
         assert!(!app.exists());
         assert!(!vault.exists());
         fs::create_dir(&app).unwrap();
@@ -254,6 +333,154 @@ mod tests {
             .unwrap();
         assert!(report["installation"]["error"].is_string());
         assert_eq!(fs::read_dir(app).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn extension_report_does_not_confuse_registration_or_cdp_with_installed_extension() {
+        use magicvault_service::protocol::BrowserInfo;
+        let registration = || {
+            Some(native::RegistrationInspection {
+                extension_id: native::EXTENSION_ID.into(),
+                client_profile: "native-client".into(),
+                missing_files: vec![],
+            })
+        };
+        let report = extension_report(
+            "agent",
+            Ok(registration()),
+            Ok(Response::Browsers(vec![BrowserInfo {
+                browser_handle: uuid::Uuid::new_v4(),
+                label: "CDP".into(),
+                backend: BrowserBackend::Cdp,
+            }])),
+        );
+        assert_eq!(report["native_host"]["state"], "verified");
+        assert_eq!(report["native_host"]["matches_selected_profile"], false);
+        assert_eq!(report["browser_installation"], "unconfirmed");
+        assert_eq!(report["connection"]["connected_profiles"], 0);
+        assert!(report["next_steps"].as_array().unwrap().len() >= 2);
+        let mut incomplete = registration().unwrap();
+        incomplete.missing_files.push("/synthetic/missing".into());
+        let report = extension_report(
+            "native-client",
+            Ok(Some(incomplete)),
+            Err(ErrorCode::Unauthorized),
+        );
+        assert_eq!(report["native_host"]["state"], "incomplete");
+        assert_eq!(report["browser_installation"], "unconfirmed");
+        assert!(report["connection"]["connected_profiles"].is_null());
+        assert_eq!(report["connection"]["error"], "unauthorized");
+        let report = extension_report("agent", Err(ErrorCode::Conflict), Ok(Response::Revoked));
+        assert_eq!(report["native_host"]["error"], "conflict");
+        assert_eq!(report["connection"]["error"], "transport_uncertain");
+    }
+
+    #[tokio::test]
+    async fn doctor_reads_authenticated_connection_metadata_over_ipc_without_new_authority() {
+        use magicvault_service::{ipc, protocol::*};
+        let root = root();
+        let token = "b".repeat(64);
+        let id = uuid::Uuid::new_v4();
+        let pairing_file = root.path().join("client-agent.json");
+        fs::write(
+            &pairing_file,
+            serde_json::to_vec(&Pairing {
+                client_id: id,
+                token: token.clone(),
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        fs::set_permissions(&pairing_file, fs::Permissions::from_mode(0o600)).unwrap();
+        let listener = tokio::net::UnixListener::bind(root.path().join("rpc.sock")).unwrap();
+        fs::set_permissions(
+            root.path().join("rpc.sock"),
+            fs::Permissions::from_mode(0o600),
+        )
+        .unwrap();
+        let server = tokio::spawn(async move {
+            let epoch = uuid::Uuid::new_v4();
+            for n in 0..3 {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let bytes = ipc::read_frame(&mut stream, MAX_FRAME_BYTES).await.unwrap();
+                let envelope: Envelope = serde_json::from_slice(&bytes).unwrap();
+                assert_eq!(envelope.token.as_deref(), Some(token.as_str()));
+                let response = match envelope.request {
+                    Request::Status if n < 2 => Response::Status(ServiceStatus {
+                        epoch,
+                        client_id: Some(id),
+                        ready: true,
+                        effects: vec![],
+                    }),
+                    Request::ListBrowsers if n == 2 => {
+                        assert_eq!(envelope.epoch, Some(epoch));
+                        Response::Browsers(
+                            [
+                                BrowserBackend::Cdp,
+                                BrowserBackend::Extension,
+                                BrowserBackend::Extension,
+                            ]
+                            .into_iter()
+                            .map(|backend| BrowserInfo {
+                                browser_handle: uuid::Uuid::new_v4(),
+                                label: "Synthetic browser".into(),
+                                backend,
+                            })
+                            .collect(),
+                        )
+                    }
+                    _ => panic!("diagnostic must only read status and browser metadata"),
+                };
+                ipc::write_frame(
+                    &mut stream,
+                    &serde_json::to_vec(&Reply::Ok(response)).unwrap(),
+                    MAX_REPLY_BYTES,
+                )
+                .await
+                .unwrap();
+            }
+        });
+        let report = tokio::time::timeout(
+            Duration::from_secs(5),
+            doctor(
+                root.path().to_owned(),
+                "agent".into(),
+                Some(root.path().join("missing-app")),
+            ),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        server.await.unwrap();
+        assert_eq!(report["extension"]["connection"]["connected_profiles"], 2);
+        assert_eq!(
+            report["extension"]["browser_installation"],
+            "confirmed_connected"
+        );
+        assert!(!report.to_string().contains(&"b".repeat(64)));
+        assert!(!root.path().join("missing-app").exists());
+        assert!(!root.path().join("native-host.json").exists());
+        assert!(!root.path().join("native-install.lock").exists());
+    }
+
+    #[tokio::test]
+    async fn extension_probe_times_out_without_claiming_browser_is_absent() {
+        let root = root();
+        let _listener = tokio::net::UnixListener::bind(root.path().join("rpc.sock")).unwrap();
+        fs::set_permissions(
+            root.path().join("rpc.sock"),
+            fs::Permissions::from_mode(0o600),
+        )
+        .unwrap();
+        let report = tokio::time::timeout(
+            Duration::from_secs(4),
+            extension_status(root.path(), "agent"),
+        )
+        .await
+        .unwrap();
+        assert_eq!(report["browser_installation"], "unconfirmed");
+        assert_eq!(report["connection"]["state"], "unavailable");
+        assert!(report["connection"]["connected_profiles"].is_null());
     }
 }
 
@@ -300,8 +527,23 @@ pub async fn upgrade(
     } else {
         None
     };
+    let vault = root.clone();
     let app = blocking(move || {
         app.activate(staged)?;
+        if initialized && exists(&native::config_path(&vault))? {
+            let bytes = storage::read_private(&native::config_path(&vault), 8192)?;
+            let config: native::HostConfig =
+                serde_json::from_slice(&bytes).map_err(|_| ErrorCode::Conflict)?;
+            // Preserve an application builder's explicit custom extension ID.
+            // Setup selects the bundled identity; upgrade repairs only this
+            // already managed registration and never changes the selected ID.
+            native::install(
+                &vault,
+                &config.profile,
+                &config.extension_id,
+                &app.executable("magicvault-native-host")?,
+            )?;
+        }
         Ok(app)
     })
     .await?;
@@ -407,14 +649,17 @@ pub async fn doctor(
         Ok(v) => v,
         Err(e) => json!({"installed": null, "error": e}),
     };
-    let daemon = match Client::load(root.clone(), &profile) {
-        Ok(client) => match client.status().await {
-            Ok(s) => serde_json::to_value(s).map_err(|_| ErrorCode::Unavailable)?,
-            Err(e) => json!({"ready": false, "error": e}),
-        },
+    let daemon = match tokio::time::timeout(Duration::from_secs(2), async {
+        Client::load(root.clone(), &profile)?.status().await
+    })
+    .await
+    .unwrap_or(Err(ErrorCode::TransportUnavailable))
+    {
+        Ok(s) => serde_json::to_value(s).map_err(|_| ErrorCode::Unavailable)?,
         Err(e) => json!({"ready": false, "error": e}),
     };
+    let extension = extension_status(&root, &profile).await;
     Ok(
-        json!({"cli_version": VERSION, "supported_platform": supported().is_ok(), "app_directory": path, "vault_root": root, "installation": installation, "daemon": daemon, "read_only": true}),
+        json!({"cli_version": VERSION, "supported_platform": supported().is_ok(), "app_directory": path, "vault_root": root, "installation": installation, "daemon": daemon, "extension": extension, "read_only": true}),
     )
 }

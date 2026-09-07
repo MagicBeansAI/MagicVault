@@ -82,6 +82,12 @@ enum Command {
     BrowserTargets {
         #[arg(long)]
         browser_handle: Uuid,
+        /// Narrow discovery to an exact canonical top-page origin.
+        #[arg(long)]
+        top_origin: Option<String>,
+        /// Narrow to a backend-issued tab ID; not another tool's snapshot ref.
+        #[arg(long)]
+        tab_id: Option<String>,
     },
     DisconnectBrowser {
         #[arg(long)]
@@ -334,9 +340,15 @@ async fn run(cli: Cli) -> Result<serde_json::Value, ErrorCode> {
                     Request::RegisterCdp(RegisterCdp { label, endpoint })
                 }
                 Command::ListBrowsers => Request::ListBrowsers,
-                Command::BrowserTargets { browser_handle } => {
-                    Request::BrowserTargets(BrowserQuery { browser_handle })
-                }
+                Command::BrowserTargets {
+                    browser_handle,
+                    top_origin,
+                    tab_id,
+                } => Request::BrowserTargets(BrowserTargetsQuery {
+                    browser_handle,
+                    top_origin,
+                    tab_id,
+                }),
                 Command::DisconnectBrowser { browser_handle } => {
                     Request::DisconnectBrowser(BrowserQuery { browser_handle })
                 }

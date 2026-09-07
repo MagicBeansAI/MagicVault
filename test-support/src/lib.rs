@@ -17,6 +17,8 @@ pub struct FixtureState {
     pub partial_fill: bool,
     pub omit_unique_context: bool,
     pub calls: Vec<String>,
+    pub target_infos: Option<Vec<Value>>,
+    pub frame_url: Option<String>,
 }
 pub struct CdpFixture {
     pub endpoint: String,
@@ -48,12 +50,12 @@ impl CdpFixture {
                     let mut close = false;
                     let result = match method {
                         "Target.getTargets" => {
-                            json!({"targetInfos":[{"targetId":"tab-fixture","type":"page","url":"https://example.com/login?token=SYNTHETIC-URL-CANARY"}]})
+                            json!({"targetInfos":state.target_infos.clone().unwrap_or_else(|| vec![json!({"targetId":"tab-fixture","type":"page","url":"https://example.com/login?token=SYNTHETIC-URL-CANARY"})])})
                         }
                         "Target.attachToTarget" => json!({"sessionId":"session-fixture"}),
                         "Target.detachFromTarget" => json!({}),
                         "Page.getFrameTree" => {
-                            json!({"frameTree":{"frame":{"id":"frame-fixture","loaderId":if state.navigated{"doc-new"}else{"doc-fixture"},"url":"https://example.com/login?token=SYNTHETIC-URL-CANARY","securityOrigin":"https://example.com"}}})
+                            json!({"frameTree":{"frame":{"id":"frame-fixture","loaderId":if state.navigated{"doc-new"}else{"doc-fixture"},"url":state.frame_url.as_deref().unwrap_or("https://example.com/login?token=SYNTHETIC-URL-CANARY"),"securityOrigin":"https://example.com"}}})
                         }
                         "Runtime.enable" => json!({}),
                         "Page.createIsolatedWorld" => {

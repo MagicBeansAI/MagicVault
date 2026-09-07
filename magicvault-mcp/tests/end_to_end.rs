@@ -21,7 +21,8 @@ use zeroize::Zeroizing;
 
 // Test-only package qualification seam; never read by production binaries.
 fn mcp_binary() -> std::path::PathBuf {
-    std::env::var_os("MAGICVAULT_TEST_MCP").map(Into::into)
+    std::env::var_os("MAGICVAULT_TEST_MCP")
+        .map(Into::into)
         .unwrap_or_else(|| env!("CARGO_BIN_EXE_magicvault-mcp").into())
 }
 
@@ -180,9 +181,12 @@ async fn sdk_mcp_to_shared_client_to_real_ipc_to_core_returns_only_metadata() {
         panic!("browser");
     };
     let Response::BrowserTargets(targets) = client
-        .call(Request::BrowserTargets(BrowserQuery {
-            browser_handle: browser.browser_handle,
-        }))
+        .call(Request::BrowserTargets(
+            BrowserQuery {
+                browser_handle: browser.browser_handle,
+            }
+            .into(),
+        ))
         .await
         .unwrap()
     else {

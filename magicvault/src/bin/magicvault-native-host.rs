@@ -126,7 +126,7 @@ async fn run(args: Args) -> Result<(), ErrorCode> {
         let command: BridgeCommand =
             serde_json::from_slice(&bytes).map_err(|_| ErrorCode::TransportUncertain)?;
         let count = match &command.request {
-            BridgeRequest::Targets => None,
+            BridgeRequest::Targets | BridgeRequest::FilteredTargets(_) => None,
             BridgeRequest::Fill { fields, .. } => Some(fields.len()),
         };
         let id = command.request_id;

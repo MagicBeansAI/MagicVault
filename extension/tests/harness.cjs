@@ -16,6 +16,7 @@ function event() {
 function fixture({directory, grants = ["https://example.com/*"], stored = {}, accessError = false} = {}) {
   const f = {now: Date.now(), sent: [], hellos: [], ports: [], alarms: new Map(), connectionWrites: [], executions: 0, writes: [], reads: 0, stored: structuredClone(stored),
     grants: new Set(grants), permission: true, requests: [], removals: [], connects: 0,
+    tabQueries: [], frameQueries: [], permissionChecks: [],
     frames: [{frameId: 0, documentId: DOC, url: "https://example.com/login?token=SYNTHETIC-URL-CANARY", documentLifecycle: "active"}]};
   const newPort = () => ({onMessage: event(), onDisconnect: event(), postMessage: value => {
     if (value.capability) f.hellos.push(structuredClone(value)); else f.sent.push(value);
@@ -44,8 +45,16 @@ function fixture({directory, grants = ["https://example.com/*"], stored = {}, ac
     }},
     permissions: {
       onAdded: event(), onRemoved: event(),
-      contains: async ({origins}) => f.permission && origins.every(origin => f.grants.has(origin) || (origin.startsWith("https://") && f.grants.has("https://*/*"))),
-      getAll: async () => ({origins: [...f.grants]}),
+      contains: async ({origins}) => {
+        f.permissionChecks.push([...origins]);
+        if (f.onContains) await f.onContains();
+        return f.permission && origins.every(origin => f.grants.has(origin) || (origin.startsWith("https://") && f.grants.has("https://*/*")));
+      },
+      getAll: async () => {
+        if (f.onGetAll) await f.onGetAll();
+        if (f.getAllError) throw new Error("SYNTHETIC-PERMISSIONS-ERROR");
+        return {origins: [...f.grants]};
+      },
       request: async ({origins}) => {
         assert.equal(f.gesture, true, "permission request must begin synchronously in a click");
         f.requests.push([...origins]);
@@ -61,9 +70,29 @@ function fixture({directory, grants = ["https://example.com/*"], stored = {}, ac
         chrome.permissions.onRemoved.emit({origins}); return true;
       }
     },
-    tabs: {query: async () => [{id: 1}]},
+    tabs: {query: async query => {
+      f.tabQueries.push(structuredClone(query));
+      if (f.onTabs) await f.onTabs();
+      const tabs = f.tabs || [{id: 1, url: f.frames.find(frame => frame.frameId === 0)?.url, discarded: false}];
+      if (f.ignoreTabQuery) return tabs;
+      return tabs.filter(tab => {
+        if (query.discarded === false && tab.discarded) return false;
+        if (!query.url) return true;
+        if (typeof tab.url !== "string") return false;
+        const url = new URL(tab.url);
+        return query.url.some(pattern => {
+          const match = /^(https?):\/\/([^/]+)\/\*$/.exec(pattern);
+          return match && `${match[1]}:` === url.protocol &&
+            (match[2] === "*" || match[2] === url.hostname);
+        });
+      });
+    }},
     webNavigation: {
-      getAllFrames: async () => { if (f.onFrames) await f.onFrames(); return f.frames; },
+      getAllFrames: async ({tabId}) => {
+        f.frameQueries.push(tabId);
+        if (f.onFrames) await f.onFrames(tabId);
+        return f.framesByTab ? f.framesByTab.get(tabId) : f.frames;
+      },
       getFrame: async ({frameId}) => { if (f.onFrame) await f.onFrame(); return f.frames.find(frame => frame.frameId === frameId); }
     },
     scripting: {executeScript: async options => {

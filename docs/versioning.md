@@ -2,19 +2,20 @@
 
 ## Current component versions
 
-**0.6.0 — automatic browser connections source alpha, 2026-09-07.**
+**0.7.0 — narrowed discovery source alpha, 2026-09-08.**
 The [changelog](../CHANGELOG.md) describes the supported functionality and
-[delivery qualification](qualification/results-delivery-2026-09-07.md) records
+[discovery qualification](qualification/results-discovery-2026-09-08.md) records
 execution evidence. A public source repository is not a registry publication,
 binary release, extension store listing or production-safety certification.
 
 | Component | Source version / contract | Compatibility responsibility |
 | --- | --- | --- |
-| `magicvault` CLI, daemon and native-host executable | Package `0.6.0` | Build together from the same checkout |
-| `magicvault-mcp`, `magicvault-service` | Packages `0.6.0` | Managed application installation and reference-only clients |
-| `magicvault-effect` | `0.4.1` | Idle native EOF detection; effect schemas unchanged |
-| `magicvault-protocol` | `0.4.0`, unchanged | Existing agent delivery/IPC contract |
-| Chromium extension | Manifest `0.5.0` | Fixed unpacked identity, profile capability, automatic reconnect/backoff and durable pause; site-access controls |
+| `magicvault` CLI, daemon and native-host executable | Package `0.7.0` | Build together from the same checkout; CLI narrowing and native-host forwarding |
+| `magicvault-mcp` | Package `0.7.0` | Optional discovery arguments; matching reference-only client |
+| `magicvault-service` | `0.7.0` | Validates/routes discovery filters; existing consent, installation and custody boundaries |
+| `magicvault-effect` | `0.5.0` | Filtered adapter method/bridge command; bounded extension/CDP discovery |
+| `magicvault-protocol` | `0.5.0` | `BrowserTargetsQuery` and `TargetFilter`; unchanged fill/delivery/IPC framing |
+| Chromium extension | Manifest `0.6.0` | Permission-filtered, loaded-tab discovery with exact narrowing; document binding, fixed identity, reconnect/backoff, pause and site controls retained |
 | Local agent protocol | Wire version `3` | Version mismatches fail closed; not the package version |
 | Native connection | Handshake `2`; effect/config schemas `1` | Matching extension/host/daemon required; no silent downgrade |
 | `magicvault-core` | `0.1.3`, unchanged | Existing embedded custody/API/vault format/key identity retained |
@@ -22,8 +23,16 @@ binary release, extension store listing or production-safety certification.
 | MagicRun `tool-runtime-core` | Public Git dependency `0.1.73` | Existing public coordinator; exact source recorded in Cargo.lock; runtime unchanged |
 | `magicvault-test-support` | `0.4.0`, `publish = false` | Test-only, not a production surface |
 
-The preceding standalone version was `0.5.0` with the same agent wire `3`.
-Automatic profile connections add no agent tool or new credential-delivery authority. Browser
+The preceding local candidate was `0.6.2` with the same agent wire `3`.
+The new optional discovery fields preserve unfiltered JSON requests; Rust callers
+use `BrowserTargetsQuery` instead of `BrowserQuery` for discovery (the latter
+still identifies disconnects). Protocol/effect minor versions mark those public
+type/enum changes. Existing custom adapters retain the default filtering method;
+adapters that can exceed their inspection budget should implement early narrowing.
+Filtered native commands require the updated extension/host/daemon: an old
+worker refuses them, never silently falls back to broader delivery. Upgrade the
+matching bundle and verify the loaded extension version before using narrowing.
+The change adds no agent tool or credential-delivery authority. Browser
 permissions, destination profiles, encrypted vault formats and key identities
 are preserved. No credential gains a recipient merely because software is installed.
 
@@ -43,7 +52,7 @@ release or store listing is asserted.
 
 For managed installations, update matching npm packages and explicitly run
 `magicvault upgrade`; npm itself never replaces a daemon. For manual installations,
-stop the daemon, use matching 0.6.x CLI/MCP/native-host binaries and extension 0.5.x,
+stop the daemon, use matching 0.7.x CLI/MCP/native-host binaries and extension 0.6.x,
 then restart and rediscover fresh handles. Run `magicvault setup` (or source
 `extension install`) to select the fixed bundled identity. The old path-derived
 extension may need removal/reloading and explicit restoration of grants/blocks;
@@ -75,8 +84,9 @@ production change or a requirement to modify MagicRun's runtime.
 - Keep technical usage/security docs honest about destination trust, receipt-only
   results, unsupported stateful services and native acceptance gaps.
 - Record actual commands, source scope and environment in qualification records.
-  Passing synthetic tests does not qualify native prompts/keychain, the installed
-  extension, all consumer runtimes, a minimum compiler or performance.
+  Passing synthetic tests does not qualify native prompts/keychain, all installed
+  browser configurations, consumer runtimes or a minimum compiler. Label local
+  latency observations separately from native-UI and production performance.
 - Refresh the [architecture baseline](architecture.md) only after reviewing its
   changed boundaries. A fingerprint match is not a security attestation.
 - Keep profiles, capabilities, traces, private machine configuration and live

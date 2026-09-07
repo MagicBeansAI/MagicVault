@@ -89,16 +89,23 @@ class BuildPaths(unittest.TestCase):
         executable = self.base / "bin"
         executable.mkdir()
         cargo = executable / "cargo"
-        cargo.write_text('#!/bin/sh\nprintf "RECORDED_CARGO_TARGET=%s\\n" "$CARGO_TARGET_DIR"\n', encoding="utf8")
+        cargo.write_text('#!/bin/sh\nprintf "RECORDED_CARGO_TARGET=%s\\n" "$CARGO_TARGET_DIR"\nprintf "RECORDED_NATIVE_HOST=%s\\n" "$MAGICVAULT_TEST_NATIVE_HOST"\nprintf "RECORDED_MCP=%s\\n" "$MAGICVAULT_TEST_MCP"\n', encoding="utf8")
         cargo.chmod(0o700)
         environment = dict(self.environment, PATH=str(executable) + os.pathsep + self.environment.get("PATH", ""))
-        targets = (["check", "test", "build-standalone", "test-delivery", "test-browser-native", "test-cli-native", "test-public-web", "sync-lockfile"]
+        targets = (["check", "test", "build-standalone", "test-delivery", "test-delivery-latency", "test-browser-native", "test-cli-native", "test-extension-native", "test-public-web", "sync-lockfile"]
                    if PROJECT == "magicvault" else ["check", "build", "test", "test-lifecycle", "inventory", "classification", "replay"])
         expected = "RECORDED_CARGO_TARGET=" + str(self.volume / PROJECT / "builds")
         for target in targets:
             with self.subTest(target=target):
                 output = self.make(target, environment=environment)
                 self.assertIn(expected, output.splitlines())
+                if target == "test-extension-native":
+                    for prefix, binary in [("RECORDED_NATIVE_HOST=", "magicvault-native-host"), ("RECORDED_MCP=", "magicvault-mcp")]:
+                        self.assertIn(prefix + str(self.volume / PROJECT / "builds" / "release" / binary), output.splitlines())
+                        # A relative artifact path must still produce absolute
+                        # host paths, without splitting directories with spaces.
+                        relative = self.make(target, "CARGO_TARGET_DIR=relative cache", environment=environment)
+                        self.assertIn(prefix + str(ROOT / "relative cache" / "release" / binary), relative.splitlines())
 
 
 if __name__ == "__main__":

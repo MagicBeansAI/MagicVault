@@ -1,7 +1,7 @@
 //! A dedicated, bounded CDP connection; never a proxy or arbitrary JS endpoint.
 use crate::{
-    canonical_origin, origin_from_url, BrowserAdapter, MaterialField, Outcome, Target,
-    FILL_FUNCTION,
+    canonical_origin, matches_target_filter, origin_from_url, valid_target_filter, BrowserAdapter,
+    MaterialField, Outcome, Target, TargetFilter, FILL_FUNCTION,
 };
 use async_trait::async_trait;
 use futures_util::{SinkExt, StreamExt};
@@ -295,11 +295,26 @@ impl CdpBrowser {
 #[async_trait]
 impl BrowserAdapter for CdpBrowser {
     async fn targets(&self, cancel: CancellationToken) -> Result<Vec<Target>, ErrorCode> {
+        self.targets_filtered(&TargetFilter::default(), cancel)
+            .await
+    }
+
+    async fn targets_filtered(
+        &self,
+        filter: &TargetFilter,
+        cancel: CancellationToken,
+    ) -> Result<Vec<Target>, ErrorCode> {
+        if !valid_target_filter(filter) {
+            return Err(ErrorCode::InvalidRequest);
+        }
         if !self.connected() {
             return Err(ErrorCode::Unavailable);
         }
         let mut guard = self.connection.try_lock().map_err(|_| ErrorCode::Busy)?;
         let mut connection = guard.take().ok_or(ErrorCode::Unavailable)?;
+        // Only a locally computed discovery overflow at a clean protocol
+        // boundary permits reuse. Transport/frame failures still disconnect.
+        let mut bounded_overflow = false;
         let work = async {
             let mut reply = connection
                 .command(
@@ -311,27 +326,52 @@ impl BrowserAdapter for CdpBrowser {
             let infos = reply["targetInfos"]
                 .as_array()
                 .ok_or(ErrorCode::TransportUncertain)?;
-            if infos.len() > 64 {
-                scrub(&mut reply);
-                return Err(ErrorCode::Capacity);
-            }
             let tabs = infos
                 .iter()
                 .filter(|v| v["type"] == "page")
+                .filter(|v| {
+                    filter
+                        .tab_id
+                        .as_ref()
+                        .is_none_or(|tab| v["targetId"].as_str() == Some(tab.as_str()))
+                })
+                .filter(|v| {
+                    v["url"]
+                        .as_str()
+                        .and_then(|url| origin_from_url(url).ok())
+                        .is_some_and(|origin| {
+                            filter
+                                .top_origin
+                                .as_ref()
+                                .is_none_or(|expected| expected == &origin)
+                        })
+                })
                 .map(|v| bounded_string(&v["targetId"]))
+                .take(MAX_TARGETS + 1)
                 .collect::<Result<Vec<_>, _>>()?;
             scrub(&mut reply);
+            if tabs.len() > MAX_TARGETS {
+                bounded_overflow = true;
+                return Err(ErrorCode::Capacity);
+            }
             let mut targets = Vec::new();
             for tab in tabs {
                 let session = connection.attach(&tab).await?;
                 let discovered = connection.frame_targets(&tab, &session).await;
                 connection.detach(&session).await?;
                 match discovered {
-                    Ok(found) => targets.extend(found),
+                    // A page may navigate after Target.getTargets. Reapply
+                    // exact narrowing to the actual discovered document.
+                    Ok(found) => targets.extend(
+                        found
+                            .into_iter()
+                            .filter(|t| matches_target_filter(t, filter)),
+                    ),
                     Err(ErrorCode::UnsupportedTarget) => {}
                     Err(error) => return Err(error),
                 }
                 if targets.len() > MAX_TARGETS {
+                    bounded_overflow = true;
                     return Err(ErrorCode::Capacity);
                 }
             }
@@ -342,7 +382,7 @@ impl BrowserAdapter for CdpBrowser {
             _ = cancel.cancelled() => Err(ErrorCode::Cancelled),
             result = tokio::time::timeout(Duration::from_secs(FILL_TIMEOUT_SECS), work) => result.unwrap_or(Err(ErrorCode::TransportUncertain)),
         };
-        if result.is_ok() {
+        if result.is_ok() || (bounded_overflow && matches!(result, Err(ErrorCode::Capacity))) {
             *guard = Some(connection);
         } else {
             self.alive.store(false, Ordering::Release);

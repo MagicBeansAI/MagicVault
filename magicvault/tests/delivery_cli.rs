@@ -27,13 +27,15 @@ impl HumanInteraction for Human {
 async fn cli(root: &Path, args: &[&str]) -> Value {
     let output = tokio::time::timeout(
         Duration::from_secs(5),
-        tokio::process::Command::new(std::env::var_os("MAGICVAULT_TEST_CLI")
-            .unwrap_or_else(|| env!("CARGO_BIN_EXE_magicvault").into()))
-            .arg("--root")
-            .arg(root)
-            .args(args)
-            .kill_on_drop(true)
-            .output(),
+        tokio::process::Command::new(
+            std::env::var_os("MAGICVAULT_TEST_CLI")
+                .unwrap_or_else(|| env!("CARGO_BIN_EXE_magicvault").into()),
+        )
+        .arg("--root")
+        .arg(root)
+        .args(args)
+        .kill_on_drop(true)
+        .output(),
     )
     .await
     .unwrap()
@@ -225,6 +227,97 @@ async fn actual_cli_http_completion_and_audit_failure_remain_reconcilable() {
             assert_eq!(status["data"]["error"], "persistence_uncertain");
             assert_eq!(cli(root.path(), &["status"]).await["data"]["ready"], false);
         }
+        broker.shutdown.cancel();
+        daemon.await.unwrap().unwrap();
+    }
+}
+
+// Includes fresh CLI startup, IPC, synthetic consent, delivery and 10ms status
+// polling. No wall-clock pass threshold: this is a bounded local observation,
+// not an Internet/TLS, native-dialog, saturation or production benchmark.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "explicit repeated real CLI/process/loopback HTTP latency qualification"]
+async fn repeated_cli_delivery_latency_and_withheld_output() {
+    for http in [false, true] {
+        let (root, broker, daemon, reference) = setup().await;
+        let _stop = broker.shutdown.clone().drop_guard();
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/", listener.local_addr().unwrap());
+        let executable = root.path().join("recipient");
+        fs::write(&executable, "#!/bin/sh\n[ -n \"$MV_TOKEN\" ] || exit 1\nprintf '%s' \"$MV_TOKEN\"\nprintf '%s' \"$MV_TOKEN\" >&2\nprintf x >> marker\n").unwrap();
+        fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
+        let destination = if http {
+            json!({"kind":"http","config":{"url":url,"method":"POST","headers":[{"name":"Authorization","value":value(&reference)}],"query":[],"body":null,"timeout_secs":2}})
+        } else {
+            json!({"kind":"process","config":{"executable":executable,"arguments":[],"working_directory":root.path(),"environment":[{"name":"MV_TOKEN","value":value(&reference)}],"stdin":null,"timeout_secs":2}})
+        };
+        let profile = register(
+            root.path(),
+            json!({"label":"Synthetic latency", "destination":destination}),
+        )
+        .await;
+        let mut receivers = tokio::task::JoinSet::new();
+        if http {
+            receivers.spawn(async move {
+                for _ in 0..20 {
+                    tokio::time::timeout(Duration::from_secs(6), async {
+                        let (mut stream, _) = listener.accept().await.unwrap();
+                        let mut header = Vec::new();
+                        while !header.ends_with(b"\r\n\r\n") {
+                            assert!(header.len() < 8192);
+                            header.push(stream.read_u8().await.unwrap());
+                        }
+                        assert!(String::from_utf8_lossy(&header).contains(CANARY));
+                        stream.write_all(format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{CANARY}", CANARY.len()).as_bytes()).await.unwrap();
+                    }).await.unwrap();
+                }
+            });
+        }
+        let mut samples = Vec::new();
+        for _ in 0..20 {
+            let operation = Uuid::new_v4().to_string();
+            let started = std::time::Instant::now();
+            cli(
+                root.path(),
+                &[
+                    if http {
+                        "secure-new-http"
+                    } else {
+                        "secure-new-process"
+                    },
+                    "--profile-id",
+                    &profile,
+                    "--operation-id",
+                    &operation,
+                ],
+            )
+            .await;
+            assert_eq!(
+                settled(root.path(), &operation).await["data"]["state"],
+                "completed"
+            );
+            samples.push(started.elapsed().as_micros());
+        }
+        if http {
+            receivers.join_next().await.unwrap().unwrap();
+        } else {
+            assert_eq!(
+                fs::read(root.path().join("marker")).unwrap(),
+                vec![b'x'; 20]
+            );
+        }
+        let audit = fs::read_to_string(
+            root.path()
+                .join("vault")
+                .join(magicvault_core::store::SECRET_AUDIT_FILENAME),
+        )
+        .unwrap();
+        assert!(!audit.contains(CANARY));
+        samples.sort_unstable();
+        println!(
+            "cli_delivery_measurement {}",
+            json!({"kind":if http {"http"} else {"process"},"synthetic_consent":true,"samples":samples.len(),"us":{"min":samples[0],"median":(samples[9]+samples[10])/2,"p95":samples[18],"max":samples[19]}})
+        );
         broker.shutdown.cancel();
         daemon.await.unwrap().unwrap();
     }

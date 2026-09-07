@@ -1,6 +1,6 @@
 # MagicVault architecture
 
-Architecture version: `0.6.0`
+Architecture version: `0.7.0`
 
 Previous immutable baseline tag: `architecture/v0.3.0`. The current reviewed
 source/document baseline is [architecture-baseline.json](architecture-baseline.json).
@@ -55,17 +55,19 @@ generic substring redaction; coarse outcomes and timing remain observable.
 
 | Component | Version | Ownership |
 | --- | --- | --- |
-| `magicvault`, `magicvault-mcp` | `0.6.0` | Human administration and reference-only clients; CLI also builds daemon/native host and owns explicit setup |
-| `magicvault-service` | `0.6.0` | One standalone store writer and separate private application-bundle installer |
-| `magicvault-protocol` | `0.4.0`, unchanged | Caller authentication, policy, consent, destination profiles, jobs and bounded IPC |
-| `magicvault-effect` | `0.4.1` | Dedicated CDP/native fills, HTTP transport and trusted MagicRun process integration |
-| Chromium extension | `0.5.0` | Explicit all-HTTPS or selected-site grants, local blocks and native document-targeted fill; no navigation or submission API |
+| `magicvault`, `magicvault-mcp` | `0.7.0` | Human administration, reference-only clients and optional discovery narrowing; CLI builds daemon/native host |
+| `magicvault-service` | `0.7.0` | Validates/routes discovery narrowing; one store writer and private application-bundle installer |
+| `magicvault-protocol` | `0.5.0` | Discovery query/filter types; authentication, policy, consent, profiles, jobs and bounded IPC |
+| `magicvault-effect` | `0.5.0` | Filtered adapter method/native command; CDP/native fills, HTTP and MagicRun integration |
+| Chromium extension | `0.6.0` | Permission-aware exact discovery narrowing, site grants/blocks and document-targeted fill; no navigation or submission API |
 | MagicRun `tool-runtime-core` | `0.1.73`, existing public Git dependency | Governed process preparation, digest-bound dispatch, cancellation, output bounds and owned-child cleanup; runtime source unchanged |
 | `magicvault-core` | `0.1.3` | Encryption, credential references, existing policies, scoped stores and typed audit |
 | `magicvault-primitives` | `0.1.1` | Durable filesystem and stack-safe JSON utilities |
 
 The local agent wire is version **3**, unchanged. The profile-authenticated native
-handshake is version **2**; effect commands and host configuration remain version **1**.
+handshake is version **2**; bridge framing and host configuration remain version **1**.
+Filtered discovery adds a closed `filtered_targets` bridge command; use matching
+updated components. Old workers refuse it; no broader-query or delivery fallback.
 Wire versions and crate versions are distinct. See the [protocol](protocol.md)
 for framing, message types and bounds, and [versioning](versioning.md) for upgrades.
 
@@ -159,6 +161,27 @@ The fixed public unpacked identity is not a signing key or a Store listing.
 
 ## One fill, end to end
 
+Extension discovery queries Chrome's granted URL patterns and excludes discarded
+tabs without waking them. Missing URLs, unsupported schemes and blocked sites
+are omitted before the 128-candidate frame-inspection budget. Permissions are
+cached only within one discovery revision; document/frame origins are checked
+again after tab enumeration. Any observed site-policy or permission change
+invalidates the response. At most 128 frames per candidate are inspected and
+128 targets returned; candidate/response overflow fails with `capacity`, not a
+silently truncated result. Optional exact top-origin/tab filters are validated
+by the broker and applied before inspection; the native bridge also validates
+returned targets against them. Chrome URL match patterns ignore ports, so exact
+origin comparison occurs before candidate admission and again on actual frames.
+Fill authorization and permission checks are uncached and unchanged. No broad
+`tabs` permission is added. Filtered native discovery uses its own closed command.
+
+CDP applies the same optional narrowing to supported page targets before its
+128-tab inspection budget, then rechecks discovered document metadata. A local
+candidate/total-target overflow at a completed protocol boundary returns
+`capacity` while preserving the connection for a narrower discovery. Timeout,
+malformed reply and frame/transport failures still invalidate the connection;
+this exception never retries an effect or preserves uncertain delivery state.
+
 Extension access is separate from credential authorization. Chrome grants remain
 optional: a human chooses all HTTPS once or selected hosts; local HTTP is always
 separate. Existing grants are retained on upgrade. Resetting to selected sites
@@ -177,6 +200,16 @@ The setup page reads its persistent access indicator directly from Chrome,
 independently of worker/blocklist availability. Permission events and page return
 refresh it without polling or caching a user click as authority; stale reads are
 discarded and permission-read failures show an unverified state.
+
+Browser document IDs are opaque browser-owned strings, not daemon UUID handles.
+The extension accepts observed 32-hex Chrome tokens and the retained hyphenated
+format, preserves their exact bytes/case, and checks both top and selected
+documents before dispatch. `scripting.executeScript` receives the exact
+`documentIds`, never a frame-only fallback. Supporting Chrome's actual token
+format does not weaken origin, document-lifecycle, permission or consent checks.
+The [real transport qualification](qualification/results-native-transport-2026-09-07.md)
+uses test-only disposable user-data roots, native manifests and synthetic consent;
+none of those helpers or test configuration overrides enter production binaries.
 
 1. A human pairs a client and enrolls values through native hidden inputs. Listing
    metadata does not grant delivery. The human separately authorizes selected

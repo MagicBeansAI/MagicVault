@@ -2,6 +2,72 @@
 
 ## Unreleased
 
+- Use “Let agents use credentials without seeing them” in the README and npm
+  package copy, with the recipient/browser-observation boundary stated nearby.
+- Shorten the README around the credential-use workflow, candidate installation,
+  MCP quick start and compact surface coverage. Move full coverage/CLI recipes
+  into linked guides, retain existing entry-point anchors, and separate packaged
+  extension instructions from source builds without hiding native acceptance gaps.
+
+## 0.7.0 — 2026-09-08 — Narrowed discovery source alpha
+
+- Add optional exact `top_origin` and backend `tab_id` narrowing to MCP
+  `browser_targets` and CLI `browser-targets`. Both must match when supplied.
+  Extension and CDP adapters filter before bounded frame inspection and recheck
+  actual document results. Filters are not grants or credential-use authority.
+- Retain explicit `capacity` for oversized matching sets. A clean local CDP
+  discovery overflow keeps the connection usable for a narrower query; transport
+  failures still invalidate it. No silent truncation, grant changes or tab closure.
+- Extend protocol/native-bridge, broker, Chrome API and real CLI/MCP/CDP/extension
+  regression coverage. Existing unfiltered JSON requests and fill semantics remain
+  unchanged; filtered discovery requires matching updated standalone components.
+- Qualify basic installed macOS/Chrome discovery and native deny/allow delivery
+  with a synthetic credential and real keychain/site/destination approval. Record
+  upgrade timeout reconciliation and remaining lifecycle/release gates separately.
+- CLI/MCP/service `0.7.0`, protocol/effect `0.5.0`, extension `0.6.0`. Minor crate
+  versions identify new public discovery request/bridge types; shared custody
+  core/primitives, vault/key identities, MagicRun and Magician remain unchanged.
+  No signing or publication occurred. See [qualification](docs/qualification/results-discovery-2026-09-08.md).
+
+## 0.6.2 — 2026-09-08 — Large-profile discovery source alpha
+
+- Fix extension discovery failing for profiles with more than 64 total tabs.
+  Query granted sites and skip discarded, blocked, unsupported and inaccessible
+  tabs before applying a 128-candidate frame-inspection budget. Retain the
+  128-target response limit and fail explicitly on eligible-set overflow.
+- Cache permission checks only within one discovery revision; reject observed
+  permission/policy changes and recheck actual frame/document origins. Fills
+  retain fresh permission checks, exact document binding and human consent.
+- Add large-profile, budget, navigation and permission-race regression cases;
+  exercise real extension/MCP fills with 65 unrelated disposable browser tabs.
+- CLI/MCP `0.6.2` package extension `0.5.2` as a new immutable bundle. Shared
+  core, service/effect implementation, wire formats, MagicRun and Magician are
+  unchanged. This remains an unsigned local candidate, not a public release.
+- Document Chrome retaining an old resolved unpacked-extension path after app
+  upgrade; verify the extension version and load updated assets without first
+  removing the existing fixed-ID extension. See the
+  [discovery qualification record](docs/qualification/results-discovery-2026-09-08.md).
+
+## 0.6.1 — 2026-09-07 — Browser document compatibility source alpha
+
+- Fix a real Chromium extension discovery/fill failure: browser document IDs can
+  be 32-character hexadecimal tokens rather than hyphenated UUIDs. Preserve exact
+  document identity and retain origin, lifecycle, permission and consent checks.
+  Malformed, stale and differently cased tokens still fail closed.
+- Add opt-in real Chrome/native-host/daemon/MCP qualification with disposable
+  user-data roots, two profiles, denial, pending-consent navigation/blocks,
+  repeated fills and independent pause/reconnect. Extend offline npm qualification
+  to exercise the actual installed executables and extension assets.
+- Add release-build CLI/process/loopback HTTP latency observations and canary
+  checks, SSD browser-profile routing, repeatable technical runbooks and updated
+  public evidence. Synthetic consent and a loopback permission fixture do not
+  qualify genuine native permission/keychain or signed-download acceptance.
+- CLI/MCP advance to `0.6.1` to package corrected extension `0.5.1` in a new
+  immutable application bundle. Service `0.6.0`, effect `0.4.1`, shared custody
+  core/primitives, wire formats, MagicRun and Magician are unchanged.
+- See [executed qualification and remaining gates](docs/qualification/results-native-transport-2026-09-07.md).
+  This is not a registry publication, signing/notarization or production release.
+
 - Make the README MCP-first, with Codex/Claude Code connection commands and an
   agent-led quick start, followed by CLI automation and developer integrations.
   Clarify one-time human setup, per-use consent, local-only MCP and SDK availability.

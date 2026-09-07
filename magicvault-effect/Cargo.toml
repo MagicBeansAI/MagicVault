@@ -1,12 +1,12 @@
 [package]
 name = "magicvault-effect"
-version = "0.4.1"
+version = "0.5.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "Trusted browser, HTTP and process credential delivery adapters for MagicVault"
 
 [dependencies]
-magicvault-protocol = { path = "../magicvault-protocol", version = "0.4.0" }
+magicvault-protocol = { path = "../magicvault-protocol", version = "0.5.0" }
 async-trait = "0.1"
 futures-util = { version = "0.3", features = ["sink"] }
 serde = { version = "1", features = ["derive"] }

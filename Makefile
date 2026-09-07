@@ -11,7 +11,7 @@ export CARGO_TARGET_DIR
 .DEFAULT_GOAL := help
 
 help:
-	@echo "MagicVault: test-compatibility | test-foundation | test-browser | test-delivery | test-browser-native | test-cli-native | test-public-web | test-qualification-fixtures | fixture-site | build-standalone | package-extension | sync-lockfile"
+	@echo "MagicVault: test-compatibility | test-foundation | test-browser | test-delivery | test-browser-native | test-cli-native | test-extension-native | test-public-web | test-qualification-fixtures | fixture-site | build-standalone | package-extension | sync-lockfile"
 	@echo "check/test are full lanes; run only when explicitly authorized. Browser native tests require a disposable Chrome/Chromium installation."
 	@echo "Cargo artifacts: $(CARGO_TARGET_DIR) (print-target-dir; override CARGO_TARGET_DIR or BUILD_VOLUME)"
 	@echo "Architecture: check-architecture | test-architecture | architecture-snapshot (candidate only)"
@@ -86,6 +86,23 @@ test-browser-native:
 test-cli-native:
 	cargo test --locked -p magicvault --test browser_native -- --ignored --test-threads=1
 
+# Real Chrome -> native host -> daemon -> MCP. Separate user-data roots contain
+# test-only host manifests and a pregranted loopback extension fixture. Synthetic
+# consent/key providers; no native setup, OS-wide host registration or keychain.
+# Chrome must support Extensions.loadUnpacked; explicit browser path required.
+test-extension-native: build-standalone
+	@case "$(CARGO_TARGET_DIR)" in \
+	  /*) magicvault_qa_target="$(CARGO_TARGET_DIR)" ;; \
+	  *) magicvault_qa_target="$(CURDIR)/$(CARGO_TARGET_DIR)" ;; \
+	esac; \
+	MAGICVAULT_TEST_NATIVE_HOST="$$magicvault_qa_target/release/magicvault-native-host" \
+	MAGICVAULT_TEST_MCP="$$magicvault_qa_target/release/magicvault-mcp" \
+	cargo test --locked --release -p magicvault-mcp --test extension_native -- --ignored --nocapture --test-threads=1
+
+# Twenty actual CLI launches/deliveries per destination; private synthetic roots.
+test-delivery-latency:
+	cargo test --locked --release -p magicvault --test delivery_cli repeated_cli_delivery_latency -- --ignored --nocapture --test-threads=1
+
 # Public demonstration sites only; requires MAGICVAULT_PUBLIC_WEB=1 as well.
 test-public-web:
 	cargo test --locked -p magicvault-effect --test chromium_public -- --ignored --test-threads=1
@@ -125,5 +142,12 @@ test-package-install:
 	@test -n "$(PACKAGE_OUTPUT)" -a -n "$(PACKAGE_TEST_OUTPUT)" || (echo 'Set PACKAGE_OUTPUT and a fresh PACKAGE_TEST_OUTPUT directory'; exit 1)
 	node scripts/qualify-package.mjs --packages "$(PACKAGE_OUTPUT)" --work "$(PACKAGE_TEST_OUTPUT)" --with-rust-tests
 
+test-package-browser:
+	@test -n "$(PACKAGE_OUTPUT)" -a -n "$(PACKAGE_TEST_OUTPUT)" || (echo 'Set PACKAGE_OUTPUT and a fresh PACKAGE_TEST_OUTPUT directory'; exit 1)
+	node scripts/qualify-package.mjs --packages "$(PACKAGE_OUTPUT)" --work "$(PACKAGE_TEST_OUTPUT)" --with-rust-tests --with-browser-tests
+
 .PHONY: test-distribution package-npm test-package-install
 .PHONY: test-extension
+.PHONY: test-extension-native
+.PHONY: test-delivery-latency
+.PHONY: test-package-browser

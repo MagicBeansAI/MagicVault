@@ -2,6 +2,26 @@
 
 ## Current evidence
 
+The [0.7.0 discovery and installed acceptance record](qualification/results-discovery-2026-09-08.md)
+adds permission-aware large-profile enumeration and exact origin/tab narrowing.
+It records 235 Rust tests, 84 JavaScript tests, actual CDP/CLI/native-extension
+lanes and qualified local npm artifacts. A dedicated installation in an explicitly
+authorized current OS account also exercised real keychain approval, retained
+pairing, human site/destination permission, native per-use denial and a separate
+approved MCP/extension fill. Receipts were value-free and post-fill readiness
+passed. Full recovery/permission matrices, wider hosts and signed/public release
+gates remain open; the record preserves an unexplained automated startup timeout
+and the installed upgrade's keychain-readiness timeout/reconciliation.
+
+The [0.6.1 real transport qualification](qualification/results-native-transport-2026-09-07.md)
+adds actual Chrome → extension → native host → daemon → shipped MCP delivery,
+including npm-installed assets, two profiles, repeated fills, denial, navigation
+and blocking during pending synthetic consent, pause and fresh-handle reconnect.
+It found and corrected rejection of Chrome's actual hexadecimal document IDs.
+It also records repeated release-build CLI/process/loopback HTTP latency, full
+regressions and exact limits. Browser permission grants and custody/UI are
+explicit synthetic fixtures; this does **not** qualify real permission or keychain UI.
+
 The [automatic connection qualification](qualification/results-extension-connections-2026-09-07.md)
 records profile isolation, reconnect/backoff, pause/refusal, managed installation
 repair and unchanged delivery regression checks for standalone 0.6.0 / extension 0.5.0.
@@ -9,8 +29,8 @@ repair and unchanged delivery regression checks for standalone 0.6.0 / extension
 The [extension 0.4.0 access qualification](qualification/results-extension-access-2026-09-07.md)
 records 48 focused JS/package cases after the access-indicator and ID-chip follow-ups,
 24 tooling cases and a disposable Chrome
-startup/blocklist smoke check. Native browser permission approval and full
-installed-extension credential delivery remain separate manual gates.
+startup/blocklist smoke check. Native browser permission approval remains a
+separate manual gate; current isolated native dispatch evidence is linked above.
 
 The [0.5.0 distribution qualification](qualification/results-distribution-2026-09-07.md)
 adds offline npm tarball installation, real packaged CLI/MCP IPC, stable application
@@ -26,10 +46,12 @@ for counts, commands, environments and limits. Real-browser cases stay ignored
 in the default suite and run through explicit targets. Versioned test results
 remain technical evidence, not a production-readiness claim.
 
-No installed-extension/native-human/keychain workflow, benchmark,
-coverage-percentage tool or CI ran. Real CLI qualification uses test-only human
-and key providers. Browser success does not establish measured performance,
-all consumer regressions, broader browser compatibility or production readiness.
+No coverage-percentage tool or CI ran in these local qualification sessions.
+Automated CLI/native-extension lanes use test-only human and key providers;
+the separately recorded installed acceptance uses genuine native UI/keychain.
+Small-sample local latency is measured, not a production benchmark. Browser
+success does not establish all consumer regressions, broader browser compatibility
+or production readiness.
 The [qualification index](qualification/README.md) separates executable
 conformance tests, manual acceptance runbooks and unimplemented running-service gates.
 
@@ -58,6 +80,12 @@ Rust; installed clients do not. No test invokes full native `setup` or a real
 service/keychain installer. Use a disposable OS account for the separate
 [native acceptance runbook](qualification/distribution.md).
 
+`make test-package-browser` is a separate opt-in superset: supply the same fresh
+package/work directories and explicit `MAGICVAULT_CHROME`. It also runs the real
+extension transport fixture with the installed MCP launcher, native host and
+extension code. The fixture's single loopback permission pregrant still applies;
+this does not exercise the production host installer or real human consent.
+
 ## Build and test artifact location
 
 All Makefile Cargo lanes—check, build, test, native qualification and dependency
@@ -85,10 +113,16 @@ MagicRun uses its own `/Volumes/SSD1/magicrun/builds`, never MagicVault's or an
 embedded consumer's artifact tree. Multiple checkouts/worktrees of the same
 project should use distinct explicit targets when building concurrently.
 Only Cargo artifacts move: source checkouts, dependency downloads, vault/keychain,
-OS-managed fixture temporary directories, `dist/` extension packaging and ignored
+small OS-managed fixture temporary directories, `dist/` extension packaging and ignored
 `output/` inspection artifacts keep their existing locations. Existing caches
 are not copied or deleted. Keep the drive connected while builds run or while
 executables installed from that target are in use.
+
+Real-browser profiles can also live on the external volume: set
+`MAGICVAULT_BROWSER_TMPDIR=/Volumes/SSD1/magicvault` to an existing absolute
+directory. Each test creates/removes its own fresh child directory; it never
+adopts an existing browser profile. Private socket/vault fixtures remain in short
+OS temporary paths to respect Unix-domain socket limits.
 
 `make test-build-paths` runs small routing regressions with a fake Cargo recorder:
 available/missing/read-only paths, file/symlink refusal, explicit overrides and
@@ -106,6 +140,8 @@ application suites.
 | `make test-delivery` | Closed process/HTTP profiles, real local HTTP/TLS and child processes, MagicRun integration, consent/lifecycle/audit failures, shipped CLI/MCP | Synthetic local recipients/human/key providers; no public provider or native dialogs |
 | `make test-browser-native` | Headed/headless fills, controls, frames and stale documents against disposable Chrome | Yes, explicit executable required |
 | `make test-cli-native` | Shipped CLI → real daemon/IPC → real Chrome, allowed and denied fills | Yes; test-only human/key providers |
+| `make test-extension-native` | Release-build MCP → daemon → shipped native host → actual Chrome extension, two profiles and consent races | Yes; isolated user-data host definitions, synthetic consent/keys and loopback pregrant |
+| `make test-delivery-latency` | Twenty real CLI/process and twenty CLI/loopback HTTP operations with canary checks and latency summaries | No browser; release build, synthetic consent/keys; not a native-UI or Internet benchmark |
 | `make test-public-web` | Example Domain navigation and Selenium public test-form fill, no submit | Yes; separate explicit public-network opt-in |
 | `make test-qualification-fixtures` | Loopback fixture server and real child-process destination contracts | No browser; not a process product test |
 | [Installed-extension runbook](qualification/extension.md) | Real permissions, native messaging, dialogs and browser input behavior | Yes; manual, disposable OS account recommended |
@@ -151,6 +187,7 @@ exported by a production model tool.
 | Site permission, document-targeted isolated execution, no page command route, disconnect | `extension/tests/worker.test.cjs` |
 | Headed/headless real DOM delivery and independent browser-tool continuation | Ignored `magicvault-effect/tests/chromium.rs` |
 | Actual CLI/daemon/Chrome, allow/deny and value-free output/audit | Ignored `magicvault/tests/browser_native.rs` |
+| Real Chrome/native dispatch through shipped or npm-installed MCP, independent profiles, pending-consent navigation/blocks and repeated fills | Ignored `magicvault-mcp/tests/extension_native.rs`; worker hex-document regression cases |
 | Explicit public-page navigation and synthetic fill without submit | Ignored `magicvault-effect/tests/chromium_public.rs` |
 | Reusable local pages and child env/stdin/IPC/echo contracts | `scripts/tests/qualification-fixtures.test.mjs`; stateful refresh remains a fixture only |
 | Exact reference-only process/HTTP contracts | `magicvault-protocol/tests/delivery_contract.rs` |
@@ -161,8 +198,9 @@ exported by a production model tool.
 | Shipped CLI/MCP → IPC → broker → new process and HTTP | `magicvault/tests/delivery_cli.rs`, `magicvault-mcp/tests/end_to_end.rs` |
 | Key/store identity, scoped facade and durability compatibility | Retained shared-library lanes; consumer-owned integration tests remain with the consumer |
 
-The dated record identifies which fixtures passed. Ignored browser cases were
-executed through opt-in lanes; genuine native manual gates remain unexecuted.
+The dated records identify which fixtures and manual cases passed. Ignored
+browser cases were executed through opt-in lanes; only the explicitly recorded
+installed-native cases count as performed, not the entire manual matrix.
 This map is not a numeric coverage percentage or a promise that
 unmeasured paths work. Report omissions and execution failures honestly.
 
@@ -185,8 +223,12 @@ other Chromium brands, legacy headless shells or headless-extension combinations
 
 ## Installed extension and native host qualification
 
-Prefer a disposable OS account: native-host definitions and keychain are OS-user
-resources, not isolated by a Chrome profile. Use a fresh standalone root, synthetic
+For the full native acceptance gate, prefer a disposable OS account: the normal
+installer's native-host definitions and keychain are OS-user resources, not
+isolated by a Chrome profile. The automated transport lane instead puts host
+definitions inside a wholly separate test-only **user-data directory**, not a
+named profile under the normal root; it never calls the production installer.
+For manual acceptance use a fresh standalone root, synthetic
 enrollment and a disposable browser profile. Follow the
 [installed-extension runbook](qualification/extension.md), recording:
 
@@ -207,8 +249,12 @@ enrollment and a disposable browser profile. Follow the
 7. Remove only the managed extension/host definitions, refuse modified/foreign
    files, leave vault/keys/pairings intact, and reconnect after an intentional reinstall.
 
-These manual/native gates remain unexecuted. They are required before claiming
-the installed extension path is qualified, not replaced by a fake native peer.
+Basic genuine keychain, installation/upgrade, site permission and per-use native
+deny/allow acceptance passed on one macOS/Chrome setup; see the
+[installed discovery results](qualification/results-discovery-2026-09-08.md).
+First-pairing denial, permission removal and the full recovery matrix remain
+unexecuted. `test-extension-native` separately exercises real native dispatch
+with synthetic consent; neither lane qualifies other browser builds.
 
 ## Performance, recovery and consumer gates
 
@@ -218,10 +264,13 @@ non-queuing adapter admission, no browser I/O under the custody lock, and no hum
 under that lock. Selected credential entries are cloned once per request rather
 than once per field, and temporary owned values are zeroized on drop.
 
-Actual latency, idle CPU/memory, peak allocation, repeated-fill stability,
-contention and shutdown measurements remain outstanding. Synthetic audit-failure
-propagation passes; repeated app installs, crash/recovery, power-loss durability
-and rollback drills remain unexecuted.
+The current result records 20-operation release-build latency samples for browser,
+process and HTTP, including status polling. Idle CPU/memory, peak allocation,
+long soak, saturation and broad shutdown measurements remain outstanding. Synthetic audit-failure
+propagation and selected packaged install/upgrade lifecycle cases pass. Genuine
+keychain-backed upgrades were also exercised on one host, including readiness
+reconciliation after a native prompt. Repeated-install stress, crash/recovery,
+power-loss durability and rollback drills remain unexecuted.
 Qualification must retain the core compatibility lane and relevant consumer-owned
 tests against any changed shared dependency; unchanged shared source is evidence
 of scope, not a substitute for all consumer runtime tests.

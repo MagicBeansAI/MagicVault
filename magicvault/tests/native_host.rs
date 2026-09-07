@@ -187,7 +187,9 @@ async fn shipped_native_host_authenticates_and_bridges_an_actual_daemon_fill() {
         (read, write)
     });
     let Response::BrowserTargets(targets) = client
-        .call(Request::BrowserTargets(BrowserQuery { browser_handle }))
+        .call(Request::BrowserTargets(
+            BrowserQuery { browser_handle }.into(),
+        ))
         .await
         .unwrap()
     else {

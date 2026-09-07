@@ -1,6 +1,9 @@
 //! Trusted native integration wire. This protocol is not exposed on MCP/rpc.sock.
 //! The service authenticates the host before constructing a bridge adapter.
-use crate::{BrowserAdapter, MaterialField, Outcome, Target};
+use crate::{
+    matches_target_filter, valid_target_filter, BrowserAdapter, MaterialField, Outcome, Target,
+    TargetFilter,
+};
 use async_trait::async_trait;
 use magicvault_protocol::{ErrorCode, FILL_TIMEOUT_SECS, MAX_FIELDS, MAX_TARGETS};
 use serde::{Deserialize, Serialize};
@@ -30,6 +33,7 @@ pub struct BridgeCommand {
 )]
 pub enum BridgeRequest {
     Targets,
+    FilteredTargets(TargetFilter),
     Fill {
         target: Target,
         fields: Vec<MaterialField>,
@@ -199,9 +203,29 @@ impl NativeBridge {
 #[async_trait]
 impl BrowserAdapter for NativeBridge {
     async fn targets(&self, cancel: CancellationToken) -> Result<Vec<Target>, ErrorCode> {
-        match self.exchange(BridgeRequest::Targets, cancel).await? {
+        self.targets_filtered(&TargetFilter::default(), cancel)
+            .await
+    }
+
+    async fn targets_filtered(
+        &self,
+        filter: &TargetFilter,
+        cancel: CancellationToken,
+    ) -> Result<Vec<Target>, ErrorCode> {
+        if !valid_target_filter(filter) {
+            return Err(ErrorCode::InvalidRequest);
+        }
+        let request = if filter == &TargetFilter::default() {
+            BridgeRequest::Targets
+        } else {
+            BridgeRequest::FilteredTargets(filter.clone())
+        };
+        match self.exchange(request, cancel).await? {
             BridgeResult::Targets(targets)
-                if targets.len() <= MAX_TARGETS && targets.iter().all(Target::valid) =>
+                if targets.len() <= MAX_TARGETS
+                    && targets
+                        .iter()
+                        .all(|t| t.valid() && matches_target_filter(t, filter)) =>
             {
                 Ok(targets)
             }

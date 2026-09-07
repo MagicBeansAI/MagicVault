@@ -6,15 +6,47 @@ For prebuilt CLI/MCP packages without a Rust toolchain, start with
 `doctor`, `upgrade` and `uninstall` manage that installation explicitly.
 The foreground/source workflow below remains supported.
 
-Builds, automated tests and disposable Chrome/CLI qualification
-[pass](qualification/results-delivery-2026-09-07.md) on the recorded configuration.
-Native prompts/keychain and the installed-extension workflow remain manual gates;
-the real CLI test uses test-only human/key providers, never a live credential store.
+Builds, automated tests, disposable Chrome/CLI qualification and one installed
+macOS/Chrome keychain/native-consent workflow
+[pass within the recorded scope](qualification/results-discovery-2026-09-08.md).
+Broader native recovery and permission cases remain manual gates. Automated CLI
+tests use test-only human/key providers, not a live credential store.
 Start with synthetic data and disposable profiles. The crates use Rust edition
 2021; the separate Rust 1.88+ compiler requirement comes from the standalone
 MCP package's exact `rmcp 3.1.0` SDK dependency. The edition is not the compiler
-version. See the [toolchain explanation](../README.md#rust-toolchain), [testing](testing.md) and
+version. See the [toolchain explanation](#rust-toolchain), [testing](testing.md) and
 [security](../SECURITY.md) for the current evidence and limits.
+
+## Rust toolchain
+
+This is the developer/source path. Prebuilt candidate users do not need Rust;
+use [installation and lifecycle](distribution.md) instead.
+
+MagicVault's crates use **edition 2021**. The standalone MCP package requires
+compiler **1.88+** because of its exact `rmcp 3.1.0` dependency. An edition selects
+language rules, not a compiler version. See Cargo's
+[edition](https://doc.rust-lang.org/cargo/reference/manifest.html#the-edition-field)
+and [compiler-version](https://doc.rust-lang.org/cargo/reference/rust-version.html)
+documentation. Recorded builds used Rust 1.92.0; they are not a separate test of
+the minimum compiler. [Component versions](versioning.md).
+
+```bash
+git clone https://github.com/MagicBeansAI/MagicVault.git
+cd MagicVault
+export CARGO_TARGET_DIR="$(make -s print-target-dir)"
+make build-standalone
+export PATH="$CARGO_TARGET_DIR/release:$PATH"
+export MAGICVAULT_EXAMPLES="$PWD/examples"
+magicvault --version
+```
+
+Continue with the foreground service below, then pair/enroll. For MCP, use the
+absolute `$CARGO_TARGET_DIR/release/magicvault-mcp` executable rather than a
+packaged app path. Do **not** run packaged `setup` against a bare binary directory;
+it requires a complete bundle. Source extension users also need
+`make package-extension` and the [explicit native-host install](browser-usage.md#chromium-extension).
+Keep installed executables at a stable trusted location; do not disconnect the
+build volume while a service/native host still uses binaries from it.
 
 ## Build and foreground service
 
@@ -83,6 +115,13 @@ MCP is the recommended routine interface for local agents. Start with the
 [CLI](../README.md#cli-for-agents-and-scripts) for shell-based agents/scripts, or
 the [builder guide](integrations.md) for embedding. MCP is local stdio, not a
 hosted HTTP endpoint. It does not remove human setup or per-use consent.
+
+The README's commands use the default application/vault paths and paired profile
+`agent`. Claude Code's `--scope user` makes the MCP entry available across
+projects; use `--scope local` for a project-local entry instead. After connecting,
+start a new session and inspect `/mcp`. `codex mcp list` or `claude mcp get magicvault`
+shows configured servers; an entry alone does not prove daemon readiness or
+pairing. Check `vault_status` and `list_credentials` through the agent too.
 
 Normal packaged `setup` prints a `mcpServers` object with the installed executable
 and root/profile arguments. For clients that accept that JSON shape, copy it into
@@ -157,8 +196,8 @@ access through that capability and does not erase material or revoke providers.
 
 ## Upgrade and recovery
 
-CLI/MCP/service packages use source version `0.6.0` and unchanged local protocol
-version `3`. Extension `0.5.0` uses native connection handshake `2`: rebuild/update
+CLI/MCP/service packages use source version `0.7.0`; protocol/effect crates use
+`0.5.0`, with agent wire version `3` retained. Extension `0.6.0` uses native connection handshake `2`: rebuild/update
 host and daemon together. Effect schemas and host config remain `1`. Normal
 packaged setup now installs the exact bundled native-host identity after pairing;
 install-only does not. See [one-time unpacked migration](browser-usage.md#upgrading-older-unpacked-extensions).

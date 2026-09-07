@@ -54,7 +54,7 @@ closed codes; raw diagnostic text and process output are never replies.
 | `register_cdp {label, endpoint}` | Paired CLI plus native consent; loopback browser endpoint; client-owned handle |
 | `configure_browser_credential {credential_ref, origins, field_names}` | Paired CLI plus native consent; explicit browser permission, not metadata consent |
 | `list_browsers` | Paired client; only own connected browser handles |
-| `browser_targets {browser_handle}` | Paired client; safe origins and backend IDs plus single-use document-bound handles |
+| `browser_targets {browser_handle, top_origin?, tab_id?}` | Paired client; optional exact top-page origin/backend-tab narrowing, safe origins/IDs and single-use document-bound handles. Filters grant no authority |
 | `disconnect_browser {browser_handle}` | Owning paired client; cancels jobs, closes integration only |
 | `secure_fill {operation_id, browser_handle, target_handle, fields}` | Paired client; consumes target, returns pending status; daemon-owned exact-use consent then delivery |
 | `fill_status {operation_id}` | Only owning paired client; metadata-only status, also available after persistence uncertainty |
@@ -140,6 +140,17 @@ the paired client. Targets contain the actual backend tab/frame/document identit
 top-document identity, origins and a monotonic 180-second expiry. Public discovery
 omits full URLs, page titles and field values. A request-supplied identity is not
 authority: it must resolve to that client's daemon-issued bound handle.
+
+Optional discovery `top_origin` and `tab_id` are exact conjunctive filters.
+The origin must be canonical (no wildcard/path/query; preserve non-default port),
+and a tab ID must be a bounded backend identifier, not a DOM/snapshot reference.
+Both adapters narrow before bounded inspection and recheck actual document
+results; native bridge and broker reject out-of-filter replies. Filters do not
+modify permission or consent. Unfiltered request JSON remains compatible;
+filtered requests require matching updated standalone executables/extension.
+The native bridge adds `filtered_targets` with these same optional fields;
+`targets` remains the unchanged unfiltered command. Older workers refuse the new
+command instead of silently widening discovery.
 
 There are eight browser connections, 128 unused targets and 32 retained fill
 results per daemon. Results expire ten minutes after admission, except unfinished

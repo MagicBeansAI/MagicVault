@@ -10,10 +10,29 @@ pub mod delivery;
 pub mod http;
 pub mod process;
 use async_trait::async_trait;
+pub use magicvault_protocol::TargetFilter;
 use magicvault_protocol::{ErrorCode, FieldState, MAX_FIELDS};
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 use zeroize::Zeroize;
+
+pub fn valid_target_filter(filter: &TargetFilter) -> bool {
+    filter.top_origin.as_ref().is_none_or(|origin| {
+        origin.len() <= 256 && canonical_origin(origin).as_deref() == Ok(origin.as_str())
+    }) && filter.tab_id.as_ref().is_none_or(|tab| {
+        !tab.is_empty()
+            && tab.len() <= 256
+            && tab.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+    })
+}
+
+pub fn matches_target_filter(target: &Target, filter: &TargetFilter) -> bool {
+    filter
+        .top_origin
+        .as_ref()
+        .is_none_or(|origin| origin == &target.top_origin)
+        && filter.tab_id.as_ref().is_none_or(|tab| tab == &target.tab)
+}
 
 /// Internal backend identity, never a caller-authored destination authority.
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -81,6 +100,22 @@ impl Outcome {
 #[async_trait]
 pub trait BrowserAdapter: Send + Sync {
     async fn targets(&self, cancel: CancellationToken) -> Result<Vec<Target>, ErrorCode>;
+    /// Default preserves custom adapters; shipped adapters narrow before their
+    /// inspection budget. A filter never weakens permission/document checks.
+    async fn targets_filtered(
+        &self,
+        filter: &TargetFilter,
+        cancel: CancellationToken,
+    ) -> Result<Vec<Target>, ErrorCode> {
+        if !valid_target_filter(filter) {
+            return Err(ErrorCode::InvalidRequest);
+        }
+        let targets = self.targets(cancel).await?;
+        Ok(targets
+            .into_iter()
+            .filter(|t| matches_target_filter(t, filter))
+            .collect())
+    }
     async fn fill(
         &self,
         target: &Target,

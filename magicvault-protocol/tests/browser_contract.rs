@@ -16,6 +16,25 @@ fn fill() -> SecureFill {
 }
 
 #[test]
+fn discovery_narrowing_is_optional_and_never_accepted_by_disconnect_or_fill() {
+    let handle = Uuid::new_v4();
+    let old = json!({"method":"browser_targets","params":{"browser_handle":handle}});
+    let request: Request = serde_json::from_value(old.clone()).unwrap();
+    assert_eq!(serde_json::to_value(request).unwrap(), old);
+    let narrowed = json!({"method":"browser_targets","params":{"browser_handle":handle,"top_origin":"https://example.com","tab_id":"12"}});
+    let request: Request = serde_json::from_value(narrowed.clone()).unwrap();
+    assert_eq!(serde_json::to_value(request).unwrap(), narrowed);
+    for key in ["value", "approved", "origin", "javascript", "snapshot_ref"] {
+        let mut bad = narrowed.clone();
+        bad["params"][key] = json!("SYNTHETIC");
+        assert!(serde_json::from_value::<Request>(bad).is_err());
+    }
+    let mut disconnect = narrowed;
+    disconnect["method"] = json!("disconnect_browser");
+    assert!(serde_json::from_value::<Request>(disconnect).is_err());
+}
+
+#[test]
 fn fill_wire_is_closed_reference_only_and_has_no_caller_decision_or_javascript() {
     let request = fill();
     assert!(request.valid());

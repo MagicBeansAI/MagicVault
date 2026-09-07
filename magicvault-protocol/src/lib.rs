@@ -55,7 +55,7 @@ pub enum Request {
     Shutdown,
     RegisterCdp(RegisterCdp),
     ListBrowsers,
-    BrowserTargets(BrowserQuery),
+    BrowserTargets(BrowserTargetsQuery),
     DisconnectBrowser(BrowserQuery),
     ConfigureBrowserCredential(BrowserRule),
     SecureFill(SecureFill),

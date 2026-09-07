@@ -65,7 +65,7 @@ export function assemble({ repo, binaryDir, output, scope }) {
   for (const name of ['cli.cjs', 'mcp.cjs', 'launcher.cjs']) write(path.join(output, 'launcher', name), regular(path.join(repo, 'npm', name), 64 * 1024), name === 'launcher.cjs' ? 0o644 : 0o755);
   for (const name of ['LICENSE-MIT', 'LICENSE-APACHE']) write(path.join(output, 'launcher', name), content.get(name));
   write(path.join(output, 'launcher/README.md'), regular(path.join(repo, 'npm/README.md'), 64 * 1024));
-  write(path.join(output, 'launcher/package.json'), `${JSON.stringify({ ...common, name: mainName, description: 'Keep secrete away from Agents — reference-only credential delivery', bin: { magicvault: 'cli.cjs', 'magicvault-mcp': 'mcp.cjs' }, files: ['cli.cjs', 'mcp.cjs', 'launcher.cjs', 'LICENSE-MIT', 'LICENSE-APACHE'], optionalDependencies: { [nativeName]: version }, magicvault: { platforms: { 'darwin-arm64': nativeName } } }, null, 2)}\n`);
+  write(path.join(output, 'launcher/package.json'), `${JSON.stringify({ ...common, name: mainName, description: 'Let agents use credentials without seeing them — reference-only credential delivery', bin: { magicvault: 'cli.cjs', 'magicvault-mcp': 'mcp.cjs' }, files: ['cli.cjs', 'mcp.cjs', 'launcher.cjs', 'LICENSE-MIT', 'LICENSE-APACHE'], optionalDependencies: { [nativeName]: version }, magicvault: { platforms: { 'darwin-arm64': nativeName } } }, null, 2)}\n`);
   return { version, mainName, nativeName };
 }
 

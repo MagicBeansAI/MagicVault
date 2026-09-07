@@ -40,9 +40,12 @@ LaunchAgent, OS consent, installed-extension or publisher verification behavior.
 
 ## Browser and new destinations
 
-Load the printed stable extension directory unpacked in Chrome, install the
-native bridge with the exact ID, grant only the synthetic fixture origin and
-Connect. Follow the [extension acceptance](extension.md). Verify the host path is
+Load the printed stable extension directory unpacked in Chrome. Normal setup
+already registers its fixed native identity; source/custom builds use the
+documented explicit installer. Grant only the synthetic fixture origin and
+approve the first automatic connection after matching its profile ID. No manual
+ID copying or Connect step is needed on the normal packaged path.
+Follow the [extension acceptance](extension.md). Verify the host path is
 under the stable app directory and no secret appears in tool responses.
 Separately follow [CDP](browser.md) and [process/HTTP](process.md) runbooks. npm
 packaging must not change recipient binding, per-use consent or receipt-only output.

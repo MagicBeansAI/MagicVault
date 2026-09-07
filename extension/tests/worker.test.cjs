@@ -12,6 +12,54 @@ test("fill uses exact document in isolated world and only returns status",async(
   assert.equal(f.executions,1);assert.equal(f.sent[0].result.data.fields[0],"filled");
   assert.ok(!JSON.stringify(f.sent).includes("CANARY"));assert.equal(request.request.params.fields[0].value,"");
 });
+test("real Chrome hex document IDs are preserved for discovery and document-targeted fills", async () => {
+  for (const documentId of ["5E1629DB1DD791693B51882DC5DA0E9F", "5e1629db1dd791693b51882dc5da0e9f", DOC]) {
+    const f = fixture(); await f.connect();
+    f.frames[0].documentId = f.expectedDocument = documentId;
+    f.port.onMessage.emit({request_id: OP, request: {method: "targets"}}); await tick();
+    assert.equal(f.sent[0].result.data[0].document, documentId);
+    assert.equal(f.sent[0].result.data[0].top_document, documentId);
+    const request = fill();
+    request.request.params.target.document = request.request.params.target.top_document = documentId;
+    f.port.onMessage.emit(request); await tick();
+    assert.equal(f.executions, 1); assert.equal(f.sent[1].result.data.fields[0], "filled");
+  }
+});
+test("real Chrome frame and top-document IDs retain separate exact bindings", async () => {
+  const f = fixture(); await f.connect();
+  const top = "5E1629DB1DD791693B51882DC5DA0E9F", frame = "98A9CA42E738C13202AF8C5CAB1352BB";
+  f.frames[0].documentId = top;
+  f.frames.push({frameId: 2, documentId: frame, url: "https://example.com/frame", documentLifecycle: "active"});
+  f.expectedDocument = frame; f.expectedFrame = 2;
+  const request = fill();
+  Object.assign(request.request.params.target, {frame: "2", document: frame, top_document: top, is_main_frame: false});
+  f.port.onMessage.emit(request); await tick();
+  assert.equal(f.executions, 1); assert.equal(f.sent[0].result.data.fields[0], "filled");
+  const stale = fill();
+  Object.assign(stale.request.params.target, {frame: "2", document: frame, top_document: frame, is_main_frame: false});
+  f.port.onMessage.emit(stale); await tick();
+  assert.equal(f.executions, 1); assert.equal(f.sent[1].result.data.error, "stale_target");
+});
+test("document format support does not normalize a mismatched browser token", async () => {
+  const f = fixture(); await f.connect();
+  const actual = "5E1629DB1DD791693B51882DC5DA0E9F";
+  f.frames[0].documentId = actual;
+  const request = fill();
+  request.request.params.target.document = request.request.params.target.top_document = actual.toLowerCase();
+  f.port.onMessage.emit(request); await tick();
+  assert.equal(f.executions, 0); assert.equal(f.sent[0].result.data.error, "stale_target");
+});
+test("malformed browser document IDs fail closed in discovery and fill", async () => {
+  for (const documentId of [null, {}, "", "A".repeat(31), "A".repeat(33), "G".repeat(32), `${DOC}\n`, "https://example.com", "A".repeat(4096)]) {
+    const f = fixture(); await f.connect(); f.frames[0].documentId = documentId;
+    f.port.onMessage.emit({request_id: OP, request: {method: "targets"}}); await tick();
+    assert.equal(f.sent[0].result.data.length, 0);
+    const request = fill(); request.request.params.target.document = documentId;
+    f.port.onMessage.emit(request); await tick();
+    assert.equal(f.executions, 0); assert.equal(f.sent[1].result.data.error, "invalid_request");
+    assert.equal(request.request.params.fields[0].value, "");
+  }
+});
 test("site denial and mismatched document result never become success",async()=>{
   const denied=fixture();await denied.connect();denied.deny();denied.port.onMessage.emit(fill());await tick();
   assert.equal(denied.executions,0);assert.equal(denied.sent[0].result.data.error,"permission_denied");

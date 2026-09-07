@@ -7,6 +7,11 @@ importScripts("fill.js");
 
 const HOST = "ai.magicbeans.magicvault";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+// Chrome document IDs are opaque tokens, commonly 32 uppercase hex digits,
+// not our daemon's hyphenated UUID handles. Preserve the exact browser value.
+const DOCUMENT_ID = /^(?:[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
+const validDocumentId = value => typeof value === "string" &&
+  (value.length === 32 || value.length === 36) && DOCUMENT_ID.test(value);
 let channel = null;
 let generation = 0;
 let browserHandle = null;
@@ -210,7 +215,7 @@ async function connect(manual = false) {
       return;
     }
     if (busy || !UUID.test(message?.request_id) || !message.request ||
-        !["targets", "fill"].includes(message.request.method)) {
+        !["targets", "filtered_targets", "fill"].includes(message.request.method)) {
       failChannel("invalid_request", port, epoch); return;
     }
     busy = true;
@@ -259,34 +264,95 @@ async function initializeConnection() {
   await connect();
 }
 
-async function targets(port, epoch) {
+async function targets(port, epoch, filter) {
+  if (!filter || typeof filter !== "object" || Array.isArray(filter) ||
+      Object.keys(filter).some(key => !["top_origin", "tab_id"].includes(key)) ||
+      (Object.hasOwn(filter, "top_origin") && typeof filter.top_origin !== "string") ||
+      (Object.hasOwn(filter, "tab_id") && (typeof filter.tab_id !== "string" ||
+        !/^(?:0|[1-9][0-9]{0,9})$/.test(filter.tab_id)))) return {kind: "error", data: "invalid_request"};
+  if (Object.hasOwn(filter, "top_origin")) {
+    try { siteKey(filter.top_origin); if (originOf(filter.top_origin) !== filter.top_origin) throw new Error(); }
+    catch (_) { return {kind: "error", data: "invalid_request"}; }
+  }
   const revision = accessRevision;
   let policy;
-  try { policy = await readSitePolicy(); }
+  let origins;
+  try {
+    policy = await readSitePolicy();
+    ({origins = []} = await chrome.permissions.getAll());
+  }
   catch (_) { return {kind: "error", data: "permission_denied"}; }
-  if (!accessUnchanged(revision)) return {kind: "error", data: "permission_denied"};
-  const tabs = await chrome.tabs.query({});
   active(port, epoch);
-  if (tabs.length > 64) return {kind: "error", data: "capacity"};
-  const result = [];
+  if (!accessUnchanged(revision)) return {kind: "error", data: "permission_denied"};
+  if (!origins.length) return {kind: "targets", data: []};
+  // A caller's narrowing is never a grant. Verify it against current Chrome
+  // authority before querying even a requested site's tab metadata.
+  if (filter.top_origin) {
+    const allowed = await permitted(filter.top_origin, policy);
+    active(port, epoch);
+    if (!accessUnchanged(revision)) return {kind: "error", data: "permission_denied"};
+    if (!allowed) return {kind: "targets", data: []};
+    origins = [permissionPattern(filter.top_origin)];
+  }
+  // Host grants allow URL queries without the broad "tabs" permission. Chrome
+  // may omit a URL (e.g. after revocation); never fall back to inspecting it.
+  // Discarded tabs have no loaded document. Discovery must not wake them.
+  const tabs = await chrome.tabs.query({url: origins, discarded: false});
+  active(port, epoch);
+  // Cache only for this revision/operation, including repeated cross-origin
+  // frames. Fills still perform their own fresh, uncached permission checks.
+  const permissions = new Map();
+  const permittedHere = async origin => {
+    if (policy.blockedSites.includes(siteKey(origin))) return false;
+    const pattern = permissionPattern(origin);
+    if (!permissions.has(pattern)) {
+      permissions.set(pattern, await chrome.permissions.contains({origins: [pattern]}));
+    }
+    return permissions.get(pattern);
+  };
+  const candidates = [];
   for (const tab of tabs) {
+    active(port, epoch);
+    if (!accessUnchanged(revision)) return {kind: "error", data: "permission_denied"};
+    if (tab.discarded || !Number.isInteger(tab.id) || tab.id < 0 ||
+        typeof tab.url !== "string") continue;
+    if (filter.tab_id && String(tab.id) !== filter.tab_id) continue;
+    let origin;
+    try { origin = originOf(tab.url); } catch (_) { continue; }
+    // Chrome match patterns ignore ports; the actual origin must still match.
+    if (filter.top_origin && origin !== filter.top_origin) continue;
+    if (!await permittedHere(origin)) continue;
+    active(port, epoch);
+    if (!accessUnchanged(revision)) return {kind: "error", data: "permission_denied"};
+    candidates.push(tab.id);
+    // Bound expensive frame inspection, not the profile's unrelated tab count.
+    // Never silently truncate a discovery response to fit the wire budget.
+    if (candidates.length > 128) return {kind: "error", data: "capacity"};
+  }
+  const result = [];
+  for (const tabId of candidates) {
+    active(port, epoch);
+    if (!accessUnchanged(revision)) return {kind: "error", data: "permission_denied"};
     let frames;
-    try { frames = await chrome.webNavigation.getAllFrames({tabId: tab.id}); }
+    try { frames = await chrome.webNavigation.getAllFrames({tabId}); }
     catch (_) { continue; }
     active(port, epoch);
+    if (!accessUnchanged(revision)) return {kind: "error", data: "permission_denied"};
     if (!frames || frames.length > 128) continue;
     const top = frames.find(frame => frame.frameId === 0 && frame.documentLifecycle === "active");
-    if (!top || !UUID.test(top.documentId)) continue;
+    if (!top || top.errorOccurred || !validDocumentId(top.documentId)) continue;
     let topOrigin;
     try { topOrigin = originOf(top.url); } catch (_) { continue; }
-    if (!await permitted(topOrigin, policy)) continue;
+    if (filter.top_origin && topOrigin !== filter.top_origin) continue;
+    if (!await permittedHere(topOrigin)) continue;
     for (const frame of frames) {
       active(port, epoch);
-      if (frame.errorOccurred || frame.documentLifecycle !== "active" || !UUID.test(frame.documentId)) continue;
+      if (!accessUnchanged(revision)) return {kind: "error", data: "permission_denied"};
+      if (frame.errorOccurred || frame.documentLifecycle !== "active" || !validDocumentId(frame.documentId)) continue;
       let origin;
       try { origin = originOf(frame.url); } catch (_) { continue; }
-      if (!await permitted(origin, policy)) continue;
-      result.push({tab: String(tab.id), frame: String(frame.frameId), document: frame.documentId,
+      if (!await permittedHere(origin)) continue;
+      result.push({tab: String(tabId), frame: String(frame.frameId), document: frame.documentId,
         top_document: top.documentId, origin, top_origin: topOrigin, is_main_frame: frame.frameId === 0});
       if (result.length > 128) return {kind: "error", data: "capacity"};
     }
@@ -304,7 +370,7 @@ async function fill(params, port, epoch) {
   const uncertain = () => ({kind: "filled", data: {fields: fields.map(() => "uncertain"), error: "transport_uncertain"}});
   try {
     if (!/^[0-9]{1,10}$/.test(target.tab) || !/^[0-9]{1,10}$/.test(target.frame) ||
-        !UUID.test(target.document) || !UUID.test(target.top_document) ||
+        !validDocumentId(target.document) || !validDocumentId(target.top_document) ||
         originOf(target.origin) !== target.origin || originOf(target.top_origin) !== target.top_origin ||
         fields.some(field => typeof field.css !== "string" || field.css.length > 512 ||
           typeof field.value !== "string" || field.value.length === 0 || field.value.length > 4096)) return failed("invalid_request");
@@ -354,7 +420,8 @@ async function fill(params, port, epoch) {
 
 async function handle(request, port, epoch) {
   active(port, epoch);
-  if (request.method === "targets") return targets(port, epoch);
+  if (request.method === "targets") return targets(port, epoch, {});
+  if (request.method === "filtered_targets") return targets(port, epoch, request.params);
   return fill(request.params, port, epoch);
 }
 

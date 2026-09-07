@@ -1,0 +1,98 @@
+# Repeatable native transport qualification
+
+This opt-in conformance lane runs **real Chrome → extension → native host → daemon
+→ shipped MCP**, with synthetic credentials and deterministic test-only consent.
+It found a real compatibility bug that mocked Chrome APIs missed: current Chrome
+returns 32-character hexadecimal document IDs, not hyphenated daemon UUID handles.
+
+## Isolation and prerequisites
+
+- macOS with a trusted Chrome executable supporting the debugging-only
+  `Extensions.loadUnpacked` command. The recorded run used Chrome 152; this lane
+  does not qualify every browser allowed by the production manifest's minimum.
+- Rust/Node development prerequisites from the README. Builds use the normal
+  `CARGO_TARGET_DIR`; browser profiles can use a separate explicit existing SSD directory.
+- No personal profile, real credential, global native-host installation, keychain
+  or LaunchAgent is used. The test owns and closes only its newly spawned browsers.
+
+The fixture creates two **separate user-data directories**, not two named profiles
+under a personal Chrome root. Each contains its own `NativeMessagingHosts` manifest
+pointing to a private test wrapper/config. Chromium resolves this user-level
+directory from its user-data root ([Chromium path implementation](https://github.com/chromium/chromium/blob/main/chrome/common/chrome_paths.cc)).
+Normal production installation still uses OS-user definitions. The local debugger
+and unsafe-extension-debugging launch flag belong solely to these disposable
+test browsers; the production extension transport does not require CDP.
+
+The copied fixture manifest **adds one required loopback host permission**
+(`http://127.0.0.1/*`), while worker/options/fill code is unchanged. This pregrant
+qualifies dispatch, not Chrome's real permission request or revocation UI. It
+must never be added to the production manifest or treated as native acceptance.
+The in-memory key provider and synthetic human live only in test executables.
+
+## Commands
+
+```bash
+export CARGO_TARGET_DIR="$(make -s print-target-dir)"
+export CARGO_BUILD_JOBS=4
+export MAGICVAULT_CHROME='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+# Optional existing directory; each browser receives a new disposable child:
+export MAGICVAULT_BROWSER_TMPDIR=/Volumes/SSD1/magicvault
+make test-extension-native
+make test-delivery-latency
+```
+
+The browser lane builds matching release executables and runs one ignored test.
+It verifies distinct profile identities, exact target discovery, 20 fills and one
+denial, reactive input/no submit, navigation and site blocking during pending
+consent, target omission after blocking, independent Pause/Resume, fresh handles
+and remembered reconnect without another authorization prompt. Canary checks
+cover tool receipts and audit; page evaluation returns only synthetic comparisons.
+No raw capabilities, page dumps or credential values are printed.
+
+The delivery lane performs 20 fresh CLI → daemon → MagicRun child operations and
+20 CLI → daemon → loopback HTTP requests, in separate private roots to respect
+retained-job capacity. The recipient checks the canary and deliberately echoes
+it; CLI stdout/stderr and audit must withhold it. Every operation must complete.
+
+Both lanes print bounded, value-free min/median/nearest-rank p95/max microseconds.
+Timings include synthetic consent and status polling; CLI timings include process
+startup. They exclude enrollment, destination registration and browser startup.
+There is no brittle latency pass threshold and no claim of native-dialog latency,
+Internet/TLS throughput, constant-time secrecy, idle CPU/memory or long-soak stability.
+
+## Qualify the actual npm-installed assets
+
+```bash
+# Keep all candidate artifacts on the external drive; parent must exist.
+candidate_dir=$(mktemp -d /Volumes/SSD1/magicvault/candidate.XXXXXX)
+make build-standalone
+make package-npm NPM_SCOPE=@magicvault-local PACKAGE_OUTPUT="$candidate_dir/packages"
+make test-package-browser PACKAGE_OUTPUT="$candidate_dir/packages" \
+  PACKAGE_TEST_OUTPUT="$candidate_dir/qualification"
+```
+
+This is an offline local tarball install, not registry publication. It checks
+app-only setup, version/doctor, activation, actual installed CLI/MCP/native host,
+and the same browser lane using copied installed extension assets (including the
+explicit fixture-only permission change). npm removal must leave stable native
+executables usable; application uninstall archives only the test application and
+does not create a vault or touch a keychain/service. Test-driver Rust is required;
+the installed launchers themselves do not compile Rust.
+
+`MAGICVAULT_TEST_CLI`, `MAGICVAULT_TEST_MCP`, `MAGICVAULT_TEST_NATIVE_HOST` and
+`MAGICVAULT_TEST_EXTENSION` are test-only seams, not production configuration.
+Do not point them at unrelated or untrusted binaries/assets. Default tests and
+the unsigned candidate workflow do not implicitly launch a browser.
+
+## What still needs a person or separate release authorization
+
+Use the [installed-extension matrix](extension.md) for genuine Chrome permission
+approval/removal, native prompt readability and denial, keychain behavior, browser
+restart/long outage, production host definitions and full installation recovery.
+Use [native distribution acceptance](distribution.md) for LaunchAgent/upgrade,
+quarantined downloads and signer verification. A real Codex/Claude model session
+is a separate client acceptance gate: official SDK stdio conformance does not
+prove agent tool-selection quality. MCP setup instructions use the official
+[Codex](https://developers.openai.com/codex/mcp) and
+[Claude Code](https://code.claude.com/docs/en/mcp) interfaces; no live account or
+agent configuration is changed by these tests.

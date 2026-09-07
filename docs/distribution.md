@@ -86,10 +86,25 @@ the new version. A previously loaded service is restarted and readiness checked.
 An application-only installation can upgrade without creating custody. Downgrades
 are refused. Old complete bundles are retained, not automatically pruned.
 
+A new unsigned/ad-hoc candidate may trigger another macOS keychain access
+prompt when its daemon starts. The command's 15-second readiness wait can expire
+while that prompt is still pending, returning `transport_uncertain` even though
+the bundle switch and service launch already happened. Complete the genuine
+system prompt yourself, then run `magicvault --profile agent doctor` using the
+same root/application options as setup. Check both the installed version and
+`daemon.ready`; do not infer rollback, rerun upgrade blindly, reinitialize the
+vault or replace its key. Native password prompts must remain outside automation.
+
 Reconnect MCP clients, reload the unpacked extension and rediscover fresh browser handles.
 Check that Chrome actually loaded the current assets, not a retained resolved
-version-directory path. If necessary, remove and load unpacked again from the
-printed current directory. The fixed public ID persists across directory changes.
+version-directory path: compare the version on `chrome://extensions` with the
+installed extension's `manifest.json` (extension and CLI versions differ). If
+Reload keeps the old version, use **Load unpacked** to select the new extension
+directory from `magicvault paths`. Do not remove the existing fixed-ID extension
+first: removal clears its local pairing state, site grants and blocklist. Verify
+the expected version, ID, connection and site settings after loading. The fixed
+public ID persists across directory changes; the `current` symlink alone does
+not force Chrome to change its retained path.
 The one-time upgrade from a legacy path-derived ID requires running normal `setup`
 to select the bundled ID, then loading the new extension and restoring site
 grants/blocks deliberately. `upgrade` preserves a custom configured ID; explicit
@@ -124,7 +139,7 @@ can leave some integrations removed; they do not claim a successful rollback.
 
 ## Build local candidates
 
-Maintainers need the [Rust toolchain](../README.md#rust-toolchain), Node 22+ and
+Maintainers need the [Rust toolchain](setup.md#rust-toolchain), Node 22+ and
 macOS arm64. The scope is explicit; assembly never publishes:
 
 ```bash

@@ -11,7 +11,8 @@ use zeroize::Zeroizing;
 
 // Test-only package qualification seam; never read by production binaries.
 fn cli_binary() -> std::path::PathBuf {
-    std::env::var_os("MAGICVAULT_TEST_CLI").map(Into::into)
+    std::env::var_os("MAGICVAULT_TEST_CLI")
+        .map(Into::into)
         .unwrap_or_else(|| env!("CARGO_BIN_EXE_magicvault").into())
 }
 
@@ -189,9 +190,12 @@ async fn actual_cli_secure_fill_reaches_dedicated_cdp_and_returns_no_material() 
         panic!("browser");
     };
     let Response::BrowserTargets(targets) = client
-        .call(Request::BrowserTargets(BrowserQuery {
-            browser_handle: browser.browser_handle,
-        }))
+        .call(Request::BrowserTargets(
+            BrowserQuery {
+                browser_handle: browser.browser_handle,
+            }
+            .into(),
+        ))
         .await
         .unwrap()
     else {

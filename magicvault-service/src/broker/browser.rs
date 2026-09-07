@@ -2,7 +2,8 @@
 //! and embedded consumers are untouched. No browser I/O under the state lock.
 use super::*;
 use magicvault_effect::{
-    canonical_origin, cdp::CdpBrowser, BrowserAdapter, MaterialField, Outcome, Target,
+    canonical_origin, cdp::CdpBrowser, matches_target_filter, valid_target_filter, BrowserAdapter,
+    MaterialField, Outcome, Target,
 };
 #[cfg(all(test, unix))]
 mod tests;
@@ -580,10 +581,17 @@ impl Broker {
     pub(super) async fn browser_targets(
         self: &Arc<Self>,
         auth: Auth,
-        query: BrowserQuery,
+        query: BrowserTargetsQuery,
     ) -> Result<Response, ErrorCode> {
         let auth2 = auth.clone();
         let handle = query.browser_handle;
+        let filter = TargetFilter {
+            top_origin: query.top_origin,
+            tab_id: query.tab_id,
+        };
+        if !valid_target_filter(&filter) {
+            return Err(ErrorCode::InvalidRequest);
+        }
         let adapter = self
             .transaction(move |b, s| {
                 b.peer(s, &auth2)?;
@@ -596,8 +604,14 @@ impl Broker {
                 Ok(Arc::clone(&browser.adapter))
             })
             .await?;
-        let targets = adapter.targets(self.shutdown.child_token()).await?;
-        if targets.len() > MAX_TARGETS || targets.iter().any(|t| !t.valid()) {
+        let targets = adapter
+            .targets_filtered(&filter, self.shutdown.child_token())
+            .await?;
+        if targets.len() > MAX_TARGETS
+            || targets
+                .iter()
+                .any(|t| !t.valid() || !matches_target_filter(t, &filter))
+        {
             adapter.disconnect();
             return Err(ErrorCode::TransportUncertain);
         }

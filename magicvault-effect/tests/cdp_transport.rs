@@ -3,7 +3,7 @@ use magicvault_effect::{
     cdp::{validate_endpoint, CdpBrowser},
     origin_from_url, BrowserAdapter, MaterialField,
 };
-use magicvault_protocol::{ErrorCode, FieldState};
+use magicvault_protocol::{ErrorCode, FieldState, TargetFilter};
 use magicvault_test_support::{CdpFixture, CANARY};
 use tokio_util::sync::CancellationToken;
 
@@ -12,6 +12,93 @@ fn fields() -> Vec<MaterialField> {
         css: "#password".into(),
         value: CANARY.into(),
     }]
+}
+
+#[tokio::test]
+async fn bounded_discovery_can_be_narrowed_after_capacity_without_reconnecting() {
+    let fixture = CdpFixture::start().await;
+    let browser = CdpBrowser::connect(&fixture.endpoint).await.unwrap();
+    fixture.state.lock().unwrap().target_infos = Some((0..500).map(|i|
+        serde_json::json!({"targetId":format!("tab-{i}"),"type":"page","url":if i == 0 {"https://example.com/login"} else {"https://other.example/login"}})).collect());
+    assert!(matches!(
+        browser.targets(CancellationToken::new()).await,
+        Err(ErrorCode::Capacity)
+    ));
+    assert!(browser.connected());
+    assert!(!fixture
+        .state
+        .lock()
+        .unwrap()
+        .calls
+        .iter()
+        .any(|c| c == "Target.attachToTarget"));
+    let filter = TargetFilter {
+        top_origin: Some("https://example.com".into()),
+        tab_id: Some("tab-0".into()),
+    };
+    let targets = browser
+        .targets_filtered(&filter, CancellationToken::new())
+        .await
+        .unwrap();
+    assert_eq!(targets.len(), 1);
+    assert_eq!(targets[0].tab, "tab-0");
+    assert_eq!(
+        fixture
+            .state
+            .lock()
+            .unwrap()
+            .calls
+            .iter()
+            .filter(|c| *c == "Target.attachToTarget")
+            .count(),
+        1
+    );
+    let missing = TargetFilter {
+        tab_id: Some("missing".into()),
+        ..filter.clone()
+    };
+    assert!(browser
+        .targets_filtered(&missing, CancellationToken::new())
+        .await
+        .unwrap()
+        .is_empty());
+    fixture.state.lock().unwrap().frame_url = Some("https://other.example/login".into());
+    assert!(browser
+        .targets_filtered(&filter, CancellationToken::new())
+        .await
+        .unwrap()
+        .is_empty());
+    browser.disconnect();
+}
+
+#[test]
+fn discovery_filter_validation_is_exact_and_bounded() {
+    use magicvault_effect::valid_target_filter;
+    assert!(valid_target_filter(&TargetFilter::default()));
+    for origin in [
+        "https://example.com/",
+        "https://EXAMPLE.com",
+        "https://example.com:443",
+        "https://*.example.com",
+        "https://user:secret@example.com",
+        "http://remote.example",
+        "https://example.com/path",
+    ] {
+        assert!(!valid_target_filter(&TargetFilter {
+            top_origin: Some(origin.into()),
+            tab_id: None
+        }));
+    }
+    for id in ["", "@e12", "1\n", "a/b"] {
+        assert!(!valid_target_filter(&TargetFilter {
+            top_origin: None,
+            tab_id: Some(id.into())
+        }));
+    }
+    assert!(!valid_target_filter(&TargetFilter {
+        top_origin: None,
+        tab_id: Some("a".repeat(257))
+    }));
 }
 
 #[test]

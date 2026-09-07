@@ -1,13 +1,15 @@
 #!/usr/bin/env node
 // Real, offline npm install and native lifecycle with disposable directories.
-// No setup without --install-only, OS services, keychain, browser or publication.
+// No setup without --install-only, OS services, keychain or publication.
+// Browser qualification requires a separate explicit flag and executable.
 import fs from 'node:fs';
 import path from 'node:path';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { parseArgs } from 'node:util';
 
-const { values } = parseArgs({ options: { packages: { type: 'string' }, work: { type: 'string' }, 'with-rust-tests': { type: 'boolean', default: false } } });
+const { values } = parseArgs({ options: { packages: { type: 'string' }, work: { type: 'string' }, 'with-rust-tests': { type: 'boolean', default: false }, 'with-browser-tests': { type: 'boolean', default: false } } });
+if (values['with-browser-tests'] && (!values['with-rust-tests'] || !process.env.MAGICVAULT_CHROME || !path.isAbsolute(process.env.MAGICVAULT_CHROME) || !fs.statSync(process.env.MAGICVAULT_CHROME).isFile())) throw new Error('browser qualification requires --with-rust-tests and an explicit absolute MAGICVAULT_CHROME executable');
 if (!values.packages || !values.work || process.platform !== 'darwin' || process.arch !== 'arm64') throw new Error('require --packages, fresh --work, and macOS arm64');
 const packages = fs.realpathSync(values.packages);
 const work = path.resolve(values.work);
@@ -53,9 +55,14 @@ assert.equal(run(setup.mcpServers.magicvault.command, ['--version']).trim(), `ma
 if (values['with-rust-tests']) {
   // Rust is needed by the test DRIVER, never the installed clients. Reuse real
   // IPC/effect tests with their in-memory keys and synthetic human interaction.
-  const testEnv = { ...process.env, MAGICVAULT_TEST_CLI: cli, MAGICVAULT_TEST_MCP: mcp, MAGICVAULT_TEST_NATIVE_HOST: path.join(app, 'current/bin/magicvault-native-host') };
+  const testEnv = { ...process.env, MAGICVAULT_TEST_CLI: cli, MAGICVAULT_TEST_MCP: mcp, MAGICVAULT_TEST_NATIVE_HOST: path.join(app, 'current/bin/magicvault-native-host'), MAGICVAULT_TEST_EXTENSION: setup.extension_directory };
   execFileSync('cargo', ['test', '--locked', '-p', 'magicvault', '--test', 'cli_flow', '--test', 'delivery_cli', '--test', 'native_host'], { env: testEnv, stdio: 'inherit', timeout: 120_000 });
   execFileSync('cargo', ['test', '--locked', '-p', 'magicvault-mcp', '--test', 'end_to_end'], { env: testEnv, stdio: 'inherit', timeout: 120_000 });
+  if (values['with-browser-tests']) {
+    // Real Chrome dispatch, isolated user-data roots/host definitions and
+    // synthetic human/key providers. Not native permission/keychain acceptance.
+    execFileSync('cargo', ['test', '--locked', '--release', '-p', 'magicvault-mcp', '--test', 'extension_native', '--', '--ignored', '--nocapture', '--test-threads=1'], { env: testEnv, stdio: 'inherit', timeout: 120_000 });
+  }
 }
 
 // Remove the npm packages using npm itself, then prove the stable native paths
@@ -69,4 +76,4 @@ const retired = JSON.parse(run(stableCli, ['--root', vault, '--app-dir', app, 'u
 assert.equal(retired.vault_preserved, true); assert.equal(retired.keychain_preserved, true);
 assert(!fs.existsSync(app)); assert(fs.existsSync(retired.application_archive));
 assert(!fs.existsSync(vault)); assert.deepEqual(fs.readdirSync(home), []);
-console.log(JSON.stringify({ passed: true, version, npm_install: 'offline local tarballs', client_path: 'Node and system utilities only; no Rust', live_custody_or_services_touched: false, rust_fixture_tests: values['with-rust-tests'], artifacts: work }));
+console.log(JSON.stringify({ passed: true, version, npm_install: 'offline local tarballs', client_path: 'Node and system utilities only; no Rust', live_custody_or_services_touched: false, rust_fixture_tests: values['with-rust-tests'], isolated_browser_tests: values['with-browser-tests'], artifacts: work }));

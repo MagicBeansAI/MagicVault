@@ -24,6 +24,36 @@ pub struct BrowserQuery {
     pub browser_handle: Uuid,
 }
 
+/// Optional discovery narrowing, never permission to deliver a credential.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct TargetFilter {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub top_origin: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tab_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct BrowserTargetsQuery {
+    pub browser_handle: Uuid,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub top_origin: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tab_id: Option<String>,
+}
+
+impl From<BrowserQuery> for BrowserTargetsQuery {
+    fn from(query: BrowserQuery) -> Self {
+        Self {
+            browser_handle: query.browser_handle,
+            top_origin: None,
+            tab_id: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct BrowserRule {

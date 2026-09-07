@@ -1,7 +1,9 @@
 # Installed extension and native-host acceptance
 
-Status: manual gate. Passing real CDP tests and a synthetic native peer does not
-qualify Chrome's actual native-messaging dispatch, site permissions or human UI.
+Status: manual gate for genuine permissions, native consent/keychain and normal
+installation lifecycle. [Automated native transport](extension-transport.md) now
+exercises actual Chrome dispatch and multiple profiles with synthetic custody/UI
+and a pregranted loopback fixture. That does not qualify these native UX gates.
 
 ## Isolation and setup
 
@@ -58,6 +60,7 @@ existing host registration to make a test pass.
 | X-18 pause/denial | Pause and restart browser; resume; deny first authorization; restart again | Pause persists; denial does not reprompt automatically; Retry explicitly requests new native consent |
 | X-19 revocation | Disconnect one native browser through CLI, then separately revoke its client | Profile cannot auto-reconnect; unrelated profiles survive profile revocation; all client profiles stop after client revocation |
 | X-20 outage | Leave daemon unavailable through several alarms; reopen options/restart worker | 30–300-second backoff (up to five seconds jitter, Chrome may delay); no overlapping hosts, prompt floods or operation replay |
+| X-21 large profile | With many unrelated or granted tabs, discover using exact `top_origin` and optionally backend `tab_id` | Narrowing happens before inspection bounds; only matching permitted targets returned; exact ports and actual documents rechecked. Oversized matching sets still return `capacity`, not a partial list; no grant changes or unrelated tab closure |
 
 For X-09 use the same explicit root:
 

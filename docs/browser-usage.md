@@ -77,6 +77,20 @@ tab/frame explicitly with your existing tool. Do not guess between same-origin
 tabs. Discovery replaces unused handles from that browser; it does not revoke
 the document binding already captured by a pending fill.
 
+Prefer exact `top_origin` narrowing when you already know the page's origin:
+
+```json
+{"browser_handle":"REPLACE_WITH_BROWSER_HANDLE","top_origin":"https://accounts.example.com"}
+```
+
+These are MCP `browser_targets` arguments. CLI equivalents are
+`browser-targets --browser-handle HANDLE --top-origin https://accounts.example.com`.
+Optionally add `tab_id` / `--tab-id` for the backend-issued tab ID; both filters
+must match. Origins include non-default ports and contain no path, query or
+wildcard. A filter narrows discovery, never grants browser or credential access.
+On `capacity`, narrow the query instead of closing tabs or changing permissions.
+Large matching sets still fail closed; there is no pagination or silent truncation.
+
 The adapter rechecks frame/document loaders, uses a dedicated isolated world and
 a system-unique execution context, and fails closed if the browser cannot supply
 that binding. Out-of-process frames that cannot be addressed through the attached
@@ -88,14 +102,26 @@ where its document-targeted frame access and site permissions apply.
 This path needs no debugging endpoint. It uses a narrowly scoped extension, a
 native messaging executable, and the same daemon authorization as CDP.
 
-1. Build the executables as described in [setup](setup.md), then run
-   `make package-extension` to assemble `dist/extension`. Packaging only copies
-   source assets; it neither installs a host nor launches a browser.
+Discovery considers granted sites and loaded tabs, not the total profile tab
+count. Discarded tabs must first be opened normally; discovery never wakes them.
+Blocked/unsupported sites and tabs without an accessible URL are omitted. The
+bounded response supports up to 128 eligible tabs and 128 total frame targets;
+overflow returns `capacity` without a partial list. A tab with more than 128
+frames is omitted. Use exact discovery narrowing when the eligible set exceeds
+these limits. No unrelated tabs need to be closed or site grants changed.
+[Chrome tab-query and host-permission behavior](https://developer.chrome.com/docs/extensions/reference/api/tabs#method-query).
+
+1. **Packaged installation:** normal `magicvault --profile agent setup` prints
+   `extension_directory`, normally `~/.magicvault-app/current/extension`.
+   Use that directory; no Rust build is needed.
+   **Source installation:** build the executables as described in [setup](setup.md),
+   then run `make package-extension` to assemble `dist/extension`. Packaging only
+   copies assets; it neither installs a host nor launches a browser.
    Do not load the raw `extension/` directory: it intentionally lacks the shared
    `fill.js` copied by packaging, and its service worker cannot start on its own.
-2. In a disposable Chrome/Chromium profile's extension management page, enable
-   developer mode and load the unpacked `dist/extension` directory. Store
-   distribution/signing is not part of this source checkpoint.
+2. Open `chrome://extensions` in a disposable Chrome/Chromium profile, enable
+   **Developer mode**, choose **Load unpacked**, and select the directory from
+   step 1. No Chrome Web Store listing is available.
 3. Normal packaged `magicvault setup` already installs the native host. The
    extension's public, fixed ID is shown in a selectable chip; it does not need
    to be copied. For source builds, install the host once at a stable absolute path:
@@ -111,7 +137,8 @@ native messaging executable, and the same daemon authorization as CDP.
    Both top-page and frame sites need access for embedded logins. No browser
    permission is granted automatically, including when upgrading the extension.
    Local HTTP (`localhost` / `127.0.0.1`) always needs its own explicit site grant.
-5. Start the daemon. The extension automatically connects: match the **Browser
+5. Keep the daemon running (normal packaged setup starts it). The extension
+   automatically connects: match the **Browser
    profile ID** shown on its setup page in the first native dialog, then approve.
    Setup status updates automatically. Discover the extension's
    browser and targets through the same CLI/MCP commands used for CDP.
@@ -233,7 +260,15 @@ minutes; setup need not wait for a first connection. See Chrome's
 
 ### Upgrading older unpacked extensions
 
-Build/install matching 0.6.x standalone binaries and extension 0.5.x. Native
+For an existing **fixed-ID** installation, run the managed
+[upgrade](distribution.md#upgrade), then verify the extension version on
+`chrome://extensions`. Chrome can retain the resolved old bundle directory even
+after Reload. If its version is unchanged, choose **Load unpacked** and select
+the new extension directory printed by `magicvault paths`, without removing the
+existing extension. Removing it resets local pairing state, grants and blocks.
+Verify the version and setup status before rediscovering targets.
+
+Build/install matching 0.7.x standalone binaries and extension 0.6.x. Native
 handshake v2 has no silent v1 fallback. Run `magicvault setup` (or the source host
 install command above) to select the bundled ID, then reload the packaged assets.
 The one-time move from a path-derived ID may require removing the old extension

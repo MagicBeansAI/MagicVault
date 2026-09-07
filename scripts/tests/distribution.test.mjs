@@ -12,6 +12,18 @@ const require = createRequire(import.meta.url);
 const { resolveBinary } = require('../../npm/launcher.cjs');
 const { fixture: extensionFixture, options: extensionOptions, tick } = require('../../extension/tests/harness.cjs');
 const repo = path.resolve(import.meta.dirname, '../..');
+test('real package browser qualification requires explicit prerequisites before creating artifacts', t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'magicvault-browser-optin-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const work = path.join(root, 'must-not-exist');
+  for (const [extra, browser] of [[[], process.execPath], [['--with-rust-tests'], 'relative-chrome']]) {
+    assert.throws(() => execFileSync(process.execPath, [path.join(repo, 'scripts/qualify-package.mjs'),
+      '--packages', root, '--work', work, '--with-browser-tests', ...extra], {
+      env: {...process.env, MAGICVAULT_CHROME: browser}, stdio: 'pipe', timeout: 5000,
+    }), error => error.status !== 0 && String(error.stderr).includes('browser qualification requires'));
+    assert.equal(fs.existsSync(work), false);
+  }
+});
 test('bundled public identity matches the exact native-host default and is a valid public key', () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(repo, 'extension/manifest.json')));
   const der = Buffer.from(manifest.key, 'base64');
@@ -47,6 +59,8 @@ test('assembly includes only explicit assets and exact platform dependency, with
   const f = fixture(t); f.build();
   const main = JSON.parse(fs.readFileSync(path.join(f.output, 'launcher/package.json')));
   const native = JSON.parse(fs.readFileSync(path.join(f.output, 'native/package.json')));
+  assert.equal(main.description, 'Let agents use credentials without seeing them — reference-only credential delivery');
+  assert.match(fs.readFileSync(path.join(f.output, 'launcher/README.md'), 'utf8'), /\*\*Let agents use credentials without seeing them\*\*/);
   assert.equal(main.optionalDependencies[native.name], native.version);
   assert.equal(main.scripts, undefined); assert.equal(native.scripts, undefined);
   assert.deepEqual(native.os, ['darwin']); assert.deepEqual(native.cpu, ['arm64']);

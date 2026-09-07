@@ -11,6 +11,49 @@ use std::{
 
 const CANARY: &str = "SYNTHETIC-BROKER-BROWSER-CANARY";
 
+#[tokio::test]
+async fn discovery_filters_are_not_permissions_and_rediscovery_invalidates_handles() {
+    let fixture = Fixture::new().await;
+    let original = fixture.request().await;
+    let Response::BrowserTargets(rows) = fixture
+        .broker
+        .browser_targets(
+            fixture.auth.clone(),
+            BrowserTargetsQuery {
+                browser_handle: fixture.browser,
+                top_origin: Some("https://missing.example".into()),
+                tab_id: None,
+            },
+        )
+        .await
+        .unwrap()
+    else {
+        panic!("targets");
+    };
+    assert!(rows.is_empty());
+    assert!(!fixture
+        .broker
+        .state
+        .lock()
+        .unwrap()
+        .browsers
+        .targets
+        .contains_key(&original.target_handle));
+    let result = fixture
+        .broker
+        .browser_targets(
+            fixture.auth.clone(),
+            BrowserTargetsQuery {
+                browser_handle: fixture.browser,
+                top_origin: Some("https://example.com/path".into()),
+                tab_id: None,
+            },
+        )
+        .await;
+    assert!(matches!(result, Err(ErrorCode::InvalidRequest)));
+    assert_eq!(fixture.adapter.calls.load(Ordering::SeqCst), 0);
+}
+
 // Fixed test-only key permits real store/registry reloads without OS keychain.
 struct FixtureKey;
 impl MasterKeyProvider for FixtureKey {
@@ -292,7 +335,8 @@ impl Fixture {
                 self.auth.clone(),
                 BrowserQuery {
                     browser_handle: self.browser,
-                },
+                }
+                .into(),
             )
             .await
             .unwrap()

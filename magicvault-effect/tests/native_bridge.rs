@@ -4,6 +4,56 @@ use magicvault_protocol::{ErrorCode, FieldState};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
+#[tokio::test]
+async fn filtered_bridge_preserves_narrowing_and_refuses_out_of_scope_replies() {
+    for mismatch in [false, true] {
+        let (daemon, mut host) = tokio::net::UnixStream::pair().unwrap();
+        let bridge = NativeBridge::authenticated(daemon);
+        bridge.initialize(b"{}").await.unwrap();
+        read_frame(&mut host).await.unwrap();
+        let filter = magicvault_protocol::TargetFilter {
+            top_origin: Some("https://example.com".into()),
+            tab_id: Some("1".into()),
+        };
+        let expected = filter.clone();
+        let worker = tokio::spawn(async move {
+            let command: BridgeCommand =
+                serde_json::from_slice(&read_frame(&mut host).await.unwrap()).unwrap();
+            let BridgeRequest::FilteredTargets(actual) = command.request else {
+                panic!("filtered targets");
+            };
+            assert_eq!(actual, expected);
+            let mut found = target();
+            if mismatch {
+                found.tab = "2".into();
+            }
+            write_frame(
+                &mut host,
+                &serde_json::to_vec(&BridgeReply {
+                    request_id: command.request_id,
+                    result: BridgeResult::Targets(vec![found]),
+                })
+                .unwrap(),
+            )
+            .await
+            .unwrap();
+            host
+        });
+        let result = bridge
+            .targets_filtered(&filter, CancellationToken::new())
+            .await;
+        let _host = worker.await.unwrap();
+        if mismatch {
+            assert!(matches!(result, Err(ErrorCode::TransportUncertain)));
+            assert!(!bridge.connected());
+        } else {
+            assert_eq!(result.unwrap().len(), 1);
+            assert!(bridge.connected());
+        }
+        bridge.disconnect();
+    }
+}
+
 fn target() -> Target {
     Target {
         tab: "1".into(),

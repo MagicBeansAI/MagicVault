@@ -11,11 +11,18 @@ that would not replace destination, custody, transport or output-boundary tests.
 | --- | --- | --- |
 | Real headed/headless Chrome through CDP | `make test-browser-native` | More brands/platforms and accessibility/control combinations |
 | Actual CLI → daemon → real Chrome | `make test-cli-native` | Genuine native dialogs/keychain in [CLI runbook](cli.md) |
-| MCP and native-host executables | Existing real subprocess/IPC tests | Installed-extension/native UX in [extension runbook](extension.md) |
+| MCP and native-host executables | Real subprocess/IPC tests; `make test-extension-native` adds actual Chrome dispatch and two independent profiles; [basic installed native acceptance](results-discovery-2026-09-08.md) on one host | Remaining permission/recovery cases in [extension runbook](extension.md); wider hosts and live agent-model sessions not yet qualified |
 | Public demo pages | Opt-in `make test-public-web` | Non-gating compatibility smoke, not login/provider qualification |
-| New process / HTTP requests | `make test-delivery`: real local HTTP/TLS and MagicRun children, shipped CLI/MCP | Native profile approval/keychain and measured performance; see [delivery runbook](process.md) |
+| New process / HTTP requests | `make test-delivery`: real local HTTP/TLS and MagicRun children, shipped CLI/MCP; `make test-delivery-latency` adds local repeated-call observations | Native approval/keychain, Internet latency and resource/soak performance; see [delivery runbook](process.md) |
 | Running-service destinations | `make test-qualification-fixtures` exercises a cooperative Node service | Product refresh/rotation integration remains **unimplemented** |
-| Prebuilt CLI/MCP installation | `make test-distribution` and offline `make test-package-install` | Developer ID/quarantined downloads, registry publication and full native lifecycle in [distribution runbook](distribution.md) |
+| Prebuilt CLI/MCP installation | `make test-distribution`, offline `make test-package-install`; opt-in `make test-package-browser` adds installed extension assets | Developer ID/quarantined downloads, registry publication and full native lifecycle in [distribution runbook](distribution.md) |
+
+The [0.7.0 discovery record](results-discovery-2026-09-08.md) covers large-profile
+regressions, rebuilt packages and installed-candidate acceptance. The
+[0.6.1 transport record](results-native-transport-2026-09-07.md) identifies the
+earlier native dispatch fix, executed lanes, small-sample latency and remaining
+release gates. [Repeatable native transport commands](extension-transport.md)
+keep automated synthetic qualification separate from human acceptance.
 
 The [browser runbook](browser.md) describes the local pages, exact commands and
 outcome checks. [The dated results](results-2026-09-07.md) distinguish actual
@@ -29,9 +36,12 @@ See the [architecture](../architecture.md).
 
 - Use synthetic values, a new private vault root, and fresh disposable browser
   profiles. Never point tests at a personal profile or an existing runtime root.
-- Native manifests and keychain identities are OS-user state. Use a disposable
+- Normal installer manifests and keychain identities are OS-user state. Use a disposable
   OS account for installed-extension/keychain qualification, or obtain explicit
   permission before touching those exact definitions in a normal account.
+  The automated native-transport fixture instead installs its test-only manifest
+  inside a wholly new user-data root; it never invokes the normal host installer
+  or keychain. A named profile inside a personal user-data root is not equivalent.
 - Never bypass native consent to qualify native consent. Automated CLI tests use
   an in-process synthetic human/key provider and explicitly do not qualify that UI.
 - Never submit public-site forms, authenticate to a real account, purchase, upload,

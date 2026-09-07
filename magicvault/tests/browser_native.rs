@@ -172,7 +172,15 @@ async fn shipped_cli_pairs_enrolls_configures_and_fills_real_chrome_without_valu
         );
         let Response::BrowserTargets(targets) = response(
             root.path(),
-            &["browser-targets", "--browser-handle", &handle],
+            &[
+                "browser-targets",
+                "--browser-handle",
+                &handle,
+                "--top-origin",
+                &owner.origin,
+                "--tab-id",
+                &tab,
+            ],
         )
         .await
         else {

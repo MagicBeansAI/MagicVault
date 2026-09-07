@@ -185,11 +185,36 @@ pub struct DisposableBrowser {
 }
 impl DisposableBrowser {
     pub async fn start(headless: bool) -> Self {
+        Self::start_configured(headless, None).await
+    }
+    /// Test-only native messaging definitions in a fresh user-data directory.
+    /// Never invokes an OS-wide installer or reuses a personal Chrome profile.
+    pub async fn with_native_host(headless: bool, manifest: &[u8]) -> Self {
+        Self::start_configured(headless, Some(manifest)).await
+    }
+    async fn start_configured(headless: bool, native_manifest: Option<&[u8]>) -> Self {
         let executable = std::env::var_os("MAGICVAULT_CHROME")
             .map(PathBuf::from)
             .expect("explicit MAGICVAULT_CHROME executable required");
         assert!(executable.is_absolute() && executable.is_file());
-        let profile = tempfile::tempdir().unwrap();
+        let profile = match std::env::var_os("MAGICVAULT_BROWSER_TMPDIR") {
+            Some(parent) => {
+                let parent = PathBuf::from(parent);
+                assert!(parent.is_absolute() && parent.is_dir());
+                tempfile::Builder::new()
+                    .prefix("mv-browser-")
+                    .tempdir_in(parent)
+                    .unwrap()
+            }
+            None => tempfile::tempdir().unwrap(),
+        };
+        if let Some(manifest) = native_manifest {
+            let value: Value = serde_json::from_slice(manifest).unwrap();
+            assert_eq!(value["name"], "ai.magicbeans.magicvault");
+            let directory = profile.path().join("NativeMessagingHosts");
+            std::fs::create_dir(&directory).unwrap();
+            std::fs::write(directory.join("ai.magicbeans.magicvault.json"), manifest).unwrap();
+        }
         let (origin, server) = site().await;
         let mut command = Command::new(executable);
         command
@@ -206,8 +231,16 @@ impl DisposableBrowser {
         if headless {
             command.arg("--headless=new");
         }
+        if native_manifest.is_some() {
+            // Only opt-in test browsers expose the unpacked-extension loader.
+            command.arg("--enable-unsafe-extension-debugging");
+        }
         let child = command
-            .arg(format!("{origin}/login"))
+            .arg(if native_manifest.is_some() {
+                "about:blank".into()
+            } else {
+                format!("{origin}/login")
+            })
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())

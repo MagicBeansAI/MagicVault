@@ -1,11 +1,14 @@
 # MagicVault
 
-**Keep secrete away from Agents**
+**Let agents use credentials without seeing them**
 
 Reference-only credential delivery for browser automation, new processes and
 HTTP requests. A native daemon holds credentials, requests human approval and
 delivers them to an authorized recipient; MCP/CLI clients receive closed status,
 not credential values or raw recipient output.
+
+Authorized recipients receive the secret; separate browser tools can still read
+it afterward. [Security boundary](https://github.com/MagicBeansAI/MagicVault/blob/main/SECURITY.md).
 
 **Start with MCP for Codex, Claude Code or another local agent.** The agent can
 discover references, request `secure_fill`, `secure_new_process` or

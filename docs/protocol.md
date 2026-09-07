@@ -26,12 +26,15 @@ automatic mutation retries. The SDK MCP transport separately limits inbound
 messages to 32 KiB and replies to 1 MiB, and routes at most eight active tool calls.
 Its writes/close have five-second deadlines; a partial-write failure closes the
 writer without retry. The registry is bounded to 32 clients × 256 references
-and 512 KiB of serialized state. Enrollment allows eight 4096-byte text fields.
+and 1 MiB of serialized state including at most 64 browser-permission rows.
+Enrollment allows eight 4096-byte text fields.
+Native consent metadata is bounded to 16 KiB so valid browser rules and escaped
+selectors are not silently truncated. Secret answers remain bounded to 4096 bytes.
 After SDK completion the MCP client bounds runtime teardown to 250 ms so an
 uncancellable Tokio stdio task cannot indefinitely hold the process open. This
 client owns no store writes; the custody daemon does not use bounded teardown.
 
-Envelope fields: `version: 1`, UUID `request_id`, daemon `epoch` (from status),
+Envelope fields: `version: 2`, UUID `request_id`, daemon `epoch` (from status),
 optional pairing `token`, and a tagged `request` with `method` / optional `params`.
 Every non-status request binds the current epoch. No caller sends a grant decision
 or plaintext vault field through this protocol. Parse/OS/keychain errors use
@@ -39,7 +42,7 @@ closed codes; raw diagnostic text and process output are never replies.
 
 | Request | Caller/result |
 | --- | --- |
-| `status` | Same-user health; with valid token also own client ID; effects list is empty |
+| `status` | Same-user health; with valid token also own client ID; effects contains `secure_fill` |
 | `pair {label}` | Human CLI bootstrap; native consent; private pairing capability saved by client, never printed |
 | `enroll {label, field_names}` | Paired human CLI; native consent and hidden inputs; metadata-only result |
 | `list_credentials` | Paired client; only explicitly permitted credential metadata |
@@ -47,6 +50,14 @@ closed codes; raw diagnostic text and process output are never replies.
 | `approval_status {approval_id}` | Only the requesting client; pending/allowed/denied/expired/uncertain |
 | `revoke_client {client_id}` | Paired CLI plus native consent; invalidates future use of that pairing |
 | `shutdown` | Paired CLI plus native consent; cancels prompts and drains ownership |
+| `register_cdp {label, endpoint}` | Paired CLI plus native consent; loopback browser endpoint; client-owned handle |
+| `configure_browser_credential {credential_ref, origins, field_names}` | Paired CLI plus native consent; explicit browser permission, not metadata consent |
+| `list_browsers` | Paired client; only own connected browser handles |
+| `browser_targets {browser_handle}` | Paired client; safe origins and backend IDs plus single-use document-bound handles |
+| `disconnect_browser {browser_handle}` | Owning paired client; cancels jobs, closes integration only |
+| `secure_fill {operation_id, browser_handle, target_handle, fields}` | Paired client; consumes target, returns pending status; daemon-owned exact-use consent then delivery |
+| `fill_status {operation_id}` | Only owning paired client; metadata-only status, also available after persistence uncertainty |
+| `cancel_fill {operation_id}` | Owning paired client; cancellation request, never a rollback claim |
 
 MCP translates `request_approval` to `request_access`, and `vault_status` to
 `status`. Its catalog is a fixed subset, not automatic exposure of every request.
@@ -60,7 +71,8 @@ with a fixed script, metadata argv, private bounded answer pipe and discarded st
 `instance.json` is a versioned UUID identity; the keychain uses service
 `ai.magicbeans.magicvault`, account `instance-UUID`, never Magician's names.
 The daemon caches the loaded key for its lifetime. `clients.json` contains
-versioned paired-client hashes and metadata ACLs. Core vault bytes stay in
+versioned paired-client hashes, metadata ACLs and explicit standalone browser
+permissions. Core vault bytes stay in
 `ROOT/vault`, using existing encryption/partition formats. No key/vault import,
 replacement, migration, automatic data cleanup or ambient credential discovery.
 Initialization syncs the parent entry naming the private root before creating
@@ -103,4 +115,75 @@ Shutdown cancels prompts, stops admission, drains connections/human work, and
 retains the instance lease through outstanding blocking commits. A second owner
 cannot race a still-running write. The service must be requalified before it is
 deployed over valuable credentials. Only [targeted synthetic fixtures](targeted-tests-2026-09-06.md)
-have run, not native-host or full regression qualification.
+have run on earlier revisions, not current Phase 3 or native-host/full regression
+qualification. See the current [coverage and execution ledger](testing.md).
+
+## Browser effects
+
+The fixed `fields` entries contain `css`, `credential_ref` and
+`credential_field`, never values. Request parsing rejects unknown fields, caller
+decisions and JavaScript. CSS selectors are bounded to 512 printable ASCII bytes
+(use CSS escapes for Unicode identifiers); at most eight
+fields are accepted. `operation_id` must be a non-nil UUID selected once by the
+caller, independent of the transport request ID. No client retries effects.
+
+Browser registration, permissions, target discovery and effect jobs are owned by
+the paired client. Targets contain the actual backend tab/frame/document identity,
+top-document identity, origins and a monotonic 180-second expiry. Public discovery
+omits full URLs, page titles and field values. A request-supplied identity is not
+authority: it must resolve to that client's daemon-issued bound handle.
+
+There are eight browser connections, 128 unused targets and 32 retained fill
+results per daemon. Results expire ten minutes after admission, except unfinished
+jobs. Up to 4096 spent operation IDs remain tombstoned until daemon restart;
+capacity exhaustion fails closed rather than dropping replay protection. Each
+backend has bounded non-queuing admission. Native human work is serialized and a
+fill retains that permit through its completion/audit, without holding a store
+lock while waiting on human/browser I/O. Browser I/O has a 30-second operation
+deadline. The CDP connection caps messages/frames at 512 KiB and command waits at
+five seconds. No protocol or library transport diagnostics are model results.
+
+Browser permission matches exact origins for **both** top page and selected
+frame, and the selected credential fields. It starts absent for existing entries.
+The native decision then covers one requested effect; the service revalidates
+caller, permission, deadline, cancellation, references and browser existence after
+consent and durable authorization audit, immediately before releasing material.
+Adapters revalidate document/origin and selectors at the browser boundary.
+
+The fill handle is consumed at admission. Identical retained requests return the
+original status; changed bindings conflict. After the detailed result expires,
+the operation ID remains spent. This is not a distributed exactly-once promise:
+the browser can apply a write before the reply is lost, and restart removes
+ephemeral result state. Never repeat an uncertain operation under a new identity.
+
+Completion records a typed metadata-only audit receipt containing operation,
+client, browser and target IDs plus overall/per-field status and a closed error.
+No selector, raw URL, value, page dump or browser diagnostic is journaled.
+If post-effect audit fails, the final state is `uncertain`, new work is blocked,
+and authenticated `fill_status` remains available for reconciliation while that
+result is retained. A receipt describes delivery, not successful authentication.
+
+## Native integration channel
+
+`ROOT/bridge.sock` is a separate same-user, private Unix socket. It is never
+forwarded through MCP or the generic CLI response path. A native host presents
+bridge version 1, instance UUID, configured extension ID and paired capability.
+The daemon validates the configured profile/extension, authenticates the peer and
+asks the human to connect it. No credential material appears in that handshake.
+
+After handshake, the daemon sends `BridgeCommand {request_id, request}` with
+`targets` or a trusted `fill {target, fields}`. Here—and only in the trusted
+browser channel—each field carries CSS plus its value. The reply is a closed
+`BridgeReply {request_id, result}` with target metadata, per-field outcome, or
+closed discovery error. The host validates IDs and response kind; values cannot
+be represented by the reply schema. Frames use a native/Unix 32-bit little-endian
+length and UTF-8 JSON, bounded to 256 KiB. Unknown fields and wrong IDs close the
+channel. Partial frames, cancellation and disconnect are never retried.
+
+Chrome's allowed-origin manifest plus the host's invocation-origin/config checks
+bind normal extension connections. This is not protection from arbitrary
+same-user impersonation. The extension service worker owns native messaging;
+it uses document-targeted isolated script execution, not a page message route.
+It stores no credential material and exposes only setup/status to its own
+extension page. Approved reconnect replaces the previous extension channel and
+invalidates unused handles. User reconnection is explicit; no effect is replayed.

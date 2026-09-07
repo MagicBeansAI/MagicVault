@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "MagicVault — credential fills",
+  "version": "0.3.0",
+  "minimum_chrome_version": "120",
+  "description": "Fill approved credential fields without putting values in agent messages. Requires the MagicVault native host.",
+  "permissions": ["nativeMessaging", "scripting", "webNavigation"],
+  "optional_host_permissions": ["https://*/*", "http://localhost/*", "http://127.0.0.1/*"],
+  "background": {"service_worker": "worker.js"},
+  "options_page": "options.html",
+  "action": {"default_title": "MagicVault setup"},
+  "content_security_policy": {"extension_pages": "script-src 'self'; object-src 'none'; base-uri 'none'"}
+}

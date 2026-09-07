@@ -1,18 +1,26 @@
 [package]
 name = "magicvault"
-version = "0.2.2"
+default-run = "magicvault"
+version = "0.3.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "MagicVault human CLI and standalone daemon"
 
 [dependencies]
-magicvault-service = { path = "../magicvault-service", version = "0.2.2" }
+magicvault-service = { path = "../magicvault-service", version = "0.3.0" }
+magicvault-effect = { path = "../magicvault-effect", version = "0.3.0" }
 clap = { version = "4", features = ["derive"] }
 serde_json = "1"
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "io-std"] }
 uuid = "1"
+zeroize = "1"
+libc = "0.2"
+# Websocket debug/trace events can contain material. Disable the log facade in
+# the shipped CLI, daemon and native host, even if a logger is added later.
+log = { version = "0.4", features = ["max_level_off", "release_max_level_off"] }
 
 [dev-dependencies]
+magicvault-test-support = { path = "../test-support" }
 magicvault-core = { path = "../magicvault-core", version = "0.1.3" }
 async-trait = "0.1"
 tempfile = "3"

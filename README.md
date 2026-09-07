@@ -1,84 +1,185 @@
 # MagicVault
 
-The easiest way to keep credentials away from models.
+Keep credentials out of your model's messages.
 
-This repository contains the Phase 1 shared libraries and an **unqualified
-Phase 2 foundation implementation**: a standalone daemon, human enrollment/
-consent, CLI, and reference-only MCP. Browser/CDP/extension delivery is Phase 3;
-HTTP/process delivery follows it. No `secure_*` operation is advertised yet.
+Current source version: **0.3.0 — browser-delivery alpha**. Install from source
+using the instructions below; this checkpoint does not announce a registry,
+installer or Chrome Web Store release. See the [changelog](CHANGELOG.md) and
+[component versions](docs/versioning.md).
 
-Start with [setup and usage](docs/setup.md), the [local protocol and security
-boundary](docs/protocol.md), and the [implementation/review ledger](docs/phase2-foundation.md).
-The [follow-up deep static review](docs/static-review-2026-09-06.md) records
-additional shared-write, approval-replay, deadline, initialization and shutdown fixes.
-The later [targeted migration test round](docs/targeted-tests-2026-09-06.md)
-records compatibility/foundation results and fixes missed by static review.
-The [second deep review](docs/deep-review-2026-09-07.md) fixes standalone journal
-durability and unsafe-journal adoption, with 58 passing targeted upstream tests.
-No full suite, benchmark or native-host qualification has run.
+An agent should be able to ask “use my account” without seeing the password.
+MagicVault stores credentials, exposes references instead of values, asks for
+human consent, and delivers selected fields directly to an authorized browser.
 
-## Libraries and trust boundary
+**Phase 3 alpha: builds, automated tests, and disposable headed/headless Chrome
+and CLI-to-Chrome qualification pass on one macOS/Chrome configuration.**
+The [real-world qualification record](docs/qualification/results-2026-09-07.md)
+separates passing cases from open gates. Installed-extension, native human/keychain,
+broader-platform and performance qualification remain outstanding. Use synthetic
+credentials and disposable profiles; CDP success does not certify an installed
+extension workflow. See the [security and qualification limits](docs/testing.md).
 
-- `magicvault-core`: encrypted provisioned/captured/OAuth partitions, ephemeral
-  references, policy/approvals/grants, captured-session routing, redaction, and a
-  scoped store cache parameterized by the host's path layout.
-- `magicvault-primitives`: stack-safe JSON and durable filesystem primitives,
-  separately consumable without a credential backend or product runtime.
-- `magicvault-protocol`: closed reference/metadata-only local messages.
-- `magicvault-service`: single-writer standalone host, local client, OS-user and
-  pairing authentication, native human boundary, and LaunchAgent management.
-- `magicvault`: human CLI plus `serve` daemon entry point.
-- `magicvault-mcp`: official-SDK stdio surface using the same daemon client.
+## What problem does it solve?
 
-None of these crates depends on Magician or MagicRun. Core integrations provide a
-`MasterKeyProvider` and, for shared scoped resolution, `SecretScopeLayout`.
-Applications can append their typed metadata-only audit receipt by implementing
-`AuditReceipt`; unstructured strings/JSON do not implement that contract.
-The core's ordinary events have no product receipt.
+Ordinary browser automation often puts a password into a typing tool's arguments,
+where it can enter a model's context or tool transcript. With MagicVault, the
+agent supplies a credential reference and a field locator. Trusted code handles
+the value; the agent receives only delivery/approval/error status.
 
-Core `0.1.1` added a metadata projection that obtains sorted field names without
-cloning credential values. Core `0.1.2` consumes primitives `0.1.1` with corrected
-staging permissions and relative-path durability. Existing APIs/formats remain unchanged. Magician is
-a continuing core consumer, not a frozen fork; it does not link the standalone
-CLI/service/MCP crates.
+The website still receives the credential. A separate browser tool may later
+read the DOM, take a screenshot, or inspect session cookies. Those observation
+paths are **not filtered by this delivery-only integration**. MagicVault is not a
+sandbox against privileged or unrestricted same-user software.
+Read the [security boundary](SECURITY.md) before choosing an integration.
 
-Core `0.1.3` adds opt-in durable audit appends, used by service/CLI/MCP `0.2.2`.
-Magician's existing append-only audit methods keep their previous behavior and
-cost. Standalone startup rejects unsafe journals before using the core writer.
+## One fill operation, two browser connections
 
-These are trusted in-process APIs: a consumer can receive plaintext. This does
-not promise that privileged local software, an authorized recipient, or arbitrary
-model-authored code can never recover material. The model-facing contract belongs
-to each integration: reference-only requests, destination authorization, approval,
-material delivery, and explicitly covered output filtering. No raw credential-read
-tool is registered by these libraries.
+| Connection | Intended environment | Setup |
+| --- | --- | --- |
+| Direct CDP | Already-running Chrome/Chromium automation profile; headed or modern headless | An explicit loopback browser debugging websocket; no extension or proxy |
+| Chromium extension | A headed browser profile without a debugging endpoint | MagicVault extension, native host, site permissions and daemon connection |
 
-The first extracted consumer, Magician, retains OS-keychain service/account names,
-app-data keys and signing, startup policy, runtime directories, action traversal,
-brokers, analytics, browser and process ownership. Its historical module paths
-re-export these types. No daemon, second store, key rotation, or vault migration
-is introduced by the extraction.
+Both expose MCP `secure_fill` and CLI `magicvault secure-fill`. The registered
+browser handle chooses the backend. MagicVault need not launch the browser.
+Your existing tool keeps navigation and form submission; filling does not claim
+that login succeeded.
 
-## Evidence and development
+## Get started
 
-The source baseline is Magician `aef928c000138fea035eea034118f8c23db582ed`.
-Existing custody, policy, crypto, redaction and JSON tests moved with their code.
-Product action/result and session integration tests remain with Magician.
-Additional synthetic tests characterize old/new vault framing and JSON formats,
-typed audit serialization, durable publication, and the consumer facade.
+The initial interactive host is **macOS**. Rust 1.88+ is required to build the
+standalone workspace. The extension targets Chrome/Chromium 120+; platform and
+browser claims remain subject to qualification.
 
-Run `make check` / `make test` only when full verification is permitted. The
-initial extraction/static-review checkpoint ran no checks or tests. The owner
-later authorized only the targeted compatibility/foundation tests linked above;
-full regression, performance, coverage, recovery and native-platform qualification
-remain outstanding.
-The workflow is manual-only and has not been dispatched. Static review does not
-certify these results or authorize deploying over a live credential store.
+1. Follow [installation and enrollment](docs/setup.md): build the executables,
+   start the daemon, pair a client, and enter credentials in native hidden prompts.
+2. Give that client [explicit browser permission](docs/browser-usage.md) for
+   selected fields and exact page/frame origins. Metadata access alone cannot fill.
+3. Connect either [CDP](docs/browser-usage.md#direct-cdp) or the
+   [extension](docs/browser-usage.md#chromium-extension).
+4. Configure [MCP](docs/setup.md#mcp), or use the CLI, to discover a target and
+   request `secure_fill`. Approve the daemon's native dialog and inspect the
+   operation's final status.
+5. Let your existing browser tool continue. Do not automatically repeat a partial
+   or uncertain fill, or fall back to retrieving the raw credential.
 
-Existing source-attested app packages can require their normal trusted re-review
-after a dependency/source change. Consumers must hash actual compiled upstream
-source, never freeze an old digest or bypass an identity mismatch for an upgrade.
+### Install the Chromium extension
 
-Only curated library source and synthetic tests are exported, without Magician
-history, live configuration, runtime data, or credentials. Repository visibility
-is unchanged. Licensed under MIT OR Apache-2.0.
+The extension is currently an **unpacked source installation**, not a Chrome Web
+Store release. It needs the MagicVault daemon and native host, but no CDP port.
+
+1. Build the executables and extension assets from this repository:
+
+   ```sh
+   make build-standalone package-extension
+   ```
+
+   Put the release executables in a stable trusted location on PATH. Complete
+   [daemon setup, pairing and enrollment](docs/setup.md) for profile `agent` first.
+2. Open `chrome://extensions`, enable **Developer mode**, choose **Load unpacked**,
+   and select this repository's `dist/extension` directory. Keep that directory
+   stable. Open the extension's setup page and copy its extension ID.
+3. Install its native bridge (macOS):
+
+   ```sh
+   magicvault --profile agent extension install \
+     --extension-id REPLACE_WITH_EXTENSION_ID \
+     --host-executable /absolute/trusted/bin/magicvault-native-host
+   ```
+
+   The host definitions apply to the **OS user**, not just one browser profile.
+   Existing definitions are never overwritten. For acceptance testing, prefer a
+   disposable OS account; a disposable Chrome profile alone does not isolate them.
+4. Grant only the required sites in the extension setup page, and configure
+   [matching exact-origin/field permission](docs/browser-usage.md#prepare-custody-and-browser-permission)
+   for the same paired profile. Browser site permission alone cannot authorize fills.
+5. With the daemon running, click **Connect**, approve the native connection
+   dialog, refresh status, and use `list-browsers` / `browser-targets` before
+   requesting `secure_fill`. Every fill requires its own native human decision.
+
+For complete steps, troubleshooting, reconnect and removal, see
+[extension installation and usage](docs/browser-usage.md#chromium-extension).
+The [installed-extension runbook](docs/qualification/extension.md) lists the
+human/native acceptance gates; do not confuse them with passing CDP tests.
+
+A request contains references, never values:
+
+```json
+{
+  "operation_id": "22222222-2222-4222-8222-222222222222",
+  "browser_handle": "33333333-3333-4333-8333-333333333333",
+  "target_handle": "44444444-4444-4444-8444-444444444444",
+  "fields": [{
+    "css": "input[name=password]",
+    "credential_ref": "cred_11111111-1111-4111-8111-111111111111",
+    "credential_field": "password"
+  }]
+}
+```
+
+These are illustrative IDs. Discover actual browser/target handles and use a new
+operation UUID once. A target handle is single-use and document-bound. Another
+tool's snapshot reference such as `@e12` is not a CSS selector or a MagicVault
+handle. See the [full CLI and agent workflow](docs/browser-usage.md).
+
+## Choose an integration surface
+
+| Surface | For | Responsibility |
+| --- | --- | --- |
+| `magicvault-core` | Trusted Rust application builders | Custody, encryption, references, existing policy/grants and scoped stores |
+| `magicvault-primitives` | Rust libraries needing shared low-level utilities | Durable filesystem and stack-safe JSON primitives |
+| `magicvault-effect` | Trusted browser/tool builders | CDP and native-bridge delivery; host supplies authorization and consent |
+| `magicvault-service` and local protocol | Application/SDK builders | Single store owner, pairing, policy, consent, jobs and audit |
+| `magicvault` | People and scripts | Setup, enrollment, service management, browser setup and reference-only operations |
+| `magicvault-mcp` | MCP-compatible agents | Explicit metadata, browser discovery, fill, status and cancellation tools |
+| Extension/native bridge | Chromium users and extension builders | Site-permitted, document-bound fills without CDP |
+
+See [building integrations](docs/integrations.md). Trusted libraries and the native
+bridge necessarily handle plaintext; they are not raw-secret model tools.
+There is no dependency on Magician or MagicRun for browser delivery.
+
+## Current scope and longer-term goals
+
+“Implemented” below describes source availability, not a production-safety
+certification. Targeted passing tests and their limits are recorded in
+[testing and qualification](docs/testing.md).
+
+| Capability | Phase 3 implementation scope | Longer-term direction |
+| --- | --- | --- |
+| Encrypted custody, human enrollment, pairing, CLI/MCP | Existing foundation, retained | Wider platform/backend qualification |
+| CDP credential fills | Dedicated connection; native/reactive inputs; explicit supported frames | Broader driver/frame/control compatibility |
+| Extension credential fills | New extension and native host; same fill contract | More browsers and cooperating extension integrations |
+| Browser authority and outcomes | Per-client field/origin policy, one-use consent, expiry, cancellation, partial/uncertain status, typed audit | Additional qualified policy/UX options |
+| New HTTP requests | Not implemented | Phase 4: `secure_new_http` with destination and output mediation |
+| New processes | Not implemented | Phase 4: MagicRun-backed `secure_new_process` |
+| Existing stateful services/processes | Not implemented | Explicit credential-provider, refresh or IPC integrations |
+| Other browser tools' outputs and session credentials | Not filtered | Separately integrated and qualified observation filtering |
+| Generic CDP relay | Not required or implemented | Only if a concrete integration benefits |
+| Distribution and release | Source and local packaging instructions | Qualified installers, extension distribution and release artifacts |
+
+## Compatibility and development
+
+Magician remains a direct shared-core consumer; it does not need the standalone
+daemon, MCP, CLI or extension. Phase 3 leaves core/primitives source, versions,
+vault formats and key identities unchanged. Browser permissions live in the
+standalone registry, never in a consumer's runtime root.
+
+Standalone protocol version 2 requires matching 0.3.x clients and daemon.
+Read the [upgrade and recovery notes](docs/setup.md#upgrade-and-recovery) before
+changing an existing standalone installation.
+
+- [Phase 3 implementation plan](docs/phase3-browser-plan.md)
+- [Static review and implementation ledger](docs/phase3-review.md)
+- [Targeted check/build/test results](docs/phase3-verification-2026-09-07.md)
+- [Protocol, limits and lifecycle](docs/protocol.md)
+- [Focused coverage and remaining qualification](docs/testing.md)
+- [Real browser, CLI, extension and process qualification runbooks](docs/qualification/README.md)
+- [Historical foundation evidence](docs/phase2-foundation.md)
+- [Changelog](CHANGELOG.md)
+- [Versioning, compatibility and distribution status](docs/versioning.md)
+
+Only synthetic fixtures belong in tests, examples and bug reports. Never commit
+vaults, pairing capabilities, browser profiles, live configuration or credentials.
+Full checks/tests and CI are opt-in; nothing in setup automatically deploys over
+an existing store.
+
+Licensed under MIT OR Apache-2.0.

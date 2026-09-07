@@ -1,0 +1,145 @@
+#![cfg(unix)]
+use magicvault_effect::{bridge::*, BrowserAdapter, MaterialField, Target};
+use magicvault_protocol::{ErrorCode, FieldState};
+use tokio_util::sync::CancellationToken;
+use uuid::Uuid;
+
+fn target() -> Target {
+    Target {
+        tab: "1".into(),
+        frame: "0".into(),
+        document: Uuid::new_v4().to_string(),
+        top_document: Uuid::new_v4().to_string(),
+        origin: "https://example.com".into(),
+        top_origin: "https://example.com".into(),
+        is_main_frame: true,
+    }
+}
+
+#[tokio::test]
+async fn trusted_bridge_has_separate_material_requests_and_value_free_replies() {
+    let (daemon, mut host) = tokio::net::UnixStream::pair().unwrap();
+    let bridge = NativeBridge::authenticated(daemon);
+    bridge.initialize(b"{}").await.unwrap();
+    read_frame(&mut host).await.unwrap();
+    let bound = target();
+    let remote = bound.clone();
+    let worker = tokio::spawn(async move {
+        let bytes = read_frame(&mut host).await.unwrap();
+        let request: BridgeCommand = serde_json::from_slice(&bytes).unwrap();
+        assert!(matches!(request.request, BridgeRequest::Targets));
+        write_frame(
+            &mut host,
+            &serde_json::to_vec(&BridgeReply {
+                request_id: request.request_id,
+                result: BridgeResult::Targets(vec![remote]),
+            })
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+        let bytes = read_frame(&mut host).await.unwrap();
+        let request: BridgeCommand = serde_json::from_slice(&bytes).unwrap();
+        let BridgeRequest::Fill { fields, .. } = &request.request else {
+            panic!("fill");
+        };
+        assert_eq!(fields[0].value, "SYNTHETIC-NATIVE-CANARY");
+        write_frame(
+            &mut host,
+            &serde_json::to_vec(&BridgeReply {
+                request_id: request.request_id,
+                result: BridgeResult::Filled(magicvault_effect::Outcome {
+                    fields: vec![FieldState::Filled],
+                    error: None,
+                }),
+            })
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    });
+    let discovered = bridge.targets(CancellationToken::new()).await.unwrap();
+    assert!(discovered[0] == bound);
+    let outcome = bridge
+        .fill(
+            &bound,
+            vec![MaterialField {
+                css: "#password".into(),
+                value: "SYNTHETIC-NATIVE-CANARY".into(),
+            }],
+            CancellationToken::new(),
+        )
+        .await;
+    assert_eq!(outcome.fields, [FieldState::Filled]);
+    assert!(!serde_json::to_string(&outcome).unwrap().contains("CANARY"));
+    worker.await.unwrap();
+    bridge.disconnect();
+    assert!(!bridge.connected());
+}
+
+#[tokio::test]
+async fn wrong_reply_id_disconnect_and_cancellation_are_uncertain_after_delivery() {
+    for wrong_id in [false, true] {
+        let (daemon, mut host) = tokio::net::UnixStream::pair().unwrap();
+        let bridge = NativeBridge::authenticated(daemon);
+        bridge.initialize(b"{}").await.unwrap();
+        read_frame(&mut host).await.unwrap();
+        let worker = tokio::spawn(async move {
+            let bytes = read_frame(&mut host).await.unwrap();
+            let request: BridgeCommand = serde_json::from_slice(&bytes).unwrap();
+            assert!(matches!(request.request, BridgeRequest::Fill { .. }));
+            if wrong_id {
+                write_frame(
+                    &mut host,
+                    &serde_json::to_vec(&BridgeReply {
+                        request_id: Uuid::new_v4(),
+                        result: BridgeResult::Filled(magicvault_effect::Outcome {
+                            fields: vec![FieldState::Filled],
+                            error: None,
+                        }),
+                    })
+                    .unwrap(),
+                )
+                .await
+                .unwrap();
+            }
+        });
+        let outcome = bridge
+            .fill(
+                &target(),
+                vec![MaterialField {
+                    css: "#password".into(),
+                    value: "SYNTHETIC-NATIVE-CANARY".into(),
+                }],
+                CancellationToken::new(),
+            )
+            .await;
+        assert_eq!(outcome.fields, [FieldState::Uncertain]);
+        assert_eq!(outcome.error, Some(ErrorCode::TransportUncertain));
+        assert!(!bridge.connected());
+        worker.await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn oversized_bridge_frames_and_uninitialized_adapters_fail_closed() {
+    use tokio::io::AsyncWriteExt;
+    let (daemon, mut host) = tokio::net::UnixStream::pair().unwrap();
+    let bridge = NativeBridge::authenticated(daemon);
+    assert!(matches!(
+        bridge.targets(CancellationToken::new()).await,
+        Err(ErrorCode::Busy)
+    ));
+    let (mut receiver, mut sender) = tokio::net::UnixStream::pair().unwrap();
+    sender
+        .write_u32_le((MAX_BRIDGE_BYTES + 1) as u32)
+        .await
+        .unwrap();
+    assert!(matches!(
+        read_frame(&mut receiver).await,
+        Err(ErrorCode::Capacity)
+    ));
+    bridge.initialize(b"{}").await.unwrap();
+    read_frame(&mut host).await.unwrap();
+    bridge.disconnect();
+}

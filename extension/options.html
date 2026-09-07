@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MagicVault browser setup</title><link rel="stylesheet" href="options.css"></head>
+<body><main><h1>MagicVault</h1><p>Keep credentials out of agent messages.</p>
+<p>This extension fills approved credential fields. It does not navigate, submit forms, or filter other browser tools’ observations.</p>
+<h2>1. Install the native bridge</h2><p>Use this extension ID with the documented <code>magicvault extension install</code> command:</p><code id="extension-id"></code>
+<h2>2. Allow a site</h2><p>Enter an HTTPS origin (for example, <code>https://accounts.example.com</code>). Browser site permissions cover that host’s paths and ports. MagicVault separately enforces exact page/frame origins and selected credential fields.</p>
+<label for="origin">Site origin</label><input id="origin" type="url" placeholder="https://accounts.example.com" autocomplete="off">
+<div><button id="allow">Allow site</button><button id="remove">Remove site permission</button></div><p id="permission-status" role="status"></p>
+<h2>3. Connect</h2><p>Start the daemon, then connect and approve its native dialog. Reconnect after daemon/host or extension-worker restart. Old document handles and unfinished operations must not be replayed.</p>
+<button id="connect">Connect</button><button id="disconnect">Disconnect</button><button id="refresh">Refresh status</button><p id="status" role="status"></p>
+<p>Never paste credentials into this page. Enroll values through MagicVault’s native hidden-input prompts. Websites receive filled values; this is not protection from privileged or unrestricted local software.</p>
+</main><script src="options.js"></script></body></html>

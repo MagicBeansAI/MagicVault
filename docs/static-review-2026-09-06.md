@@ -12,7 +12,7 @@ runtime qualification, or an exhaustive audit of all unchanged product code.
 
 No checks, builds, tests, benchmarks, native dialogs, keychain/service operations,
 formatters, docs guards or CI were run. Only source/Git inspection and lockfile
-dependency resolution were performed. Repositories remain private.
+dependency resolution were performed. No publication occurred in that checkpoint.
 
 ## Findings fixed
 

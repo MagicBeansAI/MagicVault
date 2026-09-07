@@ -1,5 +1,5 @@
-name: Manual extraction qualification
-# No automatic checks/tests during the owner-requested static-review extraction.
+name: Manual qualification
+# Explicit opt-in only. Source packaging and setup never dispatch verification.
 on:
   workflow_dispatch:
 permissions:
@@ -15,3 +15,5 @@ jobs:
       - uses: actions/checkout@v4
       - run: make check
       - run: make test
+      - run: node --test extension/tests/fill.test.cjs extension/tests/worker.test.cjs
+      - run: make test-qualification-fixtures

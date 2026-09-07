@@ -1,20 +1,20 @@
-# Standalone foundation setup (macOS, unqualified)
+# Standalone setup (macOS alpha)
 
-These are procedures for later native-host qualification, not instructions that
-have been executed against a live vault. The [targeted test round](targeted-tests-2026-09-06.md)
-ran synthetic CLI/MCP/IPC fixtures, but no native dialog, keychain operation,
-installer or installed service. Rust 1.88+ is required by
-the exact `rmcp 3.1.0` SDK dependency. Source repositories may remain private;
-builders need Git read access, running binaries do not need GitHub access.
-The [follow-up static review](static-review-2026-09-06.md) advances core to
-`0.1.2`, primitives to `0.1.1`, and service/CLI/MCP to `0.2.1` without changing
-protocol version, vault format, root or key identity. It is still unqualified.
+Builds, automated tests and disposable Chrome/CLI qualification
+[pass](qualification/results-2026-09-07.md) on the recorded configuration.
+Native prompts/keychain and the installed-extension workflow remain manual gates;
+the real CLI test uses test-only human/key providers, never a live credential store.
+Start with synthetic data and disposable profiles. Rust 1.88+ is required by
+the exact `rmcp 3.1.0` SDK dependency. See [testing](testing.md) and
+[security](../SECURITY.md) for the current evidence and limits.
 
 ## Build and foreground service
 
-When allowed, use `make check`, `make test`, then `make build-standalone`.
+When build/verification is authorized, follow the focused lanes in
+[testing](testing.md), then use `make build-standalone`.
 The Makefile exports `CARGO_TARGET_DIR`; binaries are under its `release/`.
-Put `magicvault` and `magicvault-mcp` in a stable, trusted executable location.
+Put `magicvault`, `magicvault-mcp`, and (for the extension)
+`magicvault-native-host` in a stable, trusted executable location.
 The examples assume that location is already on PATH.
 
 ```sh
@@ -45,8 +45,9 @@ Pairing and enrollment request native dialogs owned by the daemon. Deny/Cancel
 is the default. Enter values only in hidden prompts, never command arguments,
 labels, field names, logs or chat. Approving metadata access exposes the selected
 reference/label/field names to that client—not values or future delivery authority.
-Enrollment's delivery policy is inactive for browser/HTTP/process use; the next
-adapter phase must add its own destination-bound policy and consent.
+Enrollment does not activate delivery. Browser use requires the explicit
+client/field/origin configuration and per-fill human consent described in
+[browser usage](browser-usage.md). HTTP/process effects remain unavailable.
 The initial hidden-input backend accepts nonempty UTF-8 text, at most 4096 bytes
 per field, up to eight fields, within one 180-second enrollment window. The
 deadline is rechecked after writer/audit waits immediately before persistence.
@@ -71,9 +72,12 @@ Configure a stdio MCP server with the absolute path to `magicvault-mcp` and args
 Pair/enroll using the human CLI first. The process is a client of the already
 running daemon, not an alternative store owner.
 
-The advertised tools are exactly `vault_status`, `list_credentials`,
-`request_approval` and `approval_status`. No pairing, enrollment, shutdown,
-human-grant, raw-material or unimplemented effect method is an MCP tool.
+The advertised tools are `vault_status`, `list_credentials`, `request_approval`,
+`approval_status`, `list_browsers`, `browser_targets`, `secure_fill`, `fill_status`
+and `cancel_fill`. No pairing, enrollment, browser registration, policy editing,
+shutdown, human-grant, raw-material or unimplemented effect method is an MCP tool.
+Browser setup stays human-facing. Use the same paired profile for that setup and
+the MCP executable; handles and permissions are client-scoped.
 The client bounds runtime teardown after SDK completion to handle blocked stdio;
 the separate custody daemon continues to drain durable writes without that bound.
 
@@ -101,7 +105,29 @@ consent to shut down, or use SIGINT/SIGTERM. `revoke-client --client-id UUID`
 requires a paired caller plus native human consent; revocation blocks future
 access through that capability and does not erase material or revoke providers.
 
-## Failure and recovery boundaries
+## Upgrade and recovery
+
+Phase 3 standalone packages use source version `0.3.0` and local protocol version
+`2`. This is a source alpha, not an announcement of published registry packages
+or an installer. See the [component version matrix](versioning.md).
+Upgrade `magicvault`, `magicvault-mcp` and `magicvault-native-host` together and
+restart the standalone daemon. Older/newer mismatched wire versions fail closed;
+there is no automatic downgrade or transport fallback. Existing vault framing,
+instance/key identity and core/primitives versions are unchanged.
+
+The standalone registry gains explicit browser permissions, initially empty for
+existing installations. No enrolled credential becomes fillable on upgrade.
+Older standalone daemons may reject a registry containing the new permission
+field. Do not run one over that registry or remove permission data to force a
+downgrade; use a deliberately reconciled, consistent backup if rollback is needed.
+Embedded core consumers such as Magician do not read this standalone registry or
+link the new browser/transport packages.
+
+Browser connections, target handles, pending consent and fill status are
+ephemeral and invalid after restart. Reconnect and rediscover deliberately.
+Missing status after restart is not safe-to-retry evidence. A completed durable
+receipt may help a trusted operator reconcile, but no receipt can prove that a
+lost browser reply meant no side effect occurred.
 
 `persistence_uncertain` means a write may have committed. The daemon fails closed
 until restart/reconciliation; it does not roll memory back optimistically or run

@@ -1,6 +1,6 @@
 # Second deep Phase 1/2 review
 
-Review baseline: `5b99781e2fc4e4e1138aaacfe78627f839199837` (private repository).
+Review baseline: `5b99781e2fc4e4e1138aaacfe78627f839199837`.
 Core advances to `0.1.3`; service/CLI/MCP to `0.2.2`. Primitives `0.1.1`, protocol
 `0.2.0` and wire version `1` are unchanged. No publication or live deployment.
 
@@ -41,7 +41,11 @@ It did not re-audit every unchanged runtime algorithm or establish no defects.
 
 ## Executed targeted evidence
 
-`CARGO_TARGET_DIR=/Volumes/ssd1/magician/builds/wt/magicvault-extraction/extracted/magicvault
+The historical command below generalizes a machine-specific build-cache path;
+the recorded scope and results are unchanged. These are Phase 1/2 results, not
+evidence that the subsequent Phase 3 changes were tested.
+
+`CARGO_TARGET_DIR=/absolute/path/to/external-build-cache
 RUSTC_WRAPPER= DOCS_HOOK_DISABLE=1 make -C .extracted/MagicVault
 test-compatibility test-foundation` passed from the Magician worktree.
 

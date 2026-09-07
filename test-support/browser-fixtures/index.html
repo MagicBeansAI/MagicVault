@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>MagicVault synthetic qualification</title>
+  <style>
+    body { max-width: 900px; margin: 32px auto; padding: 0 20px; font: 16px system-ui; }
+    section { border: 1px solid #aaa; border-radius: 8px; padding: 20px; margin: 20px 0; }
+    label { display: block; margin: 12px 0; } input, button { padding: 8px; }
+    iframe { width: 100%; height: 360px; } output { display: block; margin-top: 16px; }
+  </style>
+  <script src="/fixture.js" defer></script>
+</head>
+<body>
+  <h1>MagicVault synthetic qualification</h1>
+  <p>Disposable test page. Use synthetic data only. No requests or form submissions carry input values.</p>
+  <nav><a href="/login">Login</a> · <a href="/controls">Controls</a> · <a href="/frames">Frames</a> · <a href="/next">New document</a></nav>
+  <section>
+    <h2>Ordinary and reactive inputs</h2>
+    <form id="login" autocomplete="off">
+      <label>Username <input id="username" name="username" autocomplete="off"></label>
+      <label>Password <input id="password" name="password" type="password" autocomplete="off"></label>
+      <button id="submit" type="submit">Synthetic submit (local only)</button>
+    </form>
+    <output id="observations" aria-live="polite">No input events. Not submitted.</output>
+  </section>
+  <section id="control-cases">
+    <h2>Refusal and partial-delivery cases</h2>
+    <label>Readonly <input id="readonly" readonly></label>
+    <fieldset disabled><legend>Disabled fieldset</legend><label>Disabled input <input id="fieldset-disabled"></label></fieldset>
+    <input id="hidden" type="hidden">
+    <label>File input <input id="file" type="file"></label>
+    <label>Short maximum length <input id="short" maxlength="2"></label>
+    <label>Duplicate A <input class="duplicate"></label>
+    <label>Duplicate B <input class="duplicate"></label>
+    <label>First field replaces the later field on input <input id="replace-first"></label>
+    <label>Later field <input id="replace-later"></label>
+    <div id="shadow-host"></div>
+  </section>
+  <section id="frame-cases" hidden><h2>Explicit frame targets</h2></section>
+</body>
+</html>

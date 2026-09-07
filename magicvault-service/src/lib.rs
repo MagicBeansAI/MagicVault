@@ -4,5 +4,6 @@ pub mod client;
 pub mod human;
 pub mod ipc;
 pub mod launch_agent;
+pub mod native;
 pub mod storage;
 pub use magicvault_protocol as protocol;

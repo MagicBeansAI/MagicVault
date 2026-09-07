@@ -1,0 +1,14 @@
+[package]
+name = "magicvault-test-support"
+version = "0.3.0"
+edition = "2021"
+publish = false
+license = "MIT OR Apache-2.0"
+description = "Synthetic transport and opt-in disposable-browser fixtures; never a production backend"
+
+[dependencies]
+tokio = { version = "1", features = ["net", "rt", "macros", "sync", "io-util", "time"] }
+tokio-tungstenite = { version = "0.24", default-features = false, features = ["handshake", "connect"] }
+futures-util = { version = "0.3", features = ["sink"] }
+serde_json = "1"
+tempfile = "3"

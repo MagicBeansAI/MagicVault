@@ -6,8 +6,8 @@ additional SDK/fixture fixes; it does not qualify the full release.
 
 Status: source implementation and repeated static-review checkpoint, 2026-09-06.
 No checks, builds, tests, benchmarks, native operations or CI ran during this
-implementation. Dependency lockfile resolution only was performed. Repositories
-stay private; this is not a qualified release or a no-regressions certification.
+implementation. Dependency lockfile resolution only was performed. No publication
+occurred in that checkpoint; it was not a qualified release or a no-regressions certification.
 
 The [follow-up Phase 1/2 review](static-review-2026-09-06.md) records additional
 persistence, approval-replay, enrollment-deadline and MCP shutdown fixes. Current

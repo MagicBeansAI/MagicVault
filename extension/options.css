@@ -1,0 +1,6 @@
+:root { color-scheme: light dark; font: 16px/1.6 system-ui, sans-serif; }
+body { margin: 0; } main { max-width: 760px; margin: 3rem auto; padding: 0 1.5rem 3rem; }
+h1 { font-size: 2rem; } h2 { margin-top: 2rem; font-size: 1.2rem; }
+label { display: block; } input { width: min(90%, 500px); padding: .5rem; margin: .5rem 0; }
+button { padding: .5rem .8rem; margin: .4rem .5rem .4rem 0; cursor: pointer; }
+code { overflow-wrap: anywhere; } [role=status] { min-height: 1.6em; }

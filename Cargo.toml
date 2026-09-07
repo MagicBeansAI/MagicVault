@@ -1,3 +1,3 @@
 [workspace]
-members = ["magicvault-core", "magicvault-primitives", "magicvault-protocol", "magicvault-service", "magicvault", "magicvault-mcp"]
+members = ["magicvault-core", "magicvault-primitives", "magicvault-protocol", "magicvault-effect", "magicvault-service", "magicvault", "magicvault-mcp", "test-support"]
 resolver = "2"

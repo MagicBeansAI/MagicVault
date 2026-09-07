@@ -1,9 +1,12 @@
 {
-  "_comment": "Existing source counts transferred from Magician aef928c, not removed by relocation. The shared durable primitive definitions themselves are intentionally not scanned.",
-  "total_violations": 3,
+  "_comment": "Three existing production counts transferred from Magician aef928c, not removed by relocation. One reviewed browser test rename injects an audit failure into a synthetic journal, not atomic publication. Shared durable primitive definitions are intentionally not scanned.",
+  "total_violations": 4,
   "files": {
     "magicvault-core/src/store.rs": {
       "hand_rolled_atomic_write": 3
+    },
+    "magicvault-service/src/broker/browser/tests.rs": {
+      "hand_rolled_atomic_write": 1
     }
   }
 }

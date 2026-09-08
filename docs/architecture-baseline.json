@@ -3,7 +3,7 @@
   "project": "MagicVault",
   "architecture_version": "0.8.2",
   "document": "docs/architecture.md",
-  "document_sha256": "a0053a21756349a6d0515d94f7545d9fd1f14442d5e8fd2470a63a11121eb0bd",
+  "document_sha256": "868c4263bc5202525ba454609261111e341cc5e6868323a92c1776dcf872c7ea",
   "component_versions": {
     "extension": "0.6.1",
     "magicvault": "0.8.2",
@@ -15,7 +15,7 @@
     "magicvault-service": "0.8.2"
   },
   "source_sha256": {
-    ".github/workflows/distribution.yml": "e349a398fc46dd6ef1d8cb107ef7b55e9a8380e91f69341d5880454c269aa47e",
+    ".github/workflows/distribution.yml": "145b6a9f6a7c97f857f3c031ab8ce6f9e03e34a4f522489d0eec7bd16e0b02b7",
     ".github/workflows/qualification.yml": "30c7320e100240fd08c7be430ffb7f09bcb220b4511858bbd16bcdc266bb9942",
     "Cargo.lock": "f948cf5a692a4088533e2b5a6f9d8c15459920ba6ccd1f93f3761221cd376afe",
     "Cargo.toml": "7f5b8f9eaed713c5c68dedc540340f93693ab5d7fcc0d7c2856d4dd0553742cb",
@@ -32,15 +32,16 @@
     "magicvault-core/src/session.rs": "8584151a37f5f2e95f71e0f767118d76eb607a0b91a4687d30998b7881c332da",
     "magicvault-core/src/store.rs": "0c3889043b80ff4e03a995504bb6669ddf141587f8483faf463b5981c3bdcf80",
     "magicvault-core/src/types.rs": "af31d39b6c892ccaf3c794d579b1be6165c7f7185e0cdba934b13196a09569fa",
-    "magicvault-effect/Cargo.toml": "b119c5116ddb1d84175cf94c590b6a7dba085ac0849dcf6516b284ad10d662e1",
+    "magicvault-effect/Cargo.toml": "3efe71a9248632f2576b91f7a0cde7e34d6ec64e673b7a8b47fa360bf9bb6986",
     "magicvault-effect/src/bridge.rs": "26d0ffb081b23b96e86f2bd410e512a37d0efb4d38e2a8825f5e8a9eadda3087",
     "magicvault-effect/src/cdp.rs": "2928122d7e36107b745fd457bd5f474f6e01ef718dcefb95ecd2fb0c3cc0fbbc",
     "magicvault-effect/src/delivery.rs": "5d12210d891406c6045f5aae0760b828dec5df6f1cc0037c9916eaf5b059584a",
     "magicvault-effect/src/fill.js": "845eb1f035560e5b97b40d72b4efb400db04cd66e8458bc54b06b542b2924be2",
     "magicvault-effect/src/http.rs": "db23424856f7bfe8c27117a3894efba956d5c346ddea858b2c1acd10cd23dd19",
     "magicvault-effect/src/http/tests.rs": "8d9cd98d24e08058a60ba180af6c35df05f1d14822e4c04bf7c724ed53187355",
-    "magicvault-effect/src/lib.rs": "6d7c525af2e4b8087c5cc3e52b387c5188f5c3307d0d181d0bc315c450aea3cd",
-    "magicvault-effect/src/process.rs": "2ab190f728598cef6de1c8683c2c2976003f9fdc610569d9f9fc62cce41a52ac",
+    "magicvault-effect/src/lib.rs": "9318131e8dd4431c72442990dbc231c7501c6750576da27de4556f5e133be3de",
+    "magicvault-effect/src/process.rs": "c324137fa9a551b9c72e1e4d3c87a5d9931ea77b6d93d46ef4679766920c9c0a",
+    "magicvault-effect/src/test_diagnostics.rs": "a7ae446c7db5534fe90b22c188b45dfb2dcc6f943a3561b6497042ed5e762136",
     "magicvault-mcp/Cargo.toml": "35db717a001cae95d4819926c7a20770ee9ad9066ebc934484ac5fc571039bad",
     "magicvault-mcp/src/lib.rs": "f46a258850fcc6e90c8f993c7a4c08b413a29846bb2c3f15571b9af606713401",
     "magicvault-mcp/src/main.rs": "c34c6708cb8c57fa25947832a62d7a00dba2cf758e0701623eb4403f331dd53e",
@@ -75,7 +76,7 @@
     "magicvault-service/src/lib.rs": "b205d9308c072940a3c575847d814109bc863cd2a037034dae22351efdf17439",
     "magicvault-service/src/native.rs": "6355e18822a8d85c0170c02d0140df42159b6f031550642ffe9cd785b4011cd6",
     "magicvault-service/src/storage.rs": "2fd0dec983637c12abea94d1a01a6abbcf0735e4b8b621fe0c3bdf168215def5",
-    "magicvault/Cargo.toml": "90fd55a48a5e44c1c969c34bf47b2249543cf3422970181a244d6fa0d3367c20",
+    "magicvault/Cargo.toml": "e0a2201366f77d0181c2af3b3dc1ee0c083acc39673339204d16670bb376cb51",
     "magicvault/src/bin/magicvault-native-host.rs": "5f9eaac48214666f9f1aa2eab2dbca1ee49cb1a9178aef7b215030df81d38fa3",
     "magicvault/src/main.rs": "95969749d66062005071986a1e1c71b80db44936f79dee7ecacd6bee54e68ecd",
     "magicvault/src/setup.rs": "b23537c9df4251daaa4455ef9219e324edc46e6d743febb45b0d1b63f4959517",
@@ -84,7 +85,7 @@
     "npm/launcher.cjs": "8bdb4405158d161867e587acdad94395eda1c35535f657dc0504b839ffeffcdf",
     "npm/mcp.cjs": "2233e6719217ccbb08ae28b97499632ba773905c552c598a554f938a033e402b",
     "scripts/package-npm.mjs": "e0bb2954bb146c227408805e3261d2833c243210a3440f470d4e0568440fbccf",
-    "scripts/qualify-package.mjs": "eb512e7ebcd2ab6404f1614de398cbd1b633028539c4d2782de95fa350237f3e",
+    "scripts/qualify-package.mjs": "06c8a6b68670d164048ad5c006e997c51ad2457bc0e8c82c5f8df2d2269d3e39",
     "scripts/sign-release.sh": "9ca4fc668579185168f3ceab017568d3b06a7286c4e7d29a0b5f34c70bb89726"
   }
 }

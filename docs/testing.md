@@ -119,6 +119,18 @@ Rust; installed clients do not. No test invokes full native `setup` or a real
 service/keychain installer. Use a disposable OS account for the separate
 [native acceptance runbook](qualification/distribution.md).
 
+For a bounded investigation of the intermittent installed process failure, add
+`--with-process-diagnostics --reliability-rounds 20` to the direct
+`scripts/qualify-package.mjs --with-rust-tests` invocation. This opt-in rejects
+ambient Rust flags, uses an isolated debug build of the synthetic broker/test
+driver, validates its closed failure classifications, and proves the standard
+release profile refuses that instrumentation. Installed CLI/MCP/native-host
+bytes are unchanged. Captures contain only terminal/dispatch categories and
+booleans; there is no recipient-output dump, agent-facing tool or runtime flag.
+The first failed trial stops the run. Diagnostic builds may require a cold
+compile; use SSD1 for the fresh work directory. See the
+[exact-path result record](qualification/results-exact-path-2026-09-08.md).
+
 `make test-package-browser` is a separate opt-in superset: supply the same fresh
 package/work directories and explicit `MAGICVAULT_CHROME`. It also runs the real
 extension transport fixture with the installed MCP launcher, native host and

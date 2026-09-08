@@ -44,7 +44,7 @@ jobs:
           mkdir "$PACKAGE_PARENT"
           node scripts/package-npm.mjs --binary-dir "$CARGO_TARGET_DIR/release" --output "$PACKAGE_PARENT/packages" --scope "$NPM_SCOPE"
       - name: Qualify offline npm installation, native lifecycle and real IPC
-        run: node scripts/qualify-package.mjs --packages "$PACKAGE_PARENT/packages" --work "$PACKAGE_PARENT/qualification" --with-rust-tests --reliability-rounds 20 --with-performance-tests
+        run: node scripts/qualify-package.mjs --packages "$PACKAGE_PARENT/packages" --work "$PACKAGE_PARENT/qualification" --with-rust-tests --with-process-diagnostics --reliability-rounds 20 --with-performance-tests
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: MagicVault-UNSIGNED-darwin-arm64

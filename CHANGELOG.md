@@ -7,9 +7,14 @@
   paths remain unchanged. Document the observed pre-entry removable-volume
   authorization delay, without bypassing OS permissions or claiming it fixed.
 - Add opt-in private native-host startup sampling and an async process/child-exit
-  stress probe. Keep the original process uncertainty open; no production Rust,
-  extension, core, MagicRun, Magician or wire-format change is included. See the
+  stress probe. Keep the original process uncertainty open; no default runtime,
+  extension, core, MagicRun, Magician or wire-format behavior changes. See the
   [investigation](docs/qualification/results-startup-policy-2026-09-08.md).
+- Add an opt-in, bounded debug-only observer to the exact installed CLI →
+  synthetic broker → MagicRun fixture. It captures closed categories only,
+  validates real recipient failure classes, and is rejected by standard release
+  compilation. Unsigned candidate CI runs 20 fail-fast diagnostic trials;
+  passing repeats do not resolve the retained intermittent process failure.
 
 ## 0.8.2 — 2026-09-08 — Completion and admission ordering
 

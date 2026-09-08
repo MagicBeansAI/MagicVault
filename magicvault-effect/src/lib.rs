@@ -4,6 +4,11 @@
 //! Embedders must suppress websocket dependency payload logging for the full
 //! connection lifetime. Shipped executables compile the `log` facade out; this
 //! reusable crate intentionally does not change an embedding host's global logs.
+#[cfg(all(magicvault_test_diagnostics, not(debug_assertions)))]
+compile_error!("magicvault_test_diagnostics is forbidden in release builds");
+#[cfg(magicvault_test_diagnostics)]
+#[doc(hidden)]
+pub mod test_diagnostics;
 pub mod bridge;
 pub mod cdp;
 pub mod delivery;

@@ -5,6 +5,9 @@ edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "Trusted browser, HTTP and process credential delivery adapters for MagicVault"
 
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(magicvault_test_diagnostics)'] }
+
 [dependencies]
 magicvault-protocol = { path = "../magicvault-protocol", version = "0.6.0" }
 async-trait = "0.1"

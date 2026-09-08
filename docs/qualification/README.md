@@ -7,6 +7,10 @@ that would not replace destination, custody, transport or output-boundary tests.
 
 ## What is covered
 
+The [exact-path diagnostic record](results-exact-path-2026-09-08.md) distinguishes
+installed artifact bytes from the debug-only synthetic broker observer. Passing
+independent trials do not close the original intermittent process finding.
+
 The [0.8.2 completion-order record](results-completion-order-2026-09-08.md)
 documents the deterministic admission race, its standalone-only fix and the
 separate unresolved reliability findings. Earlier versions' results remain

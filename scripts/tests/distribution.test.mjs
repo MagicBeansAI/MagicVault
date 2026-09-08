@@ -12,6 +12,18 @@ const require = createRequire(import.meta.url);
 const { resolveBinary } = require('../../npm/launcher.cjs');
 const { fixture: extensionFixture, options: extensionOptions, tick } = require('../../extension/tests/harness.cjs');
 const repo = path.resolve(import.meta.dirname, '../..');
+test('process diagnostic driver refuses implicit instrumentation and ambient compiler flags', t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'magicvault-diagnostic-optin-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const work = path.join(root, 'must-not-exist');
+  for (const [args, extra] of [[[], {}], [['--with-rust-tests'], {RUSTFLAGS: '--cfg unrelated'}], [['--with-rust-tests'], {CARGO_ENCODED_RUSTFLAGS: '--cfg\x1funrelated'}]]) {
+    assert.throws(() => execFileSync(process.execPath, [path.join(repo, 'scripts/qualify-package.mjs'),
+      '--packages', root, '--work', work, '--with-process-diagnostics', ...args], {
+      env: {...process.env, ...extra}, stdio: 'pipe', timeout: 5000,
+    }), error => error.status !== 0 && String(error.stderr).includes('process diagnostics require'));
+    assert.equal(fs.existsSync(work), false);
+  }
+});
 test('real package browser qualification requires explicit prerequisites before creating artifacts', t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'magicvault-browser-optin-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));

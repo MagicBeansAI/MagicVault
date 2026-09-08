@@ -142,6 +142,17 @@ synthetic custody in test executables, not a production bypass or daemon flag.
 The process adapter's serial and async-with-child-churn stress tests capture closed terminal classes and
 known-error booleans only under `cfg(test)`; neither that observer nor arbitrary
 recipient diagnostics is compiled into the shipped client or service.
+The exact CLI-to-broker integration fixture can separately enable
+`magicvault_test_diagnostics`, a custom debug-only compiler cfg, not a Cargo
+feature or runtime option. It registers at most 16 operation-specific captures;
+only closed terminal/dispatch/error categories and known-error booleans survive.
+No raw stream, exit code, path or credential is retained by the observer. Dropping
+a capture removes its registry entry. Normal builds omit this module and its
+hooks; the standard release profile explicitly rejects the cfg. The package
+qualifier isolates diagnostic build outputs from packaging and proves that
+rejection before running the installed-client trials. Installed clients remain
+the unchanged package bytes; only their synthetic broker/test driver is observed.
+These observations classify a failure, not its root cause or retry safety.
 Browser qualification requires explicit `--app-parent`; its Make target selects
 an internal temporary application separately from external build/package artifacts.
 The external-host path can block in macOS loader/access-policy work before the

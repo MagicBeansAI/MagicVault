@@ -147,6 +147,10 @@ async fn actual_cli_to_daemon_to_magicrun_executes_without_echoing_material() {
     let profile=register(root.path(),json!({"label":"CLI process","destination":{"kind":"process","config":{
         "executable":executable,"arguments":[],"working_directory":root.path(),"environment":[{"name":"MV_TOKEN","value":value(&reference)}],"stdin":null,"timeout_secs":2}}})).await;
     let operation = Uuid::new_v4().to_string();
+    #[cfg(magicvault_test_diagnostics)]
+    let observation =
+        magicvault_effect::test_diagnostics::Capture::register(Uuid::parse_str(&operation).unwrap())
+            .unwrap();
     cli(
         root.path(),
         &[
@@ -159,6 +163,17 @@ async fn actual_cli_to_daemon_to_magicrun_executes_without_echoing_material() {
     )
     .await;
     let status = settled(root.path(), &operation).await;
+    #[cfg(magicvault_test_diagnostics)]
+    {
+        let snapshot = observation.snapshot();
+        eprintln!("process_fixture_observation {snapshot:?}");
+        if status["data"]["state"] == "completed" {
+            assert!(
+                snapshot.runtime_entered && snapshot.adapter_returned,
+                "exact process path did not publish its diagnostic stages: {snapshot:?}"
+            );
+        }
+    }
     assert_eq!(
         status["data"]["state"],
         "completed",

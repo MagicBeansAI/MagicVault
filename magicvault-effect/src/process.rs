@@ -405,6 +405,8 @@ fn run(
         operation_id: operation_id.to_string(),
         cancel: cancellation.clone(),
     };
+    #[cfg(magicvault_test_diagnostics)]
+    crate::test_diagnostics::entered(operation_id);
     let result = invocation.execute_batch(
         &mut authorizer,
         &mut resolver,
@@ -416,6 +418,8 @@ fn run(
             let terminal = settlement.result().terminal();
             #[cfg(all(test, unix))]
             reliability::observe(settlement.result());
+            #[cfg(magicvault_test_diagnostics)]
+            crate::test_diagnostics::settled(operation_id, settlement.result());
             // No sealed stream, raw exit code or runtime diagnostic is returned.
             match terminal.terminal() {
                 GovernedExecutionTerminal::Success => DeliveryOutcome::completed(),
@@ -435,9 +439,16 @@ fn run(
             }
         }
         Err(error) if error.dispatch() == GovernedExecutionDispatch::NotDispatched => {
+            #[cfg(magicvault_test_diagnostics)]
+            crate::test_diagnostics::runtime_error(operation_id, error.dispatch());
             DeliveryOutcome::failed(ErrorCode::Unavailable)
         }
-        Err(_) => DeliveryOutcome::uncertain(ErrorCode::TransportUncertain),
+        Err(error) => {
+            #[cfg(magicvault_test_diagnostics)]
+            crate::test_diagnostics::runtime_error(operation_id, error.dispatch());
+            let _ = error;
+            DeliveryOutcome::uncertain(ErrorCode::TransportUncertain)
+        }
     })
 }
 
@@ -467,7 +478,10 @@ pub async fn execute(
     let _guard = CancelOnDrop(cancellation.clone());
     let child_cancel = cancellation.clone();
     let mut worker = tokio::task::spawn_blocking(move || {
-        run(config, digest, material, operation_id, child_cancel)
+        let result = run(config, digest, material, operation_id, child_cancel);
+        #[cfg(magicvault_test_diagnostics)]
+        crate::test_diagnostics::returned(operation_id, &result);
+        result
     });
     // Never detach a credential-bearing process worker when cancellation wins.
     // Await MagicRun's owned-child cleanup before releasing the broker job gate.

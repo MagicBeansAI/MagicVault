@@ -12,8 +12,8 @@ gates have passed or a substitute for the [security boundary](../../SECURITY.md)
 | Committed source, architecture and automated conformance | `0.8.1` [cancellation requalification](results-cancellation-2026-09-08.md); prior version results remain separate | Commit/requalify changed inputs; keep released source and reviewed architecture aligned; prior green CI is not a pass for new inputs |
 | Offline prebuilt installation | Unsigned candidate workflow builds and tests exact-version local npm packages | Record hashes and test the actual final signed packages, not a previous local build |
 | Real browser dispatch and profile independence | Headed/headless CDP, shipped CLI, two-profile native extension/MCP, repeated fresh starts | Keep startup failures visible; complete remaining [native extension cases](extension.md) |
-| Genuine installed keychain and browser consent | [One-host basic acceptance](results-discovery-2026-09-08.md): setup, enrollment, upgrade, site grant, native deny/allow | First-pairing denial, permission removal, native restart/outage and remaining recovery cases are still open |
-| New-process and HTTP delivery | Automated conformance plus [genuine native modes and revocation](results-consent-2026-09-08.md), recipient counters, HTTP grant restart; [0.8.1 pending cancellation, denial and process-grant restart](results-cancellation-2026-09-08.md) | Remaining recovery and late-human-decision cases, in-flight cancellation, changed-recipient refusal and full native dialog readability in the [runbook](process.md) |
+| Genuine installed keychain and browser consent | [One-host basic acceptance](results-discovery-2026-09-08.md); [remembered-use permission removal/restoration and pause/resume](results-permission-recovery-2026-09-08.md) | First-pairing denial, full-browser restart/long outage, native profile/client revocation, wider permission combinations and remaining recovery cases |
+| New-process and HTTP delivery | Automated conformance plus [genuine modes and revocation](results-consent-2026-09-08.md), [pending cancellation and process-grant restart](results-cancellation-2026-09-08.md), and [actual in-flight cancellation](results-permission-recovery-2026-09-08.md) | Remaining recovery and late-human-decision cases, changed-recipient native refusal, process-tree cases and full native dialog readability in the [runbook](process.md) |
 | Installation recovery and removal | Synthetic ownership, corruption, activation, drain and recoverable-retirement tests; packaged app-only lifecycle | [Native lifecycle](distribution.md), interrupted upgrade/drain and managed removal in a disposable account or explicitly authorized dedicated installation |
 | Performance and reliability | Bounded 20-operation samples and independent browser-start trials | Idle/peak CPU and memory, sustained load, saturation and shutdown measurements; small samples are not a soak or production latency guarantee |
 | Publisher identity and Gatekeeper | Signing procedure exists; current candidates are unsigned/ad-hoc | Explicitly authorized Developer ID identity and notary profile; notarize and qualify a fresh quarantined download of the exact final bytes |
@@ -49,9 +49,9 @@ opt-ins and do not sign or publish. For local package reproduction, use the
 
 ## Human and publisher gates
 
-Complete native process/HTTP consent next, followed by remaining extension
-permission/recovery and distribution lifecycle cases. Use only synthetic
-credentials and inspect recipient-side booleans/markers, never the value. Do not
+Continue the remaining native permission/recovery, recipient and distribution
+lifecycle cases; the linked passes above cover only their recorded scopes. Use
+only synthetic credentials and inspect recipient-side booleans/markers, never the value. Do not
 replay a denied, missing or uncertain effect as part of reconciliation: a separate
 allow case uses a fresh operation after the earlier case has settled.
 

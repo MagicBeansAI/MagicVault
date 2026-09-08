@@ -23,10 +23,10 @@ the credential, and separate browser tools can still read it afterward.
 
 > [!WARNING]
 > **Source alpha.** No public release or npm registry installation yet; local
-> candidate packages only. Basic installed-browser/keychain/native-consent
-> acceptance passed for 0.7.0 on one macOS/Chrome setup. The new remembered-consent
-> policy, remaining recovery cases and signed-release qualification have separate
-> acceptance gates.
+> candidate packages only. Basic installed-browser/keychain/native-consent and
+> selected remembered-use, permission/recovery and cancellation cases passed on
+> one macOS/Chrome setup. Broader recovery, startup reliability and signed-release
+> qualification remain open.
 > Start with synthetic credentials. [Evidence and limits](docs/testing.md).
 
 ## How it works

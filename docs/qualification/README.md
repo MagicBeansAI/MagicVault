@@ -9,6 +9,9 @@ that would not replace destination, custody, transport or output-boundary tests.
 
 Use the [public release gate matrix](release.md) to separate automated conformance,
 human desktop acceptance and publisher/registry authorization. The
+[installed permission/recovery record](results-permission-recovery-2026-09-08.md)
+adds genuine remembered-use permission refusal/restoration, pause/resume and
+process/HTTP in-flight cancellation on committed `34fee4a`. The
 [0.8.1 cancellation record](results-cancellation-2026-09-08.md) records the current
 receipt correction, automated/package passes, installed native pending-consent
 cancellation and process-grant restart/reuse passes. The
@@ -24,7 +27,7 @@ committed `0.7.0` revision, including CI and repeated fresh browser starts.
 | Actual CLI → daemon → real Chrome | `make test-cli-native` | Genuine native dialogs/keychain in [CLI runbook](cli.md) |
 | MCP and native-host executables | Real subprocess/IPC tests; `make test-extension-native` adds actual Chrome dispatch and two independent profiles; [basic installed native acceptance](results-discovery-2026-09-08.md) on one host | Remaining permission/recovery cases in [extension runbook](extension.md); wider hosts and live agent-model sessions not yet qualified |
 | Public demo pages | Opt-in `make test-public-web` | Non-gating compatibility smoke, not login/provider qualification |
-| New process / HTTP requests | `make test-delivery`: real local HTTP/TLS and MagicRun children, shipped CLI/MCP; `make test-delivery-latency` adds local repeated-call observations | Native approval/keychain, Internet latency and resource/soak performance; see [delivery runbook](process.md) |
+| New process / HTTP requests | `make test-delivery`: real local HTTP/TLS and MagicRun children, shipped CLI/MCP; `make test-delivery-latency` adds local repeated-call observations; native consent and in-flight results linked above | Remaining native recovery, wider hosts, Internet latency and resource/soak performance; see [delivery runbook](process.md) |
 | Running-service destinations | `make test-qualification-fixtures` exercises a cooperative Node service | Product refresh/rotation integration remains **unimplemented** |
 | Prebuilt CLI/MCP installation | `make test-distribution`, offline `make test-package-install`; opt-in `make test-package-browser` adds installed extension assets | Developer ID/quarantined downloads, registry publication and full native lifecycle in [distribution runbook](distribution.md) |
 

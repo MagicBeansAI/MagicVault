@@ -2,6 +2,13 @@
 
 ## Current evidence
 
+The [installed permission/recovery record](qualification/results-permission-recovery-2026-09-08.md)
+qualifies committed `34fee4a` with genuine native browser remembered use, website
+permission removal/restoration, pause/resume with fresh bindings, and process/HTTP
+cancellation after observed delivery. Test grants and temporary profiles were
+removed; the dedicated daemon and extension remained ready. No runtime change,
+full-suite rerun or broad release qualification is implied.
+
 The [0.8.1 cancellation record](qualification/results-cancellation-2026-09-08.md)
 records 251 Rust and 84 JavaScript passes, packaged qualification and genuine
 installed HTTP-reset/process-cancellation passes, subsequent human denial and
@@ -63,7 +70,7 @@ remain technical evidence, not a production-readiness claim.
 
 No coverage-percentage tool ran. The separate
 [committed 0.7.0 CI results](qualification/results-release-2026-09-08.md) do not
-qualify the new 0.8.1 working tree.
+qualify the current 0.8.1 source.
 Automated CLI/native-extension lanes use test-only human and key providers;
 the separately recorded installed acceptance uses genuine native UI/keychain.
 Small-sample local latency is measured, not a production benchmark. Browser

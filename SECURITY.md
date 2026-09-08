@@ -1,10 +1,10 @@
 # Security boundary and reporting
 
 MagicVault `0.8.1` is a source alpha, not a production-qualified release.
-Basic installed-browser/native-human/keychain acceptance passed on one host for
-`0.7.0`; the new remembered-consent policy and broader qualification need separate
-native acceptance. Do not use valuable credentials until
-the relevant [qualification gates](docs/testing.md) pass. Source review, a
+Basic installed-browser/native-human/keychain and selected remembered-use,
+permission/recovery and in-flight cancellation cases passed on one host. Broader
+native acceptance and startup reliability remain open. Do not use valuable
+credentials until the relevant [qualification gates](docs/testing.md) pass. Source review, a
 `secure_` name, or password masking is not proof of safety.
 
 ## The supported promise

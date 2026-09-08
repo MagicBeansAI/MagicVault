@@ -21,6 +21,11 @@
 - CLI/MCP/service `0.8.1`; protocol/effect `0.6.0`, agent wire `4`, extension
   `0.6.1` and shared core/primitives/MagicRun remain unchanged. No Magician update
   or vault migration is required. See [qualification](docs/qualification/results-cancellation-2026-09-08.md).
+- Record [installed permission and in-flight recovery acceptance](docs/qualification/results-permission-recovery-2026-09-08.md):
+  remembered browser use cannot bypass removed site access; restored access and
+  fresh reconnect handles work; actual process/HTTP cancellation stops owned
+  work while preserving post-dispatch uncertainty. One-host results do not close
+  wider recovery, startup-reliability or signed/public-release gates.
 
 ## 0.8.0 — 2026-09-08 — Exact-use consent source alpha
 

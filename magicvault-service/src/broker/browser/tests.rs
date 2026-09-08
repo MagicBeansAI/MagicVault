@@ -1,6 +1,8 @@
 use super::*;
 #[path = "consent_tests.rs"]
 mod consent_tests;
+#[path = "completion_tests.rs"]
+mod completion_tests;
 #[path = "native_tests.rs"]
 mod native_tests;
 use async_trait::async_trait;
@@ -115,6 +117,7 @@ fn browser_consent_fits_native_limit_without_truncating_valid_requests() {
 }
 
 struct Human {
+    metadata_completed: tokio::sync::Notify,
     deny_native: AtomicBool,
     native_prompts: AtomicUsize,
     deny_fill: AtomicBool,
@@ -154,6 +157,9 @@ impl HumanInteraction for Human {
             }
             return Ok(!self.deny_fill.load(Ordering::SeqCst));
         }
+        if message.starts_with("Allow client ") {
+            self.metadata_completed.notify_one();
+        }
         Ok(true)
     }
     async fn secret(&self, _: &str, _: CancellationToken) -> Result<Zeroizing<String>, ErrorCode> {
@@ -161,6 +167,7 @@ impl HumanInteraction for Human {
     }
 }
 struct Adapter {
+    completed: tokio::sync::Notify,
     target: Target,
     calls: AtomicUsize,
     alive: AtomicBool,
@@ -192,6 +199,7 @@ impl BrowserAdapter for Adapter {
             fs::rename(&journal, journal.with_extension("fixture-backup")).unwrap();
             fs::create_dir(&journal).unwrap();
         }
+        self.completed.notify_one();
         self.outcome.lock().unwrap().clone().unwrap_or(Outcome {
             fields: vec![FieldState::Filled; fields.len()],
             error: None,
@@ -257,6 +265,7 @@ impl Fixture {
         let lease = storage::open(root.path()).unwrap();
         let store = SecretStore::new_empty(Box::new(FixtureKey), root.path().join("vault"));
         let human = Arc::new(Human {
+            metadata_completed: tokio::sync::Notify::new(),
             deny_native: AtomicBool::new(false),
             native_prompts: AtomicUsize::new(0),
             deny_fill: AtomicBool::new(false),
@@ -294,6 +303,7 @@ impl Fixture {
             panic!("enroll");
         };
         let adapter = Arc::new(Adapter {
+            completed: tokio::sync::Notify::new(),
             target: Target {
                 tab: "tab".into(),
                 frame: "frame".into(),

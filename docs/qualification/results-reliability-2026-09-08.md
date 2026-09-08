@@ -1,6 +1,8 @@
 # Reliability investigation and bounded qualification — 2026-09-08
 
 Status: **additional evidence, not closure of the two intermittent findings**.
+This record covers the `0.8.1` investigation; a subsequently demonstrated standalone
+admission race and its `0.8.2` correction have a [separate record](results-completion-order-2026-09-08.md).
 No production Rust behavior, extension/launcher code, custody schema, MagicRun revision or
 Magician source changed. Standalone remains `0.8.1`, effect/protocol `0.6.0`,
 extension `0.6.1`, core `0.1.3`, primitives `0.1.1`; agent wire 4/native handshake 2.

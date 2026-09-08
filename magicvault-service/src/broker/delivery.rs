@@ -359,10 +359,9 @@ impl Broker {
             .await?;
         if let Some((entry, message, permit, cancel, consent)) = work {
             let broker = Arc::clone(self);
-            tokio::spawn(async move {
-                let _permit = permit;
+            self.background_jobs.spawn(async move {
                 broker
-                    .run_delivery(auth, request, entry, message, cancel, consent)
+                    .run_delivery(auth, request, entry, message, cancel, consent, permit)
                     .await;
             });
         }
@@ -377,6 +376,7 @@ impl Broker {
         message: String,
         cancel: CancellationToken,
         consent: ConsentTicket,
+        permit: tokio::sync::OwnedSemaphorePermit,
     ) {
         let deadline = Instant::now() + Duration::from_secs(CONSENT_TTL_SECS);
         let decision = consent.decide(self.human.as_ref(), &message, cancel.clone());
@@ -487,6 +487,9 @@ impl Broker {
         };
         let _ = self
             .transaction(move |b, s| {
+                // Admission and terminal publication settle under the same
+                // lock, after recipient cleanup and durable completion audit.
+                let _permit = permit;
                 let receipt = DeliveryReceipt {
                     operation_id: request.operation_id,
                     client_id: auth.id,

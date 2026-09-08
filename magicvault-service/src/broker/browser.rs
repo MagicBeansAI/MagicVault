@@ -844,10 +844,9 @@ impl Broker {
         let (status, work) = reserved;
         if let Some((label, bound, adapter, permit, cancel, consent)) = work {
             let broker = Arc::clone(self);
-            tokio::spawn(async move {
-                let _permit = permit; // Held through native cleanup and final audit.
+            self.background_jobs.spawn(async move {
                 broker
-                    .run_fill(auth, request, label, bound, adapter, cancel, consent)
+                    .run_fill(auth, request, label, bound, adapter, cancel, consent, permit)
                     .await;
             });
         }
@@ -863,6 +862,7 @@ impl Broker {
         adapter: Arc<dyn BrowserAdapter>,
         cancel: CancellationToken,
         consent: ConsentTicket,
+        permit: tokio::sync::OwnedSemaphorePermit,
     ) {
         let id = request.operation_id;
         let count = request.fields.len();
@@ -977,6 +977,10 @@ impl Broker {
         };
         let _ = self
             .transaction(move |b, s| {
+                // Hold through native cleanup/audit, but release before this
+                // transaction unlocks and makes the terminal receipt observable.
+                // Keeping it in the async caller races immediate follow-up jobs.
+                let _permit = permit;
                 let outcome = if outcome.valid(count) {
                     outcome
                 } else {

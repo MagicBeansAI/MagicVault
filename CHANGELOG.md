@@ -1,6 +1,20 @@
 # Changelog
 
-## Unreleased
+## 0.8.2 — 2026-09-08 — Completion and admission ordering
+
+- Fix a standalone scheduling race: browser, process/HTTP and metadata completion
+  now release their human-operation slot in the final serialized transaction,
+  after cleanup/audit and before readers can observe the terminal decision.
+  An immediate next operation no longer races the previous async worker's wake-up.
+- Explicitly drain background job futures/destructors during shutdown so early
+  admission release cannot leave a finishing worker holding the instance lock
+  across an immediate restart. Completed tasks are not retained as an unbounded list.
+- Add deterministic current-thread regressions for successful and audit-uncertain
+  fills, denied delivery and decided metadata. The browser regression was observed
+  failing before the fix, then passing afterwards. See the [qualification record](docs/qualification/results-completion-order-2026-09-08.md).
+- CLI/MCP/service `0.8.2`; core, primitives, MagicRun, wire formats, extension and
+  vault schema are unchanged. This source version is not a publication or a claim
+  that the separate intermittent process/native-startup findings are resolved.
 
 - Preserve the reproduced installed-process CI failure as an open release gate;
   add fixture-only launch stages and a bounded synthetic process stress probe.

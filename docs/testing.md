@@ -2,6 +2,11 @@
 
 ## Current evidence
 
+The [0.8.2 completion-order correction](qualification/results-completion-order-2026-09-08.md)
+has deterministic browser/delivery/metadata regression tests. Terminal publication
+must release admission in the same serialized completion, not on a later async
+worker wake-up. This does not explain the separate process/native-startup findings.
+
 The [reliability investigation](qualification/results-reliability-2026-09-08.md)
 adds installed-client repetition, cold-start stage observations and explicit
 `make test-service-reliability` CPU/RSS, capacity, recovery and shutdown probes.
@@ -76,7 +81,7 @@ remain technical evidence, not a production-readiness claim.
 
 No coverage-percentage tool ran. The separate
 [committed 0.7.0 CI results](qualification/results-release-2026-09-08.md) do not
-qualify the current 0.8.1 source. The
+qualify the current source. The
 [0.8.1 distribution CI record](qualification/results-distribution-ci-2026-09-08.md)
 records a successful current unsigned package/install workflow and its preceding
 intermittent process-delivery failure. The latter remains unresolved; the green

@@ -1,6 +1,6 @@
 # MagicVault architecture
 
-Architecture version: `0.8.1`
+Architecture version: `0.8.2`
 
 Previous immutable baseline tag: `architecture/v0.3.0`. The current reviewed
 source/document baseline is [architecture-baseline.json](architecture-baseline.json).
@@ -54,10 +54,22 @@ inside their authorized boundary too. Neither CDP nor the extension is a generic
 proxy. Process/HTTP adapters withhold all recipient output instead of attempting
 generic substring redaction; coarse outcomes and timing remain observable.
 
+Async browser, process/HTTP and metadata jobs own the single human-operation slot
+through consent, recipient/native cleanup and durable completion audit. The final
+serialized completion closure also owns that slot: it drops it before releasing
+the state lock that publishes the terminal receipt. Returning a receipt must not
+depend on the async worker being rescheduled to finish releasing admission.
+Persistence errors still fault custody and publish uncertainty; freeing the slot
+does not authorize another effect on a faulted instance.
+Shutdown first cancels work and obtains admission, then closes/waits for the
+tracked background jobs and their destructors. This drains async broker/instance
+lock ownership after terminal publication; slot availability alone is not proof
+that an immediate restart can acquire the old instance lock.
+
 | Component | Version | Ownership |
 | --- | --- | --- |
-| `magicvault`, `magicvault-mcp` | `0.8.1` | Human administration, reference-only clients and optional discovery narrowing; CLI builds daemon/native host |
-| `magicvault-service` | `0.8.1` | Native consent/grants and cancellation, bounded discovery, one store writer and private application-bundle installer |
+| `magicvault`, `magicvault-mcp` | `0.8.2` | Human administration, reference-only clients and optional discovery narrowing; CLI builds daemon/native host |
+| `magicvault-service` | `0.8.2` | Native consent/grants and cancellation, bounded discovery, one store writer and private application-bundle installer |
 | `magicvault-protocol` | `0.6.0` | Discovery query/filter types; authentication, policy, consent, profiles, jobs and bounded IPC |
 | `magicvault-effect` | `0.6.0` | Filtered adapter method/native command; CDP/native fills, HTTP and MagicRun integration |
 | Chromium extension | `0.6.1` | Permission-aware exact discovery narrowing, site grants/blocks and document-targeted fill; no navigation or submission API |

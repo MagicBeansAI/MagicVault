@@ -14,6 +14,8 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 const CANARY: &str = "SYNTHETIC-DELIVERY-SERVICE-CANARY";
 #[path = "consent_tests.rs"]
 mod consent_tests;
+#[path = "completion_tests.rs"]
+mod completion_tests;
 
 #[tokio::test(flavor = "multi_thread")]
 async fn client_revocation_removes_persisted_destination_authority() {
@@ -59,6 +61,7 @@ async fn client_revocation_removes_persisted_destination_authority() {
     f.broker.quiesce().await;
 }
 struct Human {
+    denied: tokio::sync::Notify,
     mode: AtomicU8,
     uses: AtomicUsize,
 }
@@ -87,6 +90,7 @@ impl HumanInteraction for Human {
             });
         }
         if mode == 7 {
+            self.denied.notify_one();
             return Err(ErrorCode::Denied); // Native human Deny, without cancellation.
         }
         self.confirm(message, cancel).await.map(|yes| {
@@ -176,6 +180,7 @@ impl Fixture {
         .unwrap();
         let key = Arc::new(InMemoryKeyProvider::new());
         let human = Arc::new(Human {
+            denied: tokio::sync::Notify::new(),
             mode: AtomicU8::new(0),
             uses: AtomicUsize::new(0),
         });

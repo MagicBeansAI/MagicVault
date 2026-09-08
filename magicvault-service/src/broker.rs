@@ -123,6 +123,7 @@ pub struct Broker {
     state: Mutex<State>,
     human: Arc<dyn HumanInteraction>,
     human_gate: Arc<Semaphore>,
+    background_jobs: tokio_util::task::TaskTracker,
     pub epoch: Uuid,
     pub shutdown: CancellationToken,
 }
@@ -267,6 +268,7 @@ impl Broker {
             }),
             human,
             human_gate: Arc::new(Semaphore::new(1)),
+            background_jobs: tokio_util::task::TaskTracker::new(),
             epoch: Uuid::new_v4(),
             shutdown: CancellationToken::new(),
         }))
@@ -287,9 +289,15 @@ impl Broker {
                 Ok(())
             })
             .await;
-        // Human jobs retain this permit until native-child cleanup and their
-        // serialized completion finish. Do not release the instance lease early.
+        // Admission remains held through native-child cleanup and completion.
+        // After acquiring it, no reserved job can still be waiting to spawn:
+        // reservations own the permit and shutdown rejects new reservations.
         let _permit = self.human_gate.acquire().await;
+        // Terminal publication releases admission before the async worker wakes.
+        // Wait for those futures/destructors too, including their broker/lease
+        // ownership, so immediate restart never races the old instance lock.
+        self.background_jobs.close();
+        self.background_jobs.wait().await;
     }
 
     async fn transaction<T: Send + 'static>(
@@ -735,11 +743,13 @@ impl Broker {
             return Ok(Response::Approval(status));
         };
         let broker = Arc::clone(self);
-        tokio::spawn(async move {
-            let _permit = permit;
+        self.background_jobs.spawn(async move {
             let decision = broker.human.confirm(&format!("Allow client {client_label} to discover the label and field names of {credential_label} ({reference})? This is metadata only, not credential values or permission to perform a future effect."), broker.shutdown.clone()).await;
             let _ = broker
                 .transaction(move |b, state| {
+                    // Release admission before readers can observe the decided
+                    // job, including refusal and persistence-error early returns.
+                    let _permit = permit;
                     if b.ready(state).is_err() {
                         if let Some(job) = state.jobs.get_mut(&id) {
                             job.decision = Decision::Denied;

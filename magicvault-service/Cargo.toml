@@ -1,6 +1,6 @@
 [package]
 name = "magicvault-service"
-version = "0.8.1"
+version = "0.8.2"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "Standalone custody service, authenticated IPC, and human boundary"

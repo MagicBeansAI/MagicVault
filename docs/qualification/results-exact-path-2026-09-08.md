@@ -91,6 +91,10 @@ change cleanup semantics on speculation, automatically replay an uncertain
 delivery, or turn the test off to produce a green candidate. No MagicRun change
 or runtime fix was made in this investigation.
 
+The subsequent [owned-child signal investigation](results-process-signal-2026-09-08.md)
+adds that test-only MagicRun observation. It does not alter this failed run's
+evidence or claim the uncertainty is fixed.
+
 ## Independent installed browser/resource trial
 
 Because the new CI run failed before upload, the browser trial used the latest

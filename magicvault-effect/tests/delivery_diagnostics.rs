@@ -83,6 +83,20 @@ async fn observed_terminals_distinguish_exit_signal_and_known_errors_without_mat
         let snapshot = observation.snapshot();
         assert!(!format!("{snapshot:?}").contains(CANARY));
         assert!(snapshot.runtime_entered && snapshot.adapter_returned);
+        let child = snapshot
+            .process
+            .expect("runtime signal observer must be wired to this operation");
+        assert_eq!(child.spawned_children, 1);
+        assert!(child.cleanup_before_reap && !child.termination_cleanup);
+        assert_eq!(
+            child.reaped_signal,
+            if exit_code {
+                None
+            } else {
+                Some(tool_runtime_core::process_test_diagnostics::Signal::Terminate)
+            }
+        );
+        assert!(child.last_wait.unwrap().owned_child);
         assert_eq!(snapshot.terminal, Some(terminal));
         assert_eq!(snapshot.has_exit_code, exit_code);
         assert_eq!(snapshot.permission_error, permission);

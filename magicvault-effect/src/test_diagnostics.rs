@@ -20,6 +20,7 @@ const CAPACITY: usize = 16;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Snapshot {
     pub runtime_entered: bool,
+    pub process: Option<tool_runtime_core::process_test_diagnostics::Snapshot>,
     pub terminal: Option<GovernedExecutionTerminal>,
     pub dispatch: Option<GovernedExecutionDispatch>,
     pub runtime_error: bool,
@@ -109,6 +110,28 @@ pub(crate) fn entered(operation: Uuid) {
     registry().update(operation, |s| s.runtime_entered = true);
 }
 
+pub(crate) fn observe_process(
+    operation: Uuid,
+) -> Option<tool_runtime_core::process_test_diagnostics::Capture> {
+    let registered = registry()
+        .0
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .contains_key(&operation);
+    registered.then(|| {
+        tool_runtime_core::process_test_diagnostics::Capture::start()
+            .expect("synthetic invocation must own its process capture")
+    })
+}
+
+pub(crate) fn process_observed(
+    operation: Uuid,
+    observation: tool_runtime_core::process_test_diagnostics::Capture,
+) {
+    registry().update(operation, |s| s.process = Some(observation.snapshot()));
+    // Capture is dropped on this exact blocking invocation thread.
+}
+
 pub(crate) fn settled(operation: Uuid, result: &GovernedExecutionResult) {
     registry().update(operation, |s| {
         let terminal = result.terminal();
@@ -146,6 +169,23 @@ pub(crate) fn returned(operation: Uuid, outcome: &Result<DeliveryOutcome, ErrorC
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn process_capture_requires_registration_and_releases_thread_slot() {
+        let operation = Uuid::new_v4();
+        assert!(observe_process(operation).is_none());
+        let capture = Capture::register(operation).unwrap();
+        let process = observe_process(operation).unwrap();
+        assert!(matches!(
+            tool_runtime_core::process_test_diagnostics::Capture::start(),
+            Err(tool_runtime_core::process_test_diagnostics::StartError::AlreadyActive)
+        ));
+        process_observed(operation, process);
+        assert_eq!(capture.snapshot().process, Some(Default::default()));
+        drop(tool_runtime_core::process_test_diagnostics::Capture::start().unwrap());
+        drop(capture);
+        assert!(observe_process(operation).is_none());
+    }
 
     #[test]
     fn bounded_registration_refuses_duplicates_and_releases_capacity() {

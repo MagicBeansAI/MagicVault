@@ -73,7 +73,7 @@ that an immediate restart can acquire the old instance lock.
 | `magicvault-protocol` | `0.6.0` | Discovery query/filter types; authentication, policy, consent, profiles, jobs and bounded IPC |
 | `magicvault-effect` | `0.6.0` | Filtered adapter method/native command; CDP/native fills, HTTP and MagicRun integration |
 | Chromium extension | `0.6.1` | Permission-aware exact discovery narrowing, site grants/blocks and document-targeted fill; no navigation or submission API |
-| MagicRun `tool-runtime-core` | `0.1.73`, existing public Git dependency | Governed process preparation, digest-bound dispatch, cancellation, output bounds and owned-child cleanup; runtime source unchanged |
+| MagicRun `tool-runtime-core` | `0.1.73`, public Git dependency locked to `25f1c449` | Governed process preparation, digest-bound dispatch, cancellation, output bounds and owned-child cleanup; debug-only process observer, normal runtime decisions unchanged |
 | `magicvault-core` | `0.1.3` | Encryption, credential references, existing policies, scoped stores and typed audit |
 | `magicvault-primitives` | `0.1.1` | Durable filesystem and stack-safe JSON utilities |
 
@@ -143,16 +143,26 @@ The process adapter's serial and async-with-child-churn stress tests capture clo
 known-error booleans only under `cfg(test)`; neither that observer nor arbitrary
 recipient diagnostics is compiled into the shipped client or service.
 The exact CLI-to-broker integration fixture can separately enable
-`magicvault_test_diagnostics`, a custom debug-only compiler cfg, not a Cargo
-feature or runtime option. It registers at most 16 operation-specific captures;
-only closed terminal/dispatch/error categories and known-error booleans survive.
-No raw stream, exit code, path or credential is retained by the observer. Dropping
+`magicvault_test_diagnostics` together with `magicrun_test_diagnostics`, custom
+debug-only compiler cfgs, not Cargo features or runtime options. It registers at
+most 16 operation-specific captures. Only a registered operation opens MagicRun's
+bounded, non-transferable thread-local capture around its blocking invocation.
+Closed terminal/dispatch/error categories, known-error booleans, owned-child wait
+and reaped signal classes, group-ownership confirmation and cleanup-attempt
+results survive. Counters saturate; no event history accumulates. No raw stream,
+PID, exit code, argument, path or credential is retained by the observer. Dropping
 a capture removes its registry entry. Normal builds omit this module and its
 hooks; the standard release profile explicitly rejects the cfg. The package
 qualifier isolates diagnostic build outputs from packaging and proves that
 rejection before running the installed-client trials. Installed clients remain
 the unchanged package bytes; only their synthetic broker/test driver is observed.
 These observations classify a failure, not its root cause or retry safety.
+MagicRun's added hooks are absent from normal compilation and do not change
+wait/cleanup decisions. Its literal governed source bytes nevertheless change;
+consumers that attest those bytes must review that digest on a future dependency
+upgrade. Magician's dependency selection and source are not changed here. Shared
+custody, storage and public delivery protocols are unchanged. See the
+[signal investigation](qualification/results-process-signal-2026-09-08.md).
 Browser qualification requires explicit `--app-parent`; its Make target selects
 an internal temporary application separately from external build/package artifacts.
 The external-host path can block in macOS loader/access-policy work before the

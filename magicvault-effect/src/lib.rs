@@ -6,6 +6,8 @@
 //! reusable crate intentionally does not change an embedding host's global logs.
 #[cfg(all(magicvault_test_diagnostics, not(debug_assertions)))]
 compile_error!("magicvault_test_diagnostics is forbidden in release builds");
+#[cfg(all(magicvault_test_diagnostics, not(magicrun_test_diagnostics)))]
+compile_error!("magicvault_test_diagnostics requires magicrun_test_diagnostics");
 #[cfg(magicvault_test_diagnostics)]
 #[doc(hidden)]
 pub mod test_diagnostics;

@@ -73,9 +73,11 @@ if (values['with-rust-tests']) {
   if (browserIdle !== undefined) testEnv.MAGICVAULT_BROWSER_RESOURCE_IDLE_SECS = browserIdle;
   // Only the synthetic test DRIVER is instrumented; installed clients remain
   // the reviewed package bytes. Never share these build outputs with packaging.
-  const diagnosticEnv = { ...testEnv, CARGO_TARGET_DIR: path.join(work, 'diagnostic-builds'), CARGO_ENCODED_RUSTFLAGS: '--cfg\x1fmagicvault_test_diagnostics' };
+  const diagnosticEnv = { ...testEnv, CARGO_TARGET_DIR: path.join(work, 'diagnostic-builds'), CARGO_ENCODED_RUSTFLAGS: '--cfg\x1fmagicvault_test_diagnostics\x1f--cfg\x1fmagicrun_test_diagnostics' };
   if (values['with-process-diagnostics']) {
     const diagnosticRun = args => execFileSync('cargo', ['test', '--locked', ...args], { env: diagnosticEnv, stdio: 'inherit', timeout: 300_000 });
+    // The Git dependency's own dev-dependency tests run in MagicRun; validate
+    // its observer here through the real MagicVault adapter integration below.
     diagnosticRun(['-p', 'magicvault-effect', '--lib', 'test_diagnostics::']);
     diagnosticRun(['-p', 'magicvault-effect', '--test', 'delivery_diagnostics']);
     diagnosticRun(['-p', 'magicvault', '--test', 'delivery_cli', '--no-run']);
@@ -83,7 +85,7 @@ if (values['with-rust-tests']) {
     try {
       execFileSync('cargo', ['check', '--locked', '--release', '-p', 'magicvault-effect', '--lib'], { env: diagnosticEnv, stdio: 'pipe', timeout: 300_000 });
     } catch (error) {
-      releaseRefused = Number.isInteger(error.status) && error.status !== 0 && String(error.stderr).includes('magicvault_test_diagnostics is forbidden in release builds');
+      releaseRefused = Number.isInteger(error.status) && error.status !== 0 && String(error.stderr).includes('magicrun_test_diagnostics is forbidden in release builds');
     }
     assert(releaseRefused, 'instrumented release must fail with the explicit isolation guard');
     console.log(JSON.stringify({ diagnostic_release_refused: true }));

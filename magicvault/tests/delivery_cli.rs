@@ -172,6 +172,9 @@ async fn actual_cli_to_daemon_to_magicrun_executes_without_echoing_material() {
                 snapshot.runtime_entered && snapshot.adapter_returned,
                 "exact process path did not publish its diagnostic stages: {snapshot:?}"
             );
+            let child = snapshot.process.expect("exact path must capture the owned process");
+            assert_eq!(child.spawned_children, 1);
+            assert_eq!(child.reaped_normal_success, Some(true));
         }
     }
     assert_eq!(

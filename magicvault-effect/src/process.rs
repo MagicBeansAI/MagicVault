@@ -407,12 +407,18 @@ fn run(
     };
     #[cfg(magicvault_test_diagnostics)]
     crate::test_diagnostics::entered(operation_id);
+    #[cfg(magicvault_test_diagnostics)]
+    let process_observation = crate::test_diagnostics::observe_process(operation_id);
     let result = invocation.execute_batch(
         &mut authorizer,
         &mut resolver,
         &mut SettlementAudit,
         &cancellation,
     );
+    #[cfg(magicvault_test_diagnostics)]
+    if let Some(observation) = process_observation {
+        crate::test_diagnostics::process_observed(operation_id, observation);
+    }
     Ok(match result {
         Ok(settlement) => {
             let terminal = settlement.result().terminal();

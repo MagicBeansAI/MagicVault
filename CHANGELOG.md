@@ -2,6 +2,12 @@
 
 ## Unreleased — Qualification diagnostics
 
+- Extend the synthetic exact-process observer into MagicRun's owned-child wait,
+  signal and cleanup path. Update only the locked MagicRun Git revision to
+  `25f1c449`; standard builds omit all observer hooks and release builds reject
+  the diagnostic cfg. No runtime fix is claimed. MagicRun source attestation
+  bytes change; Magician's existing dependency and shared custody are untouched.
+  See the [signal investigation](docs/qualification/results-process-signal-2026-09-08.md).
 - Require explicit application placement for packaged browser qualification;
   its Make target uses an internal temporary application while SSD build/package
   paths remain unchanged. Document the observed pre-entry removable-volume

@@ -3,7 +3,7 @@
   "project": "MagicVault",
   "architecture_version": "0.8.2",
   "document": "docs/architecture.md",
-  "document_sha256": "604d69c0e55d03952feeab723a9356e72fa1601af9a83023ddc1bf48124e99e7",
+  "document_sha256": "be063768b584abeefe8aeeedd576031db399d7f5212be814d220f1ae1728c02f",
   "component_versions": {
     "extension": "0.6.1",
     "magicvault": "0.8.2",
@@ -17,7 +17,7 @@
   "source_sha256": {
     ".github/workflows/distribution.yml": "145b6a9f6a7c97f857f3c031ab8ce6f9e03e34a4f522489d0eec7bd16e0b02b7",
     ".github/workflows/qualification.yml": "30c7320e100240fd08c7be430ffb7f09bcb220b4511858bbd16bcdc266bb9942",
-    "Cargo.lock": "85976f58ea54f0f3663dfb8bdf4c36e43c9b8fc6d04a45ad12bd39c001847b4b",
+    "Cargo.lock": "41480629f450d8c688f98184f311f331a357a4912efdb01b66abc017b20578a6",
     "Cargo.toml": "7f5b8f9eaed713c5c68dedc540340f93693ab5d7fcc0d7c2856d4dd0553742cb",
     "extension/manifest.json": "bcc73a79017ffa7c9e8c73716b6537e0cc2aeeba62786c7414100924b5e3bf51",
     "extension/options.css": "529df3a87d0985c60068454c32d85363f72fb9bf0628de894b4329830acd9028",
@@ -32,16 +32,16 @@
     "magicvault-core/src/session.rs": "8584151a37f5f2e95f71e0f767118d76eb607a0b91a4687d30998b7881c332da",
     "magicvault-core/src/store.rs": "0c3889043b80ff4e03a995504bb6669ddf141587f8483faf463b5981c3bdcf80",
     "magicvault-core/src/types.rs": "af31d39b6c892ccaf3c794d579b1be6165c7f7185e0cdba934b13196a09569fa",
-    "magicvault-effect/Cargo.toml": "3efe71a9248632f2576b91f7a0cde7e34d6ec64e673b7a8b47fa360bf9bb6986",
+    "magicvault-effect/Cargo.toml": "45e2c175593c7f2f8fe6dcc315a76e260d7c5234f01406e8175f465c710898fa",
     "magicvault-effect/src/bridge.rs": "26d0ffb081b23b96e86f2bd410e512a37d0efb4d38e2a8825f5e8a9eadda3087",
     "magicvault-effect/src/cdp.rs": "2928122d7e36107b745fd457bd5f474f6e01ef718dcefb95ecd2fb0c3cc0fbbc",
     "magicvault-effect/src/delivery.rs": "5d12210d891406c6045f5aae0760b828dec5df6f1cc0037c9916eaf5b059584a",
     "magicvault-effect/src/fill.js": "845eb1f035560e5b97b40d72b4efb400db04cd66e8458bc54b06b542b2924be2",
     "magicvault-effect/src/http.rs": "db23424856f7bfe8c27117a3894efba956d5c346ddea858b2c1acd10cd23dd19",
     "magicvault-effect/src/http/tests.rs": "8d9cd98d24e08058a60ba180af6c35df05f1d14822e4c04bf7c724ed53187355",
-    "magicvault-effect/src/lib.rs": "9318131e8dd4431c72442990dbc231c7501c6750576da27de4556f5e133be3de",
-    "magicvault-effect/src/process.rs": "c324137fa9a551b9c72e1e4d3c87a5d9931ea77b6d93d46ef4679766920c9c0a",
-    "magicvault-effect/src/test_diagnostics.rs": "a7ae446c7db5534fe90b22c188b45dfb2dcc6f943a3561b6497042ed5e762136",
+    "magicvault-effect/src/lib.rs": "4cfa71bba1818615663b87318d8d7d8fc7d694300f77aec48847bf50000fbce3",
+    "magicvault-effect/src/process.rs": "70e5c139c451ccf4788c4a79fe03f9ef7923c3528e3b52b0e8e22a8437ee180e",
+    "magicvault-effect/src/test_diagnostics.rs": "8634858f7a63dfbde99b52519ab91226fb79678003c1f7759fa4c13afcb50b4a",
     "magicvault-mcp/Cargo.toml": "9f82559ef4c08366bcc416baf9da3776a475cbfe8f62587e9624c3fb538cde65",
     "magicvault-mcp/src/lib.rs": "f46a258850fcc6e90c8f993c7a4c08b413a29846bb2c3f15571b9af606713401",
     "magicvault-mcp/src/main.rs": "c34c6708cb8c57fa25947832a62d7a00dba2cf758e0701623eb4403f331dd53e",
@@ -85,7 +85,7 @@
     "npm/launcher.cjs": "8bdb4405158d161867e587acdad94395eda1c35535f657dc0504b839ffeffcdf",
     "npm/mcp.cjs": "2233e6719217ccbb08ae28b97499632ba773905c552c598a554f938a033e402b",
     "scripts/package-npm.mjs": "e0bb2954bb146c227408805e3261d2833c243210a3440f470d4e0568440fbccf",
-    "scripts/qualify-package.mjs": "d9aec0b514141db8cb6650cd35fe8ac0ebf4ba310a0ea571d9318f0cc500a209",
+    "scripts/qualify-package.mjs": "4fc8251226bfb25269888f80d37c16b1023ca400d558438a5bc518ff7d912d21",
     "scripts/sign-release.sh": "9ca4fc668579185168f3ceab017568d3b06a7286c4e7d29a0b5f34c70bb89726"
   }
 }

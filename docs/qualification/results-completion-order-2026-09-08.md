@@ -5,6 +5,8 @@ or signing is implied. Shared custody, primitives, MagicRun, protocol/effect ver
 extension and wire formats are unchanged. The production correction is entirely
 inside the standalone service's completion ownership.
 
+Corrected source revision: `23e648ccfbed191bc4090955b04a0e73552dd99a`.
+
 ## Evidence and correction
 
 The first [manual qualification at `eab362c`](https://github.com/MagicBeansAI/MagicVault/actions/runs/34177918839)
@@ -57,3 +59,66 @@ open in the [reliability investigation](results-reliability-2026-09-08.md).
 The admission race is a demonstrated additional defect, not a claimed cause of
 either original finding. Fresh local/CI/installed-browser qualification of `0.8.2`
 must be recorded below before claiming the corrected revision passes those gates.
+
+## Corrected-revision local qualification
+
+The local offline npm qualifier passed ten independent, fail-fast rounds using
+an explicitly selected fresh internal temporary application and SSD1 build/package/
+browser artifacts. Each round ran 13 installed CLI/MCP/native-host cases and one
+two-profile real extension test: 130 client cases, 20 fresh starts and 200 fills.
+Startup samples were 318.941–863.800 ms, below the unchanged 15-second pass bound.
+Denial, document/navigation refusal, independent profiles and pause/reconnect
+assertions passed. The subsequent recoverable app uninstall and npm removal passed.
+No personal keychain, OS service, browser profile or live acceptance app was changed.
+
+Five real headed/headless CDP/control/frame/navigation cases and the shipped-CLI
+real-browser case also passed. Three explicit installed-client performance/shutdown
+tests passed. The 32-delivery batch observed process median/p95 249.092/306.145 ms
+and HTTP 194.409/202.735 ms; capacity refused a 33rd new job without dispatch while
+reconciliation preserved exactly-once invocation. A 2,000-status/four-client load
+completed in 6.006 s. Test-process idle CPU was 295 µs over two seconds; loaded CPU
+was 404.845 ms. RSS was 19,872 KiB after idle and 20,176 KiB after load.
+
+The 16-frame IPC saturation/recovery test passed. Incomplete-frame shutdown took
+4.971 s within existing framing/drain bounds; actual process-tree shutdown took
+224.347 ms and in-flight HTTP shutdown 5.029 ms, with recipient work stopped and
+no replay. These are **synthetic in-process broker/test-driver** counters, not an
+installed-daemon/browser-tree production benchmark. Local CDP verification overlapped
+part of the performance lane; these observations do not establish isolated throughput
+or close the long-soak/resource release gate.
+
+Local unsigned tarball SHA-256 (not the CI artifact): launcher
+`42b2656f10a6be0af7908f55090198d223fa302993dd4441d016b94ca19bb65b`;
+native `c9446ec6d66864f85b148a476144de81e4e7450a80ee1e5cb2fba3fc3434645a`.
+
+## Corrected-revision CI
+
+The first [manual qualification at `23e648c`](https://github.com/MagicBeansAI/MagicVault/actions/runs/34179210734)
+passed both Ubuntu and macOS. Each lane passed 254 default Rust tests and two
+explicit resource/shutdown tests, all 85 JavaScript tests, 24 build-path/architecture
+tests and all-target compilation. The previously failing consent cases, deterministic
+completion tests and immediate-restart case passed. This is new-revision evidence,
+not a rerun of the failed pre-fix workflow.
+
+The first [unsigned distribution run at `23e648c`](https://github.com/MagicBeansAI/MagicVault/actions/runs/34179148138)
+also passed: full checks/tests/build, the 200-process probe, 20 independent installed
+CLI/MCP/native-host rounds and all three explicit performance/shutdown probes.
+Artifact `10038459641` contains only the two expected `0.8.2` npm tarballs. Its
+6,530,093-byte ZIP SHA-256 is
+`7fdfbdff54f60cc852b85ee8bd215535ff9e9c9171ea399e098cb522ae579a1b`;
+the temporary Actions download expires 2026-09-22. This is not a public release.
+
+The CI ZIP was independently downloaded to SSD1, matched that hash and had its
+member names/types inspected. A fresh local qualifier then passed all 13 installed
+client/native-host cases and a two-profile real-extension trial using those CI-built
+packages: startup 706.600/316.348 ms, 20 measured fills, denial, profile independence
+and recovery assertions. Its repacked installation inputs were byte-for-byte equal
+to the downloaded tarballs. Recoverable app uninstall and npm removal passed.
+
+CI tarball SHA-256: launcher
+`42b2656f10a6be0af7908f55090198d223fa302993dd4441d016b94ca19bb65b`;
+native `7683ee94781afdfdda6503ab4dd3dd955aedfba802fccca966a6c2f70baad7d6`.
+Neither downloaded/local unsigned artifact trial qualifies Gatekeeper quarantine,
+publisher signing/notarization, genuine native-dialog acceptance on `0.8.2`, a
+live agent-model session, whole-daemon/browser-tree resources or a long soak.
+The two original intermittent findings remain open despite these successful runs.

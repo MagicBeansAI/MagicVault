@@ -127,6 +127,9 @@ workflow produces explicitly unsigned local-tarball candidates only.
 Qualification can run 1–20 independent installed-client trials, failing on the
 first error, plus explicit bounded load/capacity/shutdown probes. These use only
 synthetic custody in test executables, not a production bypass or daemon flag.
+The process adapter's explicit stress test captures closed terminal classes and
+known-error booleans only under `cfg(test)`; neither that observer nor arbitrary
+recipient diagnostics is compiled into the shipped client or service.
 An explicit `--app-parent` separates a fresh disposable application installation
 from external build/package artifacts for macOS loader/access-policy diagnosis;
 it never changes OS permissions. CPU/RSS counters cover the in-process test

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Preserve the reproduced installed-process CI failure as an open release gate;
+  add fixture-only launch stages and a bounded synthetic process stress probe.
+  The additional observations are diagnostics, not a claimed runtime fix.
 - Add fail-fast installed-package repetition, explicit internal-volume temporary
   application placement, and bounded CPU/RSS, delivery/IPC capacity, recovery and
   in-flight process-tree/HTTP shutdown qualification. Preserve the browser's

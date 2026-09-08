@@ -414,6 +414,8 @@ fn run(
     Ok(match result {
         Ok(settlement) => {
             let terminal = settlement.result().terminal();
+            #[cfg(all(test, unix))]
+            reliability::observe(settlement.result());
             // No sealed stream, raw exit code or runtime diagnostic is returned.
             match terminal.terminal() {
                 GovernedExecutionTerminal::Success => DeliveryOutcome::completed(),
@@ -438,6 +440,10 @@ fn run(
         Err(_) => DeliveryOutcome::uncertain(ErrorCode::TransportUncertain),
     })
 }
+
+#[cfg(all(test, unix))]
+#[path = "../tests/support/process_reliability.rs"]
+mod reliability;
 
 pub async fn execute(
     config: ProcessDestination,

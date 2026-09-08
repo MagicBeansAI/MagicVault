@@ -35,6 +35,8 @@ jobs:
           rustup toolchain install 1.92.0 --profile minimal
           rustup override set 1.92.0
       - run: make test-extension test-qualification-fixtures test-build-paths test-architecture check test build-standalone
+      - name: Diagnose bounded synthetic process launch reliability
+        run: cargo test --locked -p magicvault-effect --lib repeated_process_launches_preserve_delivery_and_success -- --ignored --nocapture --test-threads=1
       - name: Assemble allowlisted packages
         run: |
           mkdir "$PACKAGE_PARENT"

@@ -1,14 +1,15 @@
 # Reliability investigation and bounded qualification — 2026-09-08
 
 Status: **additional evidence, not closure of the two intermittent findings**.
-No production Rust/extension/launcher code, custody schema, MagicRun revision or
+No production Rust behavior, extension/launcher code, custody schema, MagicRun revision or
 Magician source changed. Standalone remains `0.8.1`, effect/protocol `0.6.0`,
 extension `0.6.1`, core `0.1.3`, primitives `0.1.1`; agent wire 4/native handshake 2.
 
 ## Revision and isolation
 
-Local results below use qualification-only changes based on `9752b12`, with
-unchanged release binaries and lockfile. Rust 1.92.0, Node 22.19.0, macOS 26.6
+Qualification-only changes are committed as
+`5960395a76f3e6bdab2198ff5573c92837c6ac14`, based on `9752b12`, with
+unchanged release binaries and lockfile. Local Rust 1.92.0, Node 22.19.0, macOS 26.6
 arm64, Chrome 152.0.7977.82. Build/package artifacts and disposable browser profiles
 used SSD1; explicitly identified comparison installations used private internal
 temporary directories. Each test owns fresh synthetic custody and consent, not a
@@ -20,10 +21,13 @@ Lockfile SHA-256:
 The source and external installed native host had identical SHA-256:
 `08bfc68c63a68ad07e20a3aa5f9fb4bc22ab7ff8fdad12ff4a50041d9b1fb55e`.
 These are local unsigned bytes, not the prior Actions artifact or a signed release.
+Qualified local tarball SHA-256: launcher
+`f60786c524ec9873504d85f03b7820efd190085156767ddec2576e6820dfdb53`;
+native `fcbf6424e05bb2b1e3eb3c81c57e5e700801c1de0ec36706567f78e34cabac8a`.
 
 ## Findings retained
 
-### Packaged process uncertainty: not reproduced, still open
+### Packaged process uncertainty: reproduced in CI, still open
 
 One hundred independent installed npm CLI delivery-test runs passed. Each exercised
 the process path and HTTP completion/persistence-uncertainty cases; the loop stopped
@@ -32,6 +36,22 @@ and does not identify or fix its cause. The closed error, dispatch uncertainty a
 recipient-marker assertions remain enabled. No deadline, success assertion or
 runtime uncertainty handling was weakened. CI now runs 20 independent installed
 client trials to increase opportunities to capture the original failure.
+
+The first [unsigned distribution run at `5960395`](https://github.com/MagicBeansAI/MagicVault/actions/runs/34176656487)
+**failed on trial 4**, after three complete installed rounds passed. The process
+receipt was `uncertain`, closed error `unavailable`, `may_have_run: true`, with no
+recipient completion marker. This occurrence did not take the adapter's timeout
+or persistence-uncertainty branch. It does not prove that the child never ran or
+identify its terminal cause. No candidate artifact was uploaded. Subsequent fixture
+diagnostics add only interpreter-entry and material-presence booleans; no credential
+or recipient stream is logged. A passing rerun will not close this finding.
+
+A subsequent explicit adapter stress probe records terminal classes and known-error
+booleans under `cfg(test)` only. Its initial 1,000-trial local configuration exceeded
+the new harness's 90-second overall budget without a delivery assertion failure;
+the workload was corrected to 200 trials, retaining the 90-second harness bound
+and the original two-second per-process deadline. This is diagnostic coverage, not
+a fix or a product performance qualification.
 
 ### Native extension startup: reproduced before the application entry point
 
@@ -97,8 +117,11 @@ only the three touched Rust test/helper files were formatted and checked.
 
 ## Remaining gates
 
-Fresh macOS/Ubuntu manual and unsigned distribution workflow conclusions must be
-recorded against their actual commit SHA before treating this revision as CI-qualified.
+The first [manual qualification run at `5960395`](https://github.com/MagicBeansAI/MagicVault/actions/runs/34176561247)
+passed on both macOS and Ubuntu: each ran 251 default Rust tests, two explicit
+resource/shutdown tests, 85 JavaScript tests and 24 build-path/architecture tests.
+Unsigned distribution failed as recorded above, so this revision is **not fully
+CI-qualified**.
 The two reliability findings above remain open even when those lanes pass.
 Installed standalone/browser-tree resource sampling, long soak, wider native
 permission/recovery and lifecycle acceptance, signing/notarization, registry

@@ -3,7 +3,7 @@
   "project": "MagicVault",
   "architecture_version": "0.8.1",
   "document": "docs/architecture.md",
-  "document_sha256": "f95d7594b0cf2359fca20d679fd5828292414b6b6acf3907b88cb03bea582341",
+  "document_sha256": "4e5321bb3dc723c541ceab891ed9918c9884ca966f205a8825b7ec02abeaa956",
   "component_versions": {
     "extension": "0.6.1",
     "magicvault": "0.8.1",
@@ -15,7 +15,7 @@
     "magicvault-service": "0.8.1"
   },
   "source_sha256": {
-    ".github/workflows/distribution.yml": "7adb20ff49211acd1fdb3165f3b2feb2852c2c1d2305d4308ea44d83f0f47e67",
+    ".github/workflows/distribution.yml": "5ed9f937b2984605819daaffc0d219c8bd7cc3ba211ea127da4117b5ee7f26d2",
     ".github/workflows/qualification.yml": "30c7320e100240fd08c7be430ffb7f09bcb220b4511858bbd16bcdc266bb9942",
     "Cargo.lock": "1d4354326e498932da452c5c41a4cfb61b2956f750bd7caf2b4573a6a5048a32",
     "Cargo.toml": "7f5b8f9eaed713c5c68dedc540340f93693ab5d7fcc0d7c2856d4dd0553742cb",
@@ -40,7 +40,7 @@
     "magicvault-effect/src/http.rs": "db23424856f7bfe8c27117a3894efba956d5c346ddea858b2c1acd10cd23dd19",
     "magicvault-effect/src/http/tests.rs": "8d9cd98d24e08058a60ba180af6c35df05f1d14822e4c04bf7c724ed53187355",
     "magicvault-effect/src/lib.rs": "6d7c525af2e4b8087c5cc3e52b387c5188f5c3307d0d181d0bc315c450aea3cd",
-    "magicvault-effect/src/process.rs": "2879b6c10d922bba9989fa6bb8b6edc1938c737d473a1d4167215162061921b3",
+    "magicvault-effect/src/process.rs": "2ab190f728598cef6de1c8683c2c2976003f9fdc610569d9f9fc62cce41a52ac",
     "magicvault-mcp/Cargo.toml": "d3cb71f6f8e8ed3b2fa958c5bd94cd7000593f1f44078e670f7d2fca314c1617",
     "magicvault-mcp/src/lib.rs": "f46a258850fcc6e90c8f993c7a4c08b413a29846bb2c3f15571b9af606713401",
     "magicvault-mcp/src/main.rs": "c34c6708cb8c57fa25947832a62d7a00dba2cf758e0701623eb4403f331dd53e",

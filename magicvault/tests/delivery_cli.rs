@@ -140,7 +140,9 @@ async fn register(root: &Path, profile: Value) -> String {
 async fn actual_cli_to_daemon_to_magicrun_executes_without_echoing_material() {
     let (root, broker, daemon, reference) = setup().await;
     let executable = root.path().join("recipient");
-    fs::write(&executable,"#!/bin/sh\n[ -n \"$MV_TOKEN\" ] || exit 1\nprintf '%s' \"$MV_TOKEN\"\nprintf 'done' > marker\n").unwrap();
+    // Fixture-owned, value-free stage markers distinguish interpreter startup
+    // from environment delivery. Never copy recipient output into diagnostics.
+    fs::write(&executable,"#!/bin/sh\nprintf 'entered' > entered\n[ -n \"$MV_TOKEN\" ] || exit 1\nprintf 'present' > material-present\nprintf '%s' \"$MV_TOKEN\"\nprintf 'done' > marker\n").unwrap();
     fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
     let profile=register(root.path(),json!({"label":"CLI process","destination":{"kind":"process","config":{
         "executable":executable,"arguments":[],"working_directory":root.path(),"environment":[{"name":"MV_TOKEN","value":value(&reference)}],"stdin":null,"timeout_secs":2}}})).await;
@@ -160,9 +162,11 @@ async fn actual_cli_to_daemon_to_magicrun_executes_without_echoing_material() {
     assert_eq!(
         status["data"]["state"],
         "completed",
-        "closed error: {}; may_have_run: {}; recipient marker exists: {}",
+        "closed error: {}; may_have_run: {}; recipient entered: {}; material present: {}; recipient marker exists: {}",
         status["data"]["error"],
         status["data"]["may_have_run"],
+        root.path().join("entered").exists(),
+        root.path().join("material-present").exists(),
         root.path().join("marker").exists()
     );
     assert_eq!(

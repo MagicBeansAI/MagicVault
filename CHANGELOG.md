@@ -2,6 +2,10 @@
 
 ## Unreleased — Qualification diagnostics
 
+- Retain the first OS-observer CI failure in trial 29. Its successful query hit
+  the decoder's catch-all, so extend named namespace coverage to the full
+  reviewed Apple header with regression coverage; no raw values are exposed.
+  The classifier follow-up selects MagicRun `e2099b3f` only.
 - Extend the debug-only owned-child observer with a parent-only macOS OS
   exit-reason query before cleanup/reap. Select reviewed MagicRun `1ab46d90`
   without a crate-version or production-policy change; add real adapter

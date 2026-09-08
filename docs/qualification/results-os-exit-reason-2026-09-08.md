@@ -6,7 +6,7 @@ adds the next missing observation, not a speculative runtime fix or a replay.
 
 ## Scope and revisions
 
-MagicVault builds on `a7794f5`; its lock now selects MagicRun
+The initial MagicVault follow-up builds on `a7794f5` and selects MagicRun
 `1ab46d90f7eccddc9817bcce96d027383fa7828e`. Crate/package versions remain
 unchanged. Normal builds omit the observer; standard release builds reject its
 compiler cfg. Installed clients remain uninstrumented, while the synthetic
@@ -63,7 +63,44 @@ case passed in a separate invocation. This does not establish or fix the initial
 timeout's cause. An intermediate incorrectly qualified exact test filter ran
 zero cases and is not counted as evidence.
 
-Installed-client/CI results are pending in this initial record.
-The bounded workflow will retain its first failure rather than rerun it
-for a green result. A reason category narrows an investigation; it does not by
-itself prove the underlying bug, its sender or safe retry behavior.
+## First exit-reason CI run
+
+[Run 34191450549, attempt 1](https://github.com/MagicBeansAI/MagicVault/actions/runs/34191450549)
+**FAILED** on MagicVault `855b793a773bf46eb935b6e0df71a7a4ab890c79` and
+MagicRun `1ab46d90`. Job `101950191034`; macOS `15.7.9` arm64, image
+`20260829.0321.1`. Normal client build/package assembly, orchestration/architecture,
+the five real adapter classifications and explicit instrumented-release refusal
+passed before fresh exact-path process/HTTP trials began.
+
+Trials 1–28 passed both cases. Trial 29 failed the process case while its HTTP
+companion passed; the loop stopped after about 23 seconds. No trial 30, retry,
+success summary, post-success uninstall or upload followed.
+
+The owned child was again `CLD_KILLED` / `SIGKILL` on the first wait, before
+cleanup, with the same signal at final reap. The OS query **succeeded** and
+returned `Observed(OtherNamespace)`. Explicit termination cleanup was absent;
+the later group kill returned `NoSuchProcess`. The adapter remained dispatched
+`RuntimeFailure`, `uncertain` / `unavailable`, `may_have_run: true`; all recipient
+markers were absent. No raw namespace/code or payload was retained.
+
+This exposed a diagnostic coverage gap: the initial decoder named likely
+process/security namespaces but collapsed other defined Apple namespaces into
+the catch-all. The query worked; this is not an unsupported/denied-query result.
+No specific namespace can be inferred retrospectively from this record.
+
+### Named-namespace follow-up
+
+The classifier now names every namespace in the reviewed Apple header, including
+`INVALID`; only undefined values remain `OtherNamespace`. A complete mapping
+regression checks all 47 defined namespace values, the alias and unknown-value
+behavior. Six diagnostic units and MagicRun's architecture gate passed. Query
+scope, record size, discarded payload/code policy and all runtime behavior remain
+unchanged. This justifies one further bounded run with new evidence, not a rerun
+of the failed revision or an uncertain operation.
+
+The classifier follow-up selects MagicRun
+`e2099b3f69c3f20e75229c6e7b614a63d83db791`. MagicVault's all-target check and
+five real adapter diagnostic cases passed again with that exact dependency.
+Its CI result is pending in this record. A reason
+category narrows an investigation; it does not by itself prove the underlying
+bug, its sender or safe retry behavior. All earlier failures remain open.

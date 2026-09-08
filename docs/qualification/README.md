@@ -7,6 +7,12 @@ that would not replace destination, custody, transport or output-boundary tests.
 
 ## What is covered
 
+The [launch-stage investigation](results-launch-stage-2026-09-08.md) narrows the
+latest recurrence: CI trial 22 reported `CallbackNotEntered` and the Foundation
+OS category before cleanup, while the HTTP companion passed. The next review
+targets the pre-callback launch interval; no exact exception or runtime fix is
+established. The fail-fast run was not retried and the process gate stays open.
+
 The [OS exit-reason investigation](results-os-exit-reason-2026-09-08.md) adds a
 bounded parent-only observation to the debug synthetic broker, with explicit
 unavailable outcomes and real self-signal preflight. CI trial 53 identified the
@@ -60,7 +66,7 @@ committed `0.7.0` revision, including CI and repeated fresh browser starts.
 | Actual CLI → daemon → real Chrome | `make test-cli-native` | Genuine native dialogs/keychain in [CLI runbook](cli.md) |
 | MCP and native-host executables | Real subprocess/IPC tests; `make test-extension-native` adds actual Chrome dispatch and two independent profiles; [basic installed native acceptance](results-discovery-2026-09-08.md) on one host | Remaining permission/recovery cases in [extension runbook](extension.md); wider hosts and live agent-model sessions not yet qualified |
 | Public demo pages | Opt-in `make test-public-web` | Non-gating compatibility smoke, not login/provider qualification |
-| New process / HTTP requests | `make test-delivery`: real local HTTP/TLS and MagicRun children, shipped CLI/MCP; `make test-delivery-latency` adds local repeated-call observations; native consent and in-flight results linked above | Remaining native recovery, wider hosts, Internet latency and resource/soak performance; see [delivery runbook](process.md) |
+| New process / HTTP requests | `make test-delivery`: real local HTTP/TLS and MagicRun children, shipped CLI/MCP; `make test-delivery-latency` adds local repeated-call observations; native consent and in-flight results linked above | Resolve the [pre-callback process failure](results-launch-stage-2026-09-08.md#interpretation-and-next-boundary); remaining native recovery, wider hosts, Internet latency and resource/soak performance; see [delivery runbook](process.md) |
 | Running-service destinations | `make test-qualification-fixtures` exercises a cooperative Node service | Product refresh/rotation integration remains **unimplemented** |
 | Prebuilt CLI/MCP installation | `make test-distribution`, offline `make test-package-install`; opt-in `make test-package-browser` adds installed extension assets | Developer ID/quarantined downloads, registry publication and full native lifecycle in [distribution runbook](distribution.md) |
 

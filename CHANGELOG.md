@@ -2,6 +2,10 @@
 
 ## Unreleased — Qualification diagnostics
 
+- Retain the first launch-stage CI failure: trial 22 reported
+  `CallbackNotEntered` with `Observed(Foundation)` before cleanup; its HTTP
+  companion passed. This narrows the launch interval but does not identify
+  the exception site or close the process reliability gate.
 - Add debug-only macOS pre-exec stage evidence to the original concurrent
   process/HTTP investigation. A shared atomic marker distinguishes callback
   entry/completion; it does not prove exec or safe replay. Normal clients,

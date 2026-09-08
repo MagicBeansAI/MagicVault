@@ -1,5 +1,9 @@
 # Owned-child OS exit-reason investigation — 2026-09-08
 
+Follow-up: the [launch-stage record](results-launch-stage-2026-09-08.md) retains
+the next recurrence and its pre-exec callback boundary observation. The evidence
+below remains unchanged and is not retrospectively reclassified.
+
 The [prior focused CI failure](results-focused-candidate-2026-09-08.md#first-ci-failure-retained)
 showed an owned child already `SIGKILL`-terminated before cleanup. This follow-up
 adds the next missing observation, not a speculative runtime fix or a replay.

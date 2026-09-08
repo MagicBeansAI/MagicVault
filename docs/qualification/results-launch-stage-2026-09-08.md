@@ -67,5 +67,52 @@ follow-up. The CI run below must supply the next original-scenario observation.
 
 ## Bounded CI evidence
 
-Pending one manual, fail-fast run of the original concurrent process/HTTP
-fixture: at most 200 fresh trials within ten minutes, no failed-trial replay.
+[Run 34194598193, attempt 1](https://github.com/MagicBeansAI/MagicVault/actions/runs/34194598193)
+**FAILED** on MagicVault `44f5a05d74518e36f0a35896929433db0976d0da`, using
+MagicRun `db545df65dcd1bf6b62f79111c5693da45f62bff`. Job `101959478612`;
+macOS `15.7.9` arm64 (`24G830`), image `20260829.0321.1`, Rust `1.92.0`,
+Node `22.23.2`. The reviewed client build/package assembly, orchestration and
+architecture checks, three diagnostic registry units, five real adapter cases,
+exact CLI fixture compilation and explicit instrumented-release refusal passed.
+
+Trials 1–21 passed both original cases and reported `CallbackCompleted` for the
+process. **Trial 22 failed the process case, while its HTTP companion passed.**
+The loop ran from `06:30:09.933Z` to failure at about `06:30:29.359Z`—roughly
+19 seconds, well before the ten-minute limit. No trial 23, retry, successful
+summary, post-success uninstall or upload followed. Runner teardown, not any
+live installation, owns the disposable failed fixture.
+
+| Failed-child observation | Result |
+| --- | --- |
+| Launch stage | **`CallbackNotEntered`**: mapping available, no first callback store observed |
+| Spawn and first wait | One child handle; matching owned child / `SIGCHLD`, `CLD_KILLED`, `SIGKILL` on first wait; no wait interruption/error |
+| OS exit reason | **`Observed(Foundation)`**, before cleanup |
+| Cleanup and final reap | No explicit termination cleanup; later before-reap group kill returned `NoSuchProcess`; final reap was `SIGKILL` with no wait error |
+| Adapter and markers | Dispatched `RuntimeFailure`, `uncertain` / `unavailable`, `may_have_run: true`; stderr empty; entry/material-present/completion markers all absent |
+
+## Interpretation and next boundary
+
+This occurrence is now localized **before the callback's first observed store**,
+not inside its later working-directory/resource-limit operations or after its
+successful completion. A child handle was returned without a normal recipient
+launch, consistent with Rust's error-pipe EOF behavior. Cleanup still follows
+the already-observed signal exit; it does not explain the original kill.
+
+The remaining launch interval includes macOS's fork/at-fork child work and Rust's
+pre-callback setup (standard descriptors, process group and signal setup). The
+probe does not distinguish those operations, identify a specific exception,
+framework or signal sender, or exclude an early failure at the marker boundary
+itself. `Foundation` remains an OS category, not attribution to a Foundation API.
+No program counter, stack, Mach exception payload or broad OS history was read.
+
+The next useful work is a focused review of that pre-callback launch interval and
+a regression-backed fix preserving exact executable/cwd authority, clean
+environment, descriptor handling, owned-group cleanup and original process/HTTP
+concurrency. If further evidence is required, scope it to the owned synthetic
+child rather than collecting general crash reports. Do not disable OS fork
+safety, serialize away the scenario, relax deadlines or replay uncertain work.
+
+This completes the launch-stage diagnostic step, **not the process reliability
+fix or release qualification**. All earlier failures remain retained. No further
+run, production launch-policy change, Magician upgrade, signing or publication
+followed this result.

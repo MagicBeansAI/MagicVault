@@ -2,6 +2,12 @@
 
 ## Current evidence
 
+The [0.8.3 native-spawn correction](qualification/results-native-spawn-2026-09-08.md)
+removes userspace fork from the affected macOS process path. Regression tests
+require descriptor-bound cwd, exact bytes, stdio/descriptor isolation and a
+no-fork positive control. The original concurrent process/HTTP fixture remains
+the bounded CI scenario; its exact revision and result are recorded separately.
+
 The [0.8.2 completion-order correction](qualification/results-completion-order-2026-09-08.md)
 has deterministic browser/delivery/metadata regression tests. Terminal publication
 must release admission in the same serialized completion, not on a later async

@@ -1,6 +1,6 @@
 [package]
 name = "magicvault-effect"
-version = "0.6.0"
+version = "0.6.1"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "Trusted browser, HTTP and process credential delivery adapters for MagicVault"
@@ -21,7 +21,7 @@ url = "2"
 uuid = { version = "1", features = ["v4", "serde"] }
 zeroize = "1"
 reqwest = { version = "=0.12.28", default-features = false, features = ["rustls-tls-native-roots", "stream"] }
-tool-runtime-core = { git = "https://github.com/MagicBeansAI/MagicRun.git", version = "0.1.73" }
+tool-runtime-core = { git = "https://github.com/MagicBeansAI/MagicRun.git", version = "0.1.74" }
 blake3 = "1"
 libc = "0.2"
 

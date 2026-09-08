@@ -102,9 +102,11 @@ async fn observed_terminals_distinguish_exit_signal_and_known_errors_without_mat
         assert_eq!(child.spawned_children, 1);
         #[cfg(target_os = "macos")]
         assert_eq!(
-            child.pre_exec_stage,
-            Some(tool_runtime_core::process_test_diagnostics::PreExecStage::CallbackCompleted)
+            child.spawn_method,
+            Some(tool_runtime_core::process_test_diagnostics::SpawnMethod::MacosPosixSpawn)
         );
+        #[cfg(target_os = "macos")]
+        assert_eq!(child.pre_exec_stage, None);
         assert!(child.cleanup_before_reap && !child.termination_cleanup);
         assert_eq!(child.reaped_signal, expected_signal);
         #[cfg(target_os = "macos")]

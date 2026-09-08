@@ -13,7 +13,7 @@ use tool_runtime_core::{
 };
 use uuid::Uuid;
 
-pub use tool_runtime_core::process_test_diagnostics::PreExecStage;
+pub use tool_runtime_core::process_test_diagnostics::SpawnMethod;
 
 const CAPACITY: usize = 16;
 

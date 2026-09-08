@@ -2,7 +2,7 @@
   <h1>MagicVault</h1>
   <p><strong>Let agents use credentials without seeing them</strong></p>
   <p>
-    <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/source-v0.8.2%20alpha-7C3AED.svg" alt="Source version 0.8.2 alpha" /></a>
+    <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/source-v0.8.3%20alpha-7C3AED.svg" alt="Source version 0.8.3 alpha" /></a>
     <a href="#quick-start"><img src="https://img.shields.io/badge/standalone-macOS-lightgrey.svg" alt="Standalone host: macOS" /></a>
     <a href="#license"><img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg" alt="MIT or Apache-2.0 license" /></a>
   </p>
@@ -59,8 +59,8 @@ These are local filenames, **not published npm package names**.
 ```bash
 export MAGICVAULT_NPM_DIR="$HOME/.local/share/magicvault-npm"
 npm install --prefix "$MAGICVAULT_NPM_DIR" --ignore-scripts \
-  ./magicvault-local-magicvault-darwin-arm64-0.8.2.tgz \
-  ./magicvault-local-magicvault-0.8.2.tgz
+  ./magicvault-local-magicvault-darwin-arm64-0.8.3.tgz \
+  ./magicvault-local-magicvault-0.8.3.tgz
 export PATH="$MAGICVAULT_NPM_DIR/node_modules/.bin:$PATH"
 magicvault --profile agent setup
 magicvault --profile agent doctor

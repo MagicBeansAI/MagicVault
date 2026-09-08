@@ -1,6 +1,23 @@
 # Changelog
 
-## Unreleased — Qualification diagnostics
+## 0.8.3 — macOS process launch correction — 2026-09-08
+
+- Select MagicRun `0.1.74`: standalone macOS process delivery now uses native
+  `posix_spawn` with the authorized cwd descriptor, eliminating its userspace
+  fork/pre-exec interval. Preserve exact executable/argv/env, bounded output,
+  parent resource enforcement, cancellation, owned-group cleanup and uncertainty.
+- Validate the original authorized launch bytes directly; malformed values fail
+  closed. No shell fallback, automatic replay, concurrency reduction or longer
+  deadline. Native-spawn selection is asserted in the existing diagnostic fixture.
+- Bump CLI/MCP/service bundles to `0.8.3` and the effect crate to `0.6.1`.
+  Custody core, wire/storage formats and extension `0.6.1` remain unchanged.
+  MagicRun's jailed/PTY/non-macOS backends and Magician's checkout remain unchanged.
+- Record focused validation and exact CI evidence in the
+  [native-spawn qualification](docs/qualification/results-native-spawn-2026-09-08.md).
+  Earlier failures remain retained; this is not a signed/public release or
+  completion of all native/browser/performance acceptance gates.
+
+## Earlier 0.8.2 qualification diagnostics
 
 - Retain the first launch-stage CI failure: trial 22 reported
   `CallbackNotEntered` with `Observed(Foundation)` before cleanup; its HTTP

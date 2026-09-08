@@ -1,6 +1,6 @@
 # MagicVault architecture
 
-Architecture version: `0.8.2`
+Architecture version: `0.8.3`
 
 Previous immutable baseline tag: `architecture/v0.3.0`. The current reviewed
 source/document baseline is [architecture-baseline.json](architecture-baseline.json).
@@ -27,7 +27,7 @@ flowchart TB
     broker -->|"Fixed profile and authorized material"| http["HTTP adapter: vetted/pinned destination, verified TLS"]
     broker -->|"Fixed profile, executable digest and material"| process["Process adapter"]
     process --> run["MagicRun public governed batch coordinator"]
-    run --> child["New authorized child: env / stdin"]
+    run -->|"macOS: native spawn + descriptor-bound cwd"| child["New authorized child: env / stdin"]
     http --> service["Authorized HTTP recipient"]
     child -->|"Raw output withheld"| run
     service -->|"Response content withheld"| http
@@ -68,12 +68,12 @@ that an immediate restart can acquire the old instance lock.
 
 | Component | Version | Ownership |
 | --- | --- | --- |
-| `magicvault`, `magicvault-mcp` | `0.8.2` | Human administration, reference-only clients and optional discovery narrowing; CLI builds daemon/native host |
-| `magicvault-service` | `0.8.2` | Native consent/grants and cancellation, bounded discovery, one store writer and private application-bundle installer |
+| `magicvault`, `magicvault-mcp` | `0.8.3` | Human administration, reference-only clients and optional discovery narrowing; CLI builds daemon/native host |
+| `magicvault-service` | `0.8.3` | Native consent/grants and cancellation, bounded discovery, one store writer and private application-bundle installer |
 | `magicvault-protocol` | `0.6.0` | Discovery query/filter types; authentication, policy, consent, profiles, jobs and bounded IPC |
-| `magicvault-effect` | `0.6.0` | Filtered adapter method/native command; CDP/native fills, HTTP and MagicRun integration |
+| `magicvault-effect` | `0.6.1` | Filtered adapter method/native command; CDP/native fills, HTTP and MagicRun integration |
 | Chromium extension | `0.6.1` | Permission-aware exact discovery narrowing, site grants/blocks and document-targeted fill; no navigation or submission API |
-| MagicRun `tool-runtime-core` | `0.1.73`, public Git dependency locked to `25f1c449` | Governed process preparation, digest-bound dispatch, cancellation, output bounds and owned-child cleanup; debug-only process observer, normal runtime decisions unchanged |
+| MagicRun `tool-runtime-core` | `0.1.74`, public Git dependency locked to `af348ab5` | Governed process preparation, descriptor-bound native macOS spawn for non-jailed batches, digest-bound dispatch, cancellation, output bounds and owned-child cleanup |
 | `magicvault-core` | `0.1.3` | Encryption, credential references, existing policies, scoped stores and typed audit |
 | `magicvault-primitives` | `0.1.1` | Durable filesystem and stack-safe JSON utilities |
 
@@ -83,6 +83,24 @@ Filtered discovery adds a closed `filtered_targets` bridge command; use matching
 updated components. Old workers refuse it; no broader-query or delivery fallback.
 Wire versions and crate versions are distinct. See the [protocol](protocol.md)
 for framing, message types and bounds, and [versioning](versioning.md) for upgrades.
+
+## Process launch boundary
+
+Standalone `secure_new_process` uses MagicRun's non-jailed batch path. On macOS,
+`0.8.3` selects native `posix_spawn` without userspace fork/at-fork callbacks.
+The exact authorized cwd remains descriptor-bound through a spawn file action;
+argv/environment are validated from original bytes, copied into zeroizing C
+buffers, and never inherited from the parent. Explicit stdio and close-by-default
+file actions exclude unrelated descriptors. Original deadline, cancellation,
+resource/output bounds, wait/cleanup and receipt uncertainty rules remain intact.
+No retry, shell fallback or process/HTTP serialization is added. The required
+macOS cwd action must exist or the operation fails closed. See
+[MagicRun's reviewed boundary](https://github.com/MagicBeansAI/MagicRun/blob/af348ab566cbf495f59d155a328bf2cac6afa09d/docs/architecture.md#macos-non-jailed-batch-launch)
+and [qualification](qualification/results-native-spawn-2026-09-08.md).
+Shared custody, protocol, browser/extension behavior and persisted state do not
+change. MagicRun's jailed and PTY paths retain their existing backends; Magician
+is not upgraded here. Its future dependency/source review will see changed
+authority bytes and batch bytes that also include the new native backend.
 
 ## Distribution and stable application lifecycle
 
@@ -164,7 +182,7 @@ payload, flags or PID is retained. Normal exits and uncaptured work do not query
 The API is a private diagnostic dependency, absent from normal builds; it never
 changes the execution result or selects a process to terminate. Native synthetic
 self-SIGTERM/SIGKILL preflight verifies the OS reason reaches the adapter observer.
-An active macOS capture also records the child's pre-exec callback stage through
+An active macOS capture on the retained standard-command backend records the child's pre-exec callback stage through
 one anonymous shared atomic byte. The parent alone allocates and reads it; the
 existing child callback only stores entry/completion, without locks, allocation,
 logging or descriptors. Closed unavailable/invalid states remain observations.
@@ -173,6 +191,9 @@ child handle can follow death before exec. Synthetic boundary tests exercise
 those distinctions. This debug-only probe changes neither the launch mechanism
 nor the original process/HTTP concurrency, deadlines or uncertainty rules. See
 the [launch-stage investigation](qualification/results-launch-stage-2026-09-08.md).
+The corrected native path records `SpawnMethod::MacosPosixSpawn` and no pre-exec
+stage; it creates no shared callback probe. Exact process fixtures require this
+method explicitly rather than accepting a return to fork as equivalent success.
 The separate manual **Focused process investigation** workflow builds unsigned
 clients without rerunning the full distribution suite. Its explicit mode accepts
 1–200 fresh test-driver processes and retains the original concurrent process/HTTP

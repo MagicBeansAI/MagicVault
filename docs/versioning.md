@@ -2,7 +2,9 @@
 
 ## Current component versions
 
-**0.8.1 — native cancellation receipt correction, 2026-09-08.**
+**0.8.3 — macOS process launch correction, 2026-09-08.**
+The [native-spawn record](qualification/results-native-spawn-2026-09-08.md)
+identifies the changed launch path and its exact qualification evidence.
 The [changelog](../CHANGELOG.md) describes the supported functionality and
 [discovery qualification](qualification/results-discovery-2026-09-08.md) records
 prior `0.7.0` evidence, not acceptance of the new [consent policy](consent.md).
@@ -15,22 +17,23 @@ binary release, extension store listing or production-safety certification.
 
 | Component | Source version / contract | Compatibility responsibility |
 | --- | --- | --- |
-| `magicvault` CLI, daemon and native-host executable | Package `0.8.1` | Matching wire-4 bundle; CLI-only consent inspection/revocation; native-host forwarding |
-| `magicvault-mcp` | Package `0.8.1` | Matching reference-only client; no tool can grant consent |
-| `magicvault-service` | `0.8.1` | Exact-use native consent, bounded durable grants and revocation; destination, installation and custody checks retained |
-| `magicvault-effect` | `0.6.0` | Matching protocol types; delivery adapters and bounded extension/CDP discovery retained |
+| `magicvault` CLI, daemon and native-host executable | Package `0.8.3` | Matching wire-4 bundle; CLI-only consent inspection/revocation; native-host forwarding |
+| `magicvault-mcp` | Package `0.8.3` | Matching reference-only client; no tool can grant consent |
+| `magicvault-service` | `0.8.3` | Exact-use native consent, bounded durable grants and revocation; destination, installation and custody checks retained |
+| `magicvault-effect` | `0.6.1` | Updated MagicRun process backend; protocol and bounded extension/CDP discovery retained |
 | `magicvault-protocol` | `0.6.0` | Closed consent scopes/list/revoke/reset variants; existing fill/delivery requests and byte framing retained |
 | Chromium extension | Manifest `0.6.1` | Permission-filtered, loaded-tab discovery with exact narrowing; document binding, fixed identity, reconnect/backoff, pause and site controls retained |
 | Local agent protocol | Wire version `4` | Version mismatches fail closed; not the package version |
 | Native connection | Handshake `2`; effect/config schemas `1` | Matching extension/host/daemon required; no silent downgrade |
 | `magicvault-core` | `0.1.3`, unchanged | Existing embedded custody/API/vault format/key identity retained |
 | `magicvault-primitives` | `0.1.1`, unchanged | Existing utility contract retained |
-| MagicRun `tool-runtime-core` | Public Git dependency `0.1.73` | Existing public coordinator; exact source recorded in Cargo.lock; runtime unchanged |
+| MagicRun `tool-runtime-core` | Public Git dependency `0.1.74` | Public coordinator unchanged; non-jailed macOS launch uses descriptor-bound native spawn; exact source in Cargo.lock |
 | `magicvault-test-support` | `0.4.0`, `publish = false` | Test-only, not a production surface |
 
-The preceding local candidate was `0.8.0`, also using wire `4`. This patch changes
-only pending process/HTTP cancellation receipt classification; it does not change
-consent authority, the native provider, adapters or persisted formats. Version
+The preceding source version was `0.8.2`, also using wire `4`. This patch changes
+the macOS non-jailed process launch backend, not consent authority, browser/native
+transport, custody APIs or persisted formats. `0.8.2` fixed completion/admission
+ordering; `0.8.1` fixed pending process/HTTP cancellation receipts. Version
 `0.8.0` introduced wire `4` (replacing `0.7.0` wire `3`) for closed consent
 list/revoke/reset requests. No agent request can
 create a grant. Existing registries load with no grants; saved grant fields

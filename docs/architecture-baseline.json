@@ -3,7 +3,7 @@
   "project": "MagicVault",
   "architecture_version": "0.8.2",
   "document": "docs/architecture.md",
-  "document_sha256": "be063768b584abeefe8aeeedd576031db399d7f5212be814d220f1ae1728c02f",
+  "document_sha256": "aed14823fecd4988b10463437f816e4599651b17976ed7c3ea9fc2983d694df9",
   "component_versions": {
     "extension": "0.6.1",
     "magicvault": "0.8.2",
@@ -16,6 +16,7 @@
   },
   "source_sha256": {
     ".github/workflows/distribution.yml": "145b6a9f6a7c97f857f3c031ab8ce6f9e03e34a4f522489d0eec7bd16e0b02b7",
+    ".github/workflows/process-investigation.yml": "cf0fa5b99d58a3393b6371a449dedbe6bac2707c1c3ee261ed44e41330ce7730",
     ".github/workflows/qualification.yml": "30c7320e100240fd08c7be430ffb7f09bcb220b4511858bbd16bcdc266bb9942",
     "Cargo.lock": "41480629f450d8c688f98184f311f331a357a4912efdb01b66abc017b20578a6",
     "Cargo.toml": "7f5b8f9eaed713c5c68dedc540340f93693ab5d7fcc0d7c2856d4dd0553742cb",
@@ -85,7 +86,8 @@
     "npm/launcher.cjs": "8bdb4405158d161867e587acdad94395eda1c35535f657dc0504b839ffeffcdf",
     "npm/mcp.cjs": "2233e6719217ccbb08ae28b97499632ba773905c552c598a554f938a033e402b",
     "scripts/package-npm.mjs": "e0bb2954bb146c227408805e3261d2833c243210a3440f470d4e0568440fbccf",
-    "scripts/qualify-package.mjs": "4fc8251226bfb25269888f80d37c16b1023ca400d558438a5bc518ff7d912d21",
+    "scripts/process-investigation.mjs": "4940d6f089c3ad67744978c4e7c65ae363bfecf77ac45aded5d3af0ac717f4da",
+    "scripts/qualify-package.mjs": "acd14e471627820037bc6598a9c344f78a1a23f916128190977eb76972725f0b",
     "scripts/sign-release.sh": "9ca4fc668579185168f3ceab017568d3b06a7286c4e7d29a0b5f34c70bb89726"
   }
 }

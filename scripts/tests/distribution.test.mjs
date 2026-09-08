@@ -7,11 +7,69 @@ import { createRequire } from 'node:module';
 import { createHash, createPublicKey } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { assemble, binaries } from '../package-npm.mjs';
+import { investigate, investigationRounds, INVESTIGATION_BUDGET_MS } from '../process-investigation.mjs';
 
 const require = createRequire(import.meta.url);
 const { resolveBinary } = require('../../npm/launcher.cjs');
 const { fixture: extensionFixture, options: extensionOptions, tick } = require('../../extension/tests/harness.cjs');
 const repo = path.resolve(import.meta.dirname, '../..');
+test('focused process investigation validates bounds and incompatible lanes before any write', t => {
+  for (const value of ['0', '201', '01', '1e2', '1.1', '-1', '', ' 1', undefined]) assert.throws(() => investigationRounds(value));
+  assert.equal(investigationRounds('1'), 1);
+  assert.equal(investigationRounds('200'), 200);
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'magicvault-investigation-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const work = path.join(root, 'must-not-exist');
+  for (const args of [
+    [], ['--with-rust-tests'], ['--with-process-diagnostics'],
+    ['--with-rust-tests', '--with-process-diagnostics', '--with-browser-tests'],
+    ['--with-rust-tests', '--with-process-diagnostics', '--with-performance-tests'],
+    ['--with-rust-tests', '--with-process-diagnostics', '--reliability-rounds', '2'],
+    ['--with-rust-tests', '--with-process-diagnostics', '--browser-idle-secs', '30'],
+  ]) {
+    assert.throws(() => execFileSync(process.execPath, [path.join(repo, 'scripts/qualify-package.mjs'), '--packages', root, '--work', work, '--process-investigation-rounds', '200', ...args], {stdio: 'pipe', timeout: 5000}), error => error.status !== 0 && String(error.stderr).includes('process investigation requires'));
+    assert.equal(fs.existsSync(work), false);
+  }
+});
+test('focused process trials are independent, bounded and never retried after failure', () => {
+  let count = 0;
+  const reports = [];
+  const result = investigate(200, timeout => { count++; assert.equal(timeout, 120_000); }, event => reports.push(event), () => 0);
+  assert.equal(count, 200);
+  assert.equal(reports.length, 200);
+  assert.deepEqual(result, {outcome: 'inconclusive_no_reproduction', completed_trials: 200, budget_ms: 600_000});
+  count = 0;
+  const sentinel = new Error('fixture failure');
+  assert.throws(() => investigate(200, () => { if (++count === 3) throw sentinel; }, () => {}, () => 0), error => error === sentinel);
+  assert.equal(count, 3);
+});
+test('process budget exhaustion cannot produce a completion summary or start another trial', () => {
+  let elapsed = 0, count = 0;
+  assert.throws(() => investigate(10, timeout => { count++; assert.equal(timeout, 120_000); elapsed += 120_000; }, () => {}, () => elapsed), /budget exhausted/);
+  assert.equal(count, 5);
+  let ticks = 0;
+  assert.throws(() => investigate(1, () => assert.fail('must not dispatch'), () => {}, () => ticks++ ? INVESTIGATION_BUDGET_MS : 0), /budget exhausted/);
+  ticks = 0;
+  assert.throws(() => investigate(1, timeout => { assert.equal(timeout, 10); }, () => {}, () => [0, INVESTIGATION_BUDGET_MS - 10, INVESTIGATION_BUDGET_MS][ticks++]), /budget exhausted/);
+});
+test('focused workflow is manual, bounded, unsigned and keeps runner paths at step scope', t => {
+  const workflow = fs.readFileSync(path.join(repo, '.github/workflows/process-investigation.yml'), 'utf8');
+  assert.match(workflow, /workflow_dispatch:/);
+  assert.match(workflow, /timeout-minutes: 25/);
+  assert.match(workflow, /--process-investigation-rounds 200/);
+  assert.doesNotMatch(workflow, /\$\{\{\s*secrets\.|upload-artifact|npm publish|continue-on-error|schedule:/);
+  const env = workflow.match(/^    env:\n([\s\S]*?)^    steps:/m)?.[1];
+  assert.ok(env);
+  assert.doesNotMatch(env, /\$\{\{\s*(?:runner|env)\b/);
+  const initializer = workflow.match(/^      - name: Initialize artifact locations\n        shell: bash\n        run: \|\n((?:          [^\n]*\n)+)/m);
+  assert.ok(initializer);
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'magicvault-focused-workflow-'));
+  t.after(() => fs.rmSync(root, {recursive: true, force: true}));
+  const environmentFile = path.join(root, 'github env');
+  execFileSync('/bin/bash', ['-e', '-u', '-o', 'pipefail', '-c', initializer[1].replace(/^          /gm, '')], { env: {RUNNER_TEMP: path.join(root, 'with spaces'), GITHUB_ENV: environmentFile}, stdio: 'pipe' });
+  assert.deepEqual(fs.readFileSync(environmentFile, 'utf8').trimEnd().split('\n'), [`CARGO_TARGET_DIR=${root}/with spaces/magicvault-builds`, `PACKAGE_PARENT=${root}/with spaces/magicvault-process-investigation`]);
+});
+
 test('browser resource observation bounds are checked before creating artifacts', t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'magicvault-resource-optin-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));

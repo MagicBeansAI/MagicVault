@@ -93,7 +93,7 @@ class Architecture(unittest.TestCase):
         self.write("extension/manifest.json", '{"version":"0.3.0"}\n')
         self.write("docs/architecture.md", "Architecture version: `0.5.0`\n")
         before = GATE.snapshot(self.root)
-        for name in ["npm/launcher.cjs", "scripts/package-npm.mjs", "scripts/sign-release.sh", ".github/workflows/distribution.yml", ".github/workflows/qualification.yml"]:
+        for name in ["npm/launcher.cjs", "scripts/package-npm.mjs", "scripts/sign-release.sh", "scripts/process-investigation.mjs", ".github/workflows/distribution.yml", ".github/workflows/qualification.yml", ".github/workflows/process-investigation.yml"]:
             self.write(name, "synthetic distribution input\n")
             self.assertIn(name, GATE.differences(before, GATE.snapshot(self.root)))
         (self.root / "npm/launcher.cjs").unlink()

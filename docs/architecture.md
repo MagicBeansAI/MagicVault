@@ -157,6 +157,17 @@ qualifier isolates diagnostic build outputs from packaging and proves that
 rejection before running the installed-client trials. Installed clients remain
 the unchanged package bytes; only their synthetic broker/test driver is observed.
 These observations classify a failure, not its root cause or retry safety.
+The separate manual **Focused process investigation** workflow builds unsigned
+clients without rerunning the full distribution suite. Its explicit mode accepts
+1–200 fresh test-driver processes and retains the original concurrent process/HTTP
+fixture pair. Cargo reports the exact driver path; the driver runs directly so a
+command timeout targets it, not a Cargo intermediary. Trial time has a ten-minute
+monotonic budget, capped to two minutes per driver; build/preflight time is
+separate and the entire isolated CI job is capped at 25 minutes. A failed trial
+or exhausted budget aborts without retry or a successful summary. All completed
+trials yield `inconclusive_no_reproduction`, never a root-cause/fix claim. This
+mode cannot mix browser, resource or ordinary reliability lanes. It uploads no
+artifacts and changes no runtime cleanup or public configuration.
 MagicRun's added hooks are absent from normal compilation and do not change
 wait/cleanup decisions. Its literal governed source bytes nevertheless change;
 consumers that attest those bytes must review that digest on a future dependency
@@ -165,6 +176,9 @@ custody, storage and public delivery protocols are unchanged. See the
 [signal investigation](qualification/results-process-signal-2026-09-08.md).
 Browser qualification requires explicit `--app-parent`; its Make target selects
 an internal temporary application separately from external build/package artifacts.
+It executes both installed CLI → real CDP and installed MCP → native extension
+flows. The CLI browser fixture honors the explicit installed-client path without
+falling back to a source-built executable; default source tests remain unchanged.
 The external-host path can block in macOS loader/access-policy work before the
 synthetic provider starts. An opt-in test-only sampler checks the fixture PID's
 image before retaining a bounded private stack capture; it never reads protocol

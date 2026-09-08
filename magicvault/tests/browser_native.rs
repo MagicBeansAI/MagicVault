@@ -22,6 +22,20 @@ use zeroize::Zeroizing;
 struct SyntheticHuman {
     deny: AtomicBool,
 }
+// Test-only package seam: an explicit installed client never falls back to the
+// source-build client, even if its selected path is missing or fails to start.
+fn cli_binary(selected: Option<std::ffi::OsString>) -> std::ffi::OsString {
+    selected.unwrap_or_else(|| env!("CARGO_BIN_EXE_magicvault").into())
+}
+#[test]
+fn installed_browser_cli_selection_is_explicit_and_does_not_fall_back() {
+    let selected = std::ffi::OsString::from("/synthetic/missing-installed-client");
+    assert_eq!(cli_binary(Some(selected.clone())), selected);
+    assert_eq!(
+        cli_binary(None),
+        std::ffi::OsString::from(env!("CARGO_BIN_EXE_magicvault"))
+    );
+}
 #[async_trait]
 impl HumanInteraction for SyntheticHuman {
     async fn confirm(&self, message: &str, _: CancellationToken) -> Result<bool, ErrorCode> {
@@ -35,7 +49,7 @@ impl HumanInteraction for SyntheticHuman {
 async fn cli(root: &Path, args: &[&str]) -> serde_json::Value {
     let output = tokio::time::timeout(
         Duration::from_secs(15),
-        tokio::process::Command::new(env!("CARGO_BIN_EXE_magicvault"))
+        tokio::process::Command::new(cli_binary(std::env::var_os("MAGICVAULT_TEST_CLI")))
             .arg("--root")
             .arg(root)
             .args(args)

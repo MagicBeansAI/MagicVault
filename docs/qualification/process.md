@@ -39,6 +39,35 @@ seams. They do not establish access to a public provider or expose an insecure
 mode in the product. The OS-native trust store, desktop prompt rendering and
 keychain path still require platform acceptance.
 
+## Focused intermittent-process investigation
+
+Dispatch **Focused process investigation** on a reviewed revision for the
+original macOS runner environment. This manual workflow builds uninstrumented
+unsigned clients, validates the closed diagnostic observer/release guard, then
+starts at most 200 independent diagnostic test executables. Each creates new
+synthetic custody, recipients and operation IDs. The original process test and
+its HTTP companion still run concurrently; there is no automatic delivery replay.
+
+For a deliberately selected local package candidate:
+
+```bash
+node scripts/qualify-package.mjs --packages "$candidate_dir/packages" \
+  --work "$candidate_dir/process-investigation" --app-parent /private/tmp \
+  --with-rust-tests --with-process-diagnostics --process-investigation-rounds 200
+```
+
+The mode accepts 1–200 trials and refuses combination with browser/performance
+or repeated full-package qualification. After compilation/preflight, a monotonic
+ten-minute trial budget caps each driver to the lesser of two minutes and the
+remaining budget. Timeout kills the exact test driver, not arbitrary process
+groups. This mode is restricted to the fixed short-lived synthetic recipients;
+it is not a supervisor for arbitrary programs or a production cancellation API.
+The CI job has a separate 25-minute ceiling, including compilation and teardown.
+Failure or budget exhaustion produces a nonzero exit and stops further trials.
+Passing all requested trials reports `inconclusive_no_reproduction`: keep earlier
+failures open. Do not retry a failing run for green or infer the signal's sender
+from the signal class alone. [Evidence](results-focused-candidate-2026-09-08.md).
+
 ## Native acceptance (manual, not replaced by synthetic approval)
 
 Use a disposable OS account and private fresh root, or an explicitly authorized

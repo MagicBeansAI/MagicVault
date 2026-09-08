@@ -7,8 +7,11 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { parseArgs } from 'node:util';
+import { investigationRounds, investigate } from './process-investigation.mjs';
 
-const { values } = parseArgs({ options: { packages: { type: 'string' }, work: { type: 'string' }, 'app-parent': { type: 'string' }, 'browser-idle-secs': { type: 'string' }, 'reliability-rounds': { type: 'string', default: '1' }, 'with-performance-tests': { type: 'boolean', default: false }, 'with-rust-tests': { type: 'boolean', default: false }, 'with-browser-tests': { type: 'boolean', default: false }, 'with-process-diagnostics': { type: 'boolean', default: false } } });
+const { values } = parseArgs({ options: { packages: { type: 'string' }, work: { type: 'string' }, 'app-parent': { type: 'string' }, 'browser-idle-secs': { type: 'string' }, 'reliability-rounds': { type: 'string', default: '1' }, 'process-investigation-rounds': { type: 'string' }, 'with-performance-tests': { type: 'boolean', default: false }, 'with-rust-tests': { type: 'boolean', default: false }, 'with-browser-tests': { type: 'boolean', default: false }, 'with-process-diagnostics': { type: 'boolean', default: false } } });
+const investigation = values['process-investigation-rounds'] === undefined ? 0 : investigationRounds(values['process-investigation-rounds']);
+if (investigation && (!values['with-rust-tests'] || !values['with-process-diagnostics'] || values['with-browser-tests'] || values['with-performance-tests'] || values['browser-idle-secs'] !== undefined || values['reliability-rounds'] !== '1')) throw new Error('process investigation requires diagnostic Rust tests only; do not combine qualification lanes');
 const browserIdle = values['browser-idle-secs'];
 if (browserIdle !== undefined && (!/^(?:[3-9][0-9]|[12][0-9]{2}|300)$/.test(browserIdle) || !values['with-browser-tests'] || values['reliability-rounds'] !== '1' || process.env.MAGICVAULT_TEST_STARTUP_DIAGNOSTICS !== undefined)) throw new Error('browser resource observations require --with-browser-tests, 30..300 idle seconds, one round and no stack sampling');
 if (values['with-process-diagnostics'] && (!values['with-rust-tests'] || process.env.RUSTFLAGS || process.env.CARGO_ENCODED_RUSTFLAGS)) throw new Error('process diagnostics require --with-rust-tests and no ambient Rust flags');
@@ -90,7 +93,26 @@ if (values['with-rust-tests']) {
     assert(releaseRefused, 'instrumented release must fail with the explicit isolation guard');
     console.log(JSON.stringify({ diagnostic_release_refused: true }));
   }
-  for (let round = 1; round <= rounds; round++) {
+  if (investigation) {
+    // Resolve Cargo's reported executable, never a glob or a guessed hash.
+    const artifacts = execFileSync('cargo', ['test', '--locked', '-p', 'magicvault', '--test', 'delivery_cli', '--no-run', '--message-format=json'], { env: diagnosticEnv, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'], timeout: 300_000, maxBuffer: 16 * 1024 * 1024 }).trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
+    const fixtures = artifacts.filter(row => row.reason === 'compiler-artifact' && row.target?.name === 'delivery_cli' && row.profile?.test && row.executable);
+    assert.equal(fixtures.length, 1, 'must resolve exactly one diagnostic fixture');
+    const { executable, manifest_path: manifest } = fixtures[0];
+    assert(path.isAbsolute(executable) && fs.lstatSync(executable).isFile(), 'diagnostic fixture must be an absolute regular file');
+    assert(typeof manifest === 'string' && path.isAbsolute(manifest), 'diagnostic fixture must report its package manifest');
+    const cwd = path.dirname(manifest); // Match cargo test's package working directory.
+    const listing = execFileSync(executable, ['--list'], { cwd, env: diagnosticEnv, encoding: 'utf8', timeout: 5000, maxBuffer: 64 * 1024 });
+    for (const name of ['actual_cli_to_daemon_to_magicrun_executes_without_echoing_material', 'actual_cli_http_completion_and_audit_failure_remain_reconcilable']) assert(listing.split('\n').includes(`${name}: test`), 'exact process/HTTP fixture pair must be present');
+    const result = investigate(investigation, timeout => {
+      // Execute the test driver directly: timeout targets the actual owned
+      // driver, not an intermediate Cargo process. Fixed recipients are local
+      // synthetic fixtures; no shell wrapper or unrelated process-group kill.
+      execFileSync(executable, ['--nocapture', '--test-threads=2'], { cwd, env: diagnosticEnv, stdio: 'inherit', timeout, killSignal: 'SIGKILL' });
+    }, event => console.log(JSON.stringify(event)));
+    console.log(JSON.stringify({ process_investigation: result }));
+  }
+  for (let round = 1; !investigation && round <= rounds; round++) {
     // These are independent trials, never retries after failure. execFileSync
     // throws at the first failing lane; no success summary or uninstall follows.
     console.log(JSON.stringify({ qualification_round: round, rounds }));
@@ -102,6 +124,7 @@ if (values['with-rust-tests']) {
     }
     execFileSync('cargo', ['test', '--locked', '-p', 'magicvault-mcp', '--test', 'end_to_end'], { env: testEnv, stdio: 'inherit', timeout: 120_000 });
     if (values['with-browser-tests']) {
+      execFileSync('cargo', ['test', '--locked', '--release', '-p', 'magicvault', '--test', 'browser_native', '--', '--ignored', '--nocapture', '--test-threads=1'], { env: testEnv, stdio: 'inherit', timeout: 120_000 });
       // Real Chrome dispatch, isolated user-data roots/host definitions and
       // synthetic human/key providers. Not native permission/keychain acceptance.
       execFileSync('cargo', ['test', '--locked', '--release', '-p', 'magicvault-mcp', '--test', 'extension_native', '--', '--ignored', '--nocapture', '--test-threads=1'], { env: testEnv, stdio: 'inherit', timeout: 120_000 + Number(browserIdle || 0) * 1000 });
@@ -123,4 +146,4 @@ const retired = JSON.parse(run(stableCli, ['--root', vault, '--app-dir', app, 'u
 assert.equal(retired.vault_preserved, true); assert.equal(retired.keychain_preserved, true);
 assert(!fs.existsSync(app)); assert(fs.existsSync(retired.application_archive));
 assert(!fs.existsSync(vault)); assert.deepEqual(fs.readdirSync(home), []);
-console.log(JSON.stringify({ passed: true, version, npm_install: 'offline local tarballs', client_path: 'Node and system utilities only; no Rust', live_custody_or_services_touched: false, rust_fixture_tests: values['with-rust-tests'], isolated_browser_tests: values['with-browser-tests'], browser_idle_seconds: Number(browserIdle || 0), process_diagnostics: values['with-process-diagnostics'], reliability_rounds: rounds, performance_tests: values['with-performance-tests'], artifacts: work, application_artifacts: appArtifacts }));
+console.log(JSON.stringify({ passed: true, scope: investigation ? 'bounded investigation completed; cause unresolved' : 'package qualification', version, npm_install: 'offline local tarballs', client_path: 'Node and system utilities only; no Rust', live_custody_or_services_touched: false, rust_fixture_tests: values['with-rust-tests'], isolated_browser_tests: values['with-browser-tests'], browser_idle_seconds: Number(browserIdle || 0), process_diagnostics: values['with-process-diagnostics'], reliability_rounds: investigation ? 0 : rounds, process_investigation_rounds: investigation, performance_tests: values['with-performance-tests'], artifacts: work, application_artifacts: appArtifacts }));

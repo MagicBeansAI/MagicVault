@@ -2,6 +2,13 @@
 
 ## Unreleased — Qualification diagnostics
 
+- Add a separate manual bounded process investigation: fresh exact-path trials,
+  original HTTP companion concurrency, fail-fast behavior and a ten-minute trial
+  budget. Passing trials explicitly remain inconclusive about the prior failure.
+- Correct packaged-browser qualification to select the downloaded CLI for its
+  real-CDP fixture and run that case alongside installed native-extension/MCP
+  coverage. This changes test orchestration only; shipped binaries, shared core,
+  MagicRun and Magician are unchanged by this follow-up.
 - Extend the synthetic exact-process observer into MagicRun's owned-child wait,
   signal and cleanup path. Update only the locked MagicRun Git revision to
   `25f1c449`; standard builds omit all observer hooks and release builds reject

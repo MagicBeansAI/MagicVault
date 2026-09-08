@@ -1,0 +1,39 @@
+name: Focused process investigation
+# Manual synthetic diagnosis only. No browser, keychain, signing or publication.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  investigate:
+    runs-on: macos-15
+    timeout-minutes: 25
+    env:
+      CARGO_BUILD_JOBS: '4'
+    steps:
+      - name: Initialize artifact locations
+        shell: bash
+        run: |
+          printf 'CARGO_TARGET_DIR=%s/magicvault-builds\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+          printf 'PACKAGE_PARENT=%s/magicvault-process-investigation\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - name: Select diagnostic toolchain
+        run: |
+          test "$(uname -m)" = arm64
+          rustup toolchain install 1.92.0 --profile minimal
+          rustup override set 1.92.0
+      - name: Validate orchestration and build uninstrumented clients
+        run: |
+          node --test scripts/tests/distribution.test.mjs
+          python3 scripts/check_architecture.py
+          make build-standalone
+      - name: Assemble isolated unsigned test packages
+        run: |
+          mkdir "$PACKAGE_PARENT"
+          node scripts/package-npm.mjs --binary-dir "$CARGO_TARGET_DIR/release" --output "$PACKAGE_PARENT/packages" --scope @magicvault-local
+      - name: Investigate at most 200 fresh trials within ten minutes
+        run: node scripts/qualify-package.mjs --packages "$PACKAGE_PARENT/packages" --work "$PACKAGE_PARENT/investigation" --app-parent /private/tmp --with-rust-tests --with-process-diagnostics --process-investigation-rounds 200
+      # Failure logs stay on this first run. No retry, raw trace upload or release.

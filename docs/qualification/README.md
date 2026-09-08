@@ -7,6 +7,11 @@ that would not replace destination, custody, transport or output-boundary tests.
 
 ## What is covered
 
+The [focused investigation and downloaded-candidate record](results-focused-candidate-2026-09-08.md)
+identifies the independently hash-verified `01a1cfd` candidate and its installed
+CLI/MCP/real-browser acceptance. It also tracks the bounded process-only CI lane;
+passing browser tests do not resolve the separate process finding.
+
 The [owned-child signal investigation](results-process-signal-2026-09-08.md)
 records test-only MagicRun/MagicVault observation and a first-attempt unsigned
 CI pass on `01a1cfd`, including 20 installed trials and bounded shutdown probes.

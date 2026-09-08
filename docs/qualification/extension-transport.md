@@ -95,6 +95,7 @@ node scripts/qualify-package.mjs --packages "$candidate_dir/packages" \
 
 This is an offline local tarball install, not registry publication. It checks
 app-only setup, version/doctor, activation, actual installed CLI/MCP/native host,
+installed CLI → real-browser CDP fill/denial,
 and the same browser lane using copied installed extension assets (including the
 explicit fixture-only permission change). npm removal must leave stable native
 executables usable; application uninstall archives only the test application and

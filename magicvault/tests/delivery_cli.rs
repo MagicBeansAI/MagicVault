@@ -154,9 +154,14 @@ async fn actual_cli_to_daemon_to_magicrun_executes_without_echoing_material() {
         ],
     )
     .await;
+    let status = settled(root.path(), &operation).await;
     assert_eq!(
-        settled(root.path(), &operation).await["data"]["state"],
-        "completed"
+        status["data"]["state"],
+        "completed",
+        "closed error: {}; may_have_run: {}; recipient marker exists: {}",
+        status["data"]["error"],
+        status["data"]["may_have_run"],
+        root.path().join("marker").exists()
     );
     assert_eq!(
         fs::read_to_string(root.path().join("marker")).unwrap(),

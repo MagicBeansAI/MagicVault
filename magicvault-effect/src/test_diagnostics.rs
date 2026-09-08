@@ -13,6 +13,8 @@ use tool_runtime_core::{
 };
 use uuid::Uuid;
 
+pub use tool_runtime_core::process_test_diagnostics::PreExecStage;
+
 const CAPACITY: usize = 16;
 
 /// Closed categories only. Deliberately not serializable; contains no byte

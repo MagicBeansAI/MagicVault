@@ -164,6 +164,15 @@ payload, flags or PID is retained. Normal exits and uncaptured work do not query
 The API is a private diagnostic dependency, absent from normal builds; it never
 changes the execution result or selects a process to terminate. Native synthetic
 self-SIGTERM/SIGKILL preflight verifies the OS reason reaches the adapter observer.
+An active macOS capture also records the child's pre-exec callback stage through
+one anonymous shared atomic byte. The parent alone allocates and reads it; the
+existing child callback only stores entry/completion, without locks, allocation,
+logging or descriptors. Closed unavailable/invalid states remain observations.
+Callback completion is not proof of exec or recipient entry; even a returned
+child handle can follow death before exec. Synthetic boundary tests exercise
+those distinctions. This debug-only probe changes neither the launch mechanism
+nor the original process/HTTP concurrency, deadlines or uncertainty rules. See
+the [launch-stage investigation](qualification/results-launch-stage-2026-09-08.md).
 The separate manual **Focused process investigation** workflow builds unsigned
 clients without rerunning the full distribution suite. Its explicit mode accepts
 1–200 fresh test-driver processes and retains the original concurrent process/HTTP

@@ -174,6 +174,11 @@ async fn actual_cli_to_daemon_to_magicrun_executes_without_echoing_material() {
             );
             let child = snapshot.process.expect("exact path must capture the owned process");
             assert_eq!(child.spawned_children, 1);
+            #[cfg(target_os = "macos")]
+            assert_eq!(
+                child.pre_exec_stage,
+                Some(magicvault_effect::test_diagnostics::PreExecStage::CallbackCompleted)
+            );
             assert_eq!(child.reaped_normal_success, Some(true));
         }
     }

@@ -2,6 +2,11 @@
 
 ## Unreleased — Qualification diagnostics
 
+- Add debug-only macOS pre-exec stage evidence to the original concurrent
+  process/HTTP investigation. A shared atomic marker distinguishes callback
+  entry/completion; it does not prove exec or safe replay. Normal clients,
+  deadlines, custody and cleanup behavior remain unchanged. See the
+  [launch-stage record](docs/qualification/results-launch-stage-2026-09-08.md).
 - Record the final named-namespace CI recurrence: trial 53 identified
   **Foundation** before cleanup, with matching final `SIGKILL`. Its exception
   site/root cause remains unknown; all failures are retained and no runtime fix,

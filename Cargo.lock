@@ -2781,7 +2781,7 @@ dependencies = [
 [[package]]
 name = "tool-runtime-core"
 version = "0.1.73"
-source = "git+https://github.com/MagicBeansAI/MagicRun.git#25f1c4490a5c88784598531a2d6d14f9a06879e8"
+source = "git+https://github.com/MagicBeansAI/MagicRun.git#1ab46d90f7eccddc9817bcce96d027383fa7828e"
 dependencies = [
  "anyhow",
  "blake3",

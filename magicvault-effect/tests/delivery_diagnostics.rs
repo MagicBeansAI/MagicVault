@@ -6,6 +6,7 @@ use magicvault_protocol::{DeliveryState, InputValue, NamedValue, ProcessDestinat
 use std::{fs, os::unix::fs::PermissionsExt};
 use tokio_util::sync::CancellationToken;
 use tool_runtime_core::governed_execution::GovernedExecutionTerminal;
+use tool_runtime_core::process_test_diagnostics::Signal;
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
@@ -13,10 +14,11 @@ const CANARY: &str = "SYNTHETIC-DIAGNOSTIC-CANARY";
 
 #[tokio::test]
 async fn observed_terminals_distinguish_exit_signal_and_known_errors_without_material() {
-    for (body, terminal, exit_code, permission, missing) in [
+    for (body, terminal, expected_signal, exit_code, permission, missing) in [
         (
             "printf '%s' \"$MV_TOKEN\" >&2; exit 17",
             GovernedExecutionTerminal::NonZeroExit,
+            None,
             true,
             false,
             false,
@@ -24,6 +26,15 @@ async fn observed_terminals_distinguish_exit_signal_and_known_errors_without_mat
         (
             "kill -TERM $$",
             GovernedExecutionTerminal::RuntimeFailure,
+            Some(Signal::Terminate),
+            false,
+            false,
+            false,
+        ),
+        (
+            "kill -KILL $$",
+            GovernedExecutionTerminal::RuntimeFailure,
+            Some(Signal::Kill),
             false,
             false,
             false,
@@ -31,6 +42,7 @@ async fn observed_terminals_distinguish_exit_signal_and_known_errors_without_mat
         (
             "./not-executable",
             GovernedExecutionTerminal::NonZeroExit,
+            None,
             true,
             true,
             false,
@@ -38,6 +50,7 @@ async fn observed_terminals_distinguish_exit_signal_and_known_errors_without_mat
         (
             "./absent",
             GovernedExecutionTerminal::NonZeroExit,
+            None,
             true,
             false,
             true,
@@ -88,13 +101,20 @@ async fn observed_terminals_distinguish_exit_signal_and_known_errors_without_mat
             .expect("runtime signal observer must be wired to this operation");
         assert_eq!(child.spawned_children, 1);
         assert!(child.cleanup_before_reap && !child.termination_cleanup);
+        assert_eq!(child.reaped_signal, expected_signal);
+        #[cfg(target_os = "macos")]
         assert_eq!(
-            child.reaped_signal,
-            if exit_code {
-                None
-            } else {
-                Some(tool_runtime_core::process_test_diagnostics::Signal::Terminate)
-            }
+            child.os_exit_reason,
+            expected_signal.map(|signal| {
+                use tool_runtime_core::process_test_diagnostics::{ExitReason, OsReason};
+                ExitReason::Observed(OsReason::Signal(signal))
+            })
+        );
+        #[cfg(not(target_os = "macos"))]
+        assert_eq!(
+            child.os_exit_reason,
+            expected_signal
+                .map(|_| { tool_runtime_core::process_test_diagnostics::ExitReason::Unsupported })
         );
         assert!(child.last_wait.unwrap().owned_child);
         assert_eq!(snapshot.terminal, Some(terminal));

@@ -2,6 +2,11 @@
 
 ## Unreleased — Qualification diagnostics
 
+- Extend the debug-only owned-child observer with a parent-only macOS OS
+  exit-reason query before cleanup/reap. Select reviewed MagicRun `1ab46d90`
+  without a crate-version or production-policy change; add real adapter
+  self-SIGTERM/SIGKILL assertions. Only fixed reason categories survive, never
+  raw reports or payloads. See the [OS exit-reason investigation](docs/qualification/results-os-exit-reason-2026-09-08.md).
 - Record the [focused CI failure and independent candidate qualification](docs/qualification/results-focused-candidate-2026-09-08.md):
   trial 42 observed the owned child already `SIGKILL`-terminated before cleanup;
   sender/OS reason remains unknown and the first failure is retained. Downloaded

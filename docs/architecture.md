@@ -157,6 +157,13 @@ qualifier isolates diagnostic build outputs from packaging and proves that
 rejection before running the installed-client trials. Installed clients remain
 the unchanged package bytes; only their synthetic broker/test driver is observed.
 These observations classify a failure, not its root cause or retry safety.
+On macOS, a captured signal exit additionally makes one parent-only fixed-size
+OS exit-reason query while the owned child is still unreaped. Only closed
+namespace/code or unavailable/malformed categories survive; no raw reason code,
+payload, flags or PID is retained. Normal exits and uncaptured work do not query.
+The API is a private diagnostic dependency, absent from normal builds; it never
+changes the execution result or selects a process to terminate. Native synthetic
+self-SIGTERM/SIGKILL preflight verifies the OS reason reaches the adapter observer.
 The separate manual **Focused process investigation** workflow builds unsigned
 clients without rerunning the full distribution suite. Its explicit mode accepts
 1–200 fresh test-driver processes and retains the original concurrent process/HTTP

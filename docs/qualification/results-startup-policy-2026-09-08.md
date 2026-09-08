@@ -8,7 +8,9 @@ installed executables are the unchanged unsigned `0.8.2` CI artifact from
 `23e648ccfbed191bc4090955b04a0e73552dd99a`, [run 34179148138](https://github.com/MagicBeansAI/MagicVault/actions/runs/34179148138).
 Its independently verified tarball hashes are recorded in the
 [completion-order results](results-completion-order-2026-09-08.md).
-The new test-driver/workflow changes have not yet been run in CI.
+The test-driver/workflow changes are committed as
+`b475f3c32090b018d7f0378f1c5aa4d13d5dfeec`; their first CI attempt passed as
+recorded below. The earlier local comparisons still refer to the `23e648c` artifact.
 
 Local environment: macOS 26.6 arm64, Rust 1.92.0, Node 22.19.0 and Chrome
 152.0.7977.82. SSD build/package/profile storage is unchanged. Each trial owns
@@ -108,8 +110,9 @@ Final local regression verification: architecture baseline matches all 71 inputs
 JavaScript tests passed. The loopback fixture initially received sandbox `EPERM`
 before listening; rerunning that unchanged five-test suite with loopback permission
 passed. The corrected Make target passed the installed client/browser case above.
-No full Rust workspace rerun or new remote CI run is claimed for this diagnostic-only
-change; the touched Rust test targets compiled and the explicit probes ran.
+That local pass did not rerun the full Rust workspace; the touched Rust test
+targets compiled and the explicit probes ran. The subsequent CI pass below
+includes a complete workspace test run.
 
 Run both explicit probes, without retrying a failed delivery:
 
@@ -125,3 +128,37 @@ with a terminal diagnosis and corrected (or an explicit supported limitation is
 established), **this release blocker remains open**. Local passing stress trials
 are not closure. Core, MagicRun, Magician, production extension/service code,
 component versions and agent/native wire formats are unchanged.
+
+## macOS 15 CI follow-up
+
+[Unsigned distribution run #9](https://github.com/MagicBeansAI/MagicVault/actions/runs/34182556083)
+completed **successfully on attempt 1**, on the exact diagnostic commit
+`b475f3c32090b018d7f0378f1c5aa4d13d5dfeec`. It ran on macOS 15.7.9 arm64
+(runner image `macos-15-arm64/20260829.0321`) with Rust 1.92.0 and Node 22.23.2.
+No failed job or delivery was retried.
+
+| Lane | Result |
+| --- | --- |
+| All-target compilation and standalone release build | PASS |
+| Default Rust workspace suite | PASS; 254 tests, 13 opt-in cases ignored |
+| JavaScript extension/distribution/fixture suites | PASS; 86 tests |
+| Architecture/build-routing suites and baseline | PASS; 24 tests, 71 fingerprinted inputs |
+| Serial governed-process probe | PASS; 200 deliveries in 1.330 s |
+| Async governed-process probe | PASS; 200 deliveries plus 2,000 noise-child exits in 7.066 s |
+| Installed CLI/process/HTTP/native-host/MCP trials | PASS; all 20 rounds, 260 test executions |
+| Explicit delivery/resource/capacity/shutdown cases | PASS; all three cases |
+| Offline npm removal, stable executables and recoverable application retirement | PASS |
+| Unsigned candidate artifact upload | PASS |
+
+Artifact `10039541723`, `MagicVault-UNSIGNED-darwin-arm64`, contains the two
+candidate tarballs; the Actions ZIP is 6,530,093 bytes. Its reported SHA-256 is
+`d51c47a7d72734ae256419b791241e5544470d8bd57c27a74b1ff081e53fe750`.
+The artifact expires on 2026-09-22. This follow-up verified workflow logs and
+artifact metadata, not an independent download or browser installation of these
+newly produced bytes. The workflow did not run real browsers, genuine native
+consent/keychain acceptance, signing, notarization or publication.
+
+**The original intermittent process failure did not reproduce.** This establishes
+that the new diagnostics compile and pass in the originally affected runner
+environment; it does not identify or fix that failure. The open release finding
+and the external-volume startup limitation above remain in force.

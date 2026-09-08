@@ -2,6 +2,12 @@
 
 ## Current evidence
 
+The [reliability investigation](qualification/results-reliability-2026-09-08.md)
+adds installed-client repetition, cold-start stage observations and explicit
+`make test-service-reliability` CPU/RSS, capacity, recovery and shutdown probes.
+It preserves both intermittent findings and distinguishes test-process counters
+from a real installed-daemon/browser-tree performance gate.
+
 The [installed permission/recovery record](qualification/results-permission-recovery-2026-09-08.md)
 qualifies committed `34fee4a` with genuine native browser remembered use, website
 permission removal/restoration, pause/resume with fresh bindings, and process/HTTP

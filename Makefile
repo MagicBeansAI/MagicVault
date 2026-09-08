@@ -103,6 +103,12 @@ test-extension-native: build-standalone
 test-delivery-latency:
 	cargo test --locked --release -p magicvault --test delivery_cli repeated_cli_delivery_latency -- --ignored --nocapture --test-threads=1
 
+# Explicit opt-in; only synthetic private roots and loopback recipients. Includes
+# 32 deliveries/destination, 2,000 paced status calls, limits and in-flight drain.
+test-service-reliability:
+	cargo test --locked --release -p magicvault --test delivery_cli bounded_cli_delivery_capacity_and_service_resources -- --ignored --nocapture --test-threads=1
+	cargo test --locked --release -p magicvault --test delivery_cli shutdown_drains_inflight_process_tree_and_http_without_replay -- --ignored --nocapture --test-threads=1
+
 # Public demonstration sites only; requires MAGICVAULT_PUBLIC_WEB=1 as well.
 test-public-web:
 	cargo test --locked -p magicvault-effect --test chromium_public -- --ignored --test-threads=1
@@ -151,3 +157,4 @@ test-package-browser:
 .PHONY: test-extension-native
 .PHONY: test-delivery-latency
 .PHONY: test-package-browser
+.PHONY: test-service-reliability

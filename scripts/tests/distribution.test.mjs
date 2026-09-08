@@ -24,6 +24,24 @@ test('real package browser qualification requires explicit prerequisites before 
     assert.equal(fs.existsSync(work), false);
   }
 });
+test('reliability qualification rejects unbounded or implicit workloads before creating artifacts', t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'magicvault-reliability-options-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const work = path.join(root, 'must-not-exist');
+  for (const args of [
+    ['--reliability-rounds', '0', '--with-rust-tests'],
+    ['--reliability-rounds', '21', '--with-rust-tests'],
+    ['--reliability-rounds', '2.5', '--with-rust-tests'],
+    ['--reliability-rounds', '02', '--with-rust-tests'],
+    ['--reliability-rounds', '2'], ['--with-performance-tests'],
+    ['--app-parent', 'relative'],
+  ]) {
+    assert.throws(() => execFileSync(process.execPath, [path.join(repo, 'scripts/qualify-package.mjs'),
+      '--packages', root, '--work', work, ...args], { stdio: 'pipe', timeout: 5000 }),
+    error => error.status !== 0 && /reliability qualification requires|app-parent must/.test(String(error.stderr)));
+    assert.equal(fs.existsSync(work), false);
+  }
+});
 test('bundled public identity matches the exact native-host default and is a valid public key', () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(repo, 'extension/manifest.json')));
   const der = Buffer.from(manifest.key, 'base64');

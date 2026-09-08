@@ -11,6 +11,8 @@ use tokio::{
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 use zeroize::Zeroizing;
+#[path = "support/measurements.rs"]
+mod measurements;
 
 const CANARY: &str = "SYNTHETIC-CLI-DELIVERY-CANARY";
 struct Human;
@@ -243,6 +245,10 @@ async fn actual_cli_http_completion_and_audit_failure_remain_reconcilable() {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "explicit repeated real CLI/process/loopback HTTP latency qualification"]
 async fn repeated_cli_delivery_latency_and_withheld_output() {
+    measure_deliveries(20, false).await;
+}
+
+async fn measure_deliveries(count: usize, capacity_probe: bool) {
     for http in [false, true] {
         let (root, broker, daemon, reference) = setup().await;
         let _stop = broker.shutdown.clone().drop_guard();
@@ -264,7 +270,7 @@ async fn repeated_cli_delivery_latency_and_withheld_output() {
         let mut receivers = tokio::task::JoinSet::new();
         if http {
             receivers.spawn(async move {
-                for _ in 0..20 {
+                for _ in 0..count {
                     tokio::time::timeout(Duration::from_secs(6), async {
                         let (mut stream, _) = listener.accept().await.unwrap();
                         let mut header = Vec::new();
@@ -279,8 +285,12 @@ async fn repeated_cli_delivery_latency_and_withheld_output() {
             });
         }
         let mut samples = Vec::new();
-        for _ in 0..20 {
+        let before = measurements::snapshot();
+        let mut max_resident_kib = before["resident_kib"].as_u64().unwrap_or(0);
+        let mut first_operation = None;
+        for _ in 0..count {
             let operation = Uuid::new_v4().to_string();
+            first_operation.get_or_insert_with(|| operation.clone());
             let started = std::time::Instant::now();
             cli(
                 root.path(),
@@ -297,18 +307,65 @@ async fn repeated_cli_delivery_latency_and_withheld_output() {
                 ],
             )
             .await;
+            let status = settled(root.path(), &operation).await;
             assert_eq!(
-                settled(root.path(), &operation).await["data"]["state"],
-                "completed"
+                status["data"]["state"],
+                "completed",
+                "closed error: {}; may_have_run: {}; recipient marker bytes: {:?}",
+                status["data"]["error"],
+                status["data"]["may_have_run"],
+                fs::metadata(root.path().join("marker"))
+                    .map(|m| m.len())
+                    .ok()
             );
             samples.push(started.elapsed().as_micros());
+            max_resident_kib = max_resident_kib.max(
+                measurements::snapshot()["resident_kib"]
+                    .as_u64()
+                    .unwrap_or(0),
+            );
+        }
+        if capacity_probe {
+            use magicvault_service::client::Client;
+            let client = Client::load(root.path().to_owned(), "default").unwrap();
+            let request = SecureDelivery {
+                profile_id: profile.parse().unwrap(),
+                operation_id: Uuid::new_v4(),
+            };
+            let request = if http {
+                Request::SecureNewHttp(request)
+            } else {
+                Request::SecureNewProcess(request)
+            };
+            assert!(matches!(
+                client.call(request).await,
+                Err(ErrorCode::Capacity)
+            ));
+            // An identical ID remains reconcilable while full. This queries an
+            // already completed operation, not a retry of an uncertain effect.
+            let replay = cli(
+                root.path(),
+                &[
+                    if http {
+                        "secure-new-http"
+                    } else {
+                        "secure-new-process"
+                    },
+                    "--profile-id",
+                    &profile,
+                    "--operation-id",
+                    first_operation.as_ref().unwrap(),
+                ],
+            )
+            .await;
+            assert_eq!(replay["data"]["state"], "completed");
         }
         if http {
             receivers.join_next().await.unwrap().unwrap();
         } else {
             assert_eq!(
                 fs::read(root.path().join("marker")).unwrap(),
-                vec![b'x'; 20]
+                vec![b'x'; count]
             );
         }
         let audit = fs::read_to_string(
@@ -321,9 +378,222 @@ async fn repeated_cli_delivery_latency_and_withheld_output() {
         samples.sort_unstable();
         println!(
             "cli_delivery_measurement {}",
-            json!({"kind":if http {"http"} else {"process"},"synthetic_consent":true,"samples":samples.len(),"us":{"min":samples[0],"median":(samples[9]+samples[10])/2,"p95":samples[18],"max":samples[19]}})
+            json!({"kind":if http {"http"} else {"process"},"synthetic_consent":true,"samples":samples.len(),
+                "capacity_refused_without_dispatch":capacity_probe,
+                "resources_before":before,"resources_after":measurements::snapshot(),"sampled_max_resident_kib":max_resident_kib,
+                "us":{"min":samples[0],"median":(samples[(count-1)/2]+samples[count/2])/2,"p95":samples[(count*95).div_ceil(100)-1],"max":samples[count-1]}})
         );
         broker.shutdown.cancel();
         daemon.await.unwrap().unwrap();
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "explicit bounded installed CLI load, IPC/job saturation, CPU/RSS and shutdown qualification"]
+async fn bounded_cli_delivery_capacity_and_service_resources() {
+    use magicvault_service::client::Client;
+    use std::time::Instant;
+    measure_deliveries(MAX_DELIVERY_JOBS, true).await;
+    let (root, broker, daemon, _) = setup().await;
+    let _stop = broker.shutdown.clone().drop_guard();
+    let before_idle = measurements::snapshot();
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    let after_idle = measurements::snapshot();
+    let started = Instant::now();
+    let mut workers = tokio::task::JoinSet::new();
+    for _ in 0..4 {
+        let client = Client::load(root.path().to_owned(), "default").unwrap();
+        workers.spawn(async move {
+            for _ in 0..500 {
+                assert!(client.status().await.unwrap().ready);
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        });
+    }
+    tokio::time::timeout(Duration::from_secs(30), async {
+        while let Some(result) = workers.join_next().await {
+            result.unwrap();
+        }
+    })
+    .await
+    .unwrap();
+    let load_us = started.elapsed().as_micros();
+    let after_load = measurements::snapshot();
+    // Sixteen incomplete frames occupy the documented shared connection cap.
+    // No capability or credential bytes are needed for this admission probe.
+    let mut stalled = Vec::new();
+    for _ in 0..16 {
+        let mut socket = tokio::net::UnixStream::connect(broker.socket())
+            .await
+            .unwrap();
+        socket.write_u32_le(1).await.unwrap();
+        stalled.push(socket);
+    }
+    let mut excess = tokio::net::UnixStream::connect(broker.socket())
+        .await
+        .unwrap();
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(2), excess.read(&mut [0u8; 1]))
+            .await
+            .unwrap()
+            .unwrap(),
+        0
+    );
+    drop(excess);
+    drop(stalled);
+    let client = Client::load(root.path().to_owned(), "default").unwrap();
+    tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            if client.status().await.is_ok_and(|s| s.ready) {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    // An incomplete frame must not leave the service alive indefinitely on stop.
+    let mut pending = tokio::net::UnixStream::connect(broker.socket())
+        .await
+        .unwrap();
+    pending.write_u32_le(1).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(30)).await;
+    let shutdown = Instant::now();
+    broker.shutdown.cancel();
+    tokio::time::timeout(Duration::from_secs(12), daemon)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert!(!broker.socket().exists());
+    assert!(!root.path().join("bridge.sock").exists());
+    println!(
+        "service_resource_measurement {}",
+        json!({
+        "scope":"synthetic in-process broker plus test driver; not standalone daemon or browser",
+        "status_requests":2000,"concurrency":4,"load_us":load_us,"idle_window_ms":2000,
+        "before_idle":before_idle,"after_idle":after_idle,"after_load":after_load,
+        "ipc_capacity":16,"capacity_recovered":true,"shutdown_us":shutdown.elapsed().as_micros(),
+        "after_shutdown":measurements::snapshot()})
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "explicit real child-tree and streaming HTTP service-shutdown qualification"]
+async fn shutdown_drains_inflight_process_tree_and_http_without_replay() {
+    for http in [false, true] {
+        let (root, broker, daemon, reference) = setup().await;
+        let _stop = broker.shutdown.clone().drop_guard();
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/", listener.local_addr().unwrap());
+        let executable = root.path().join("recipient");
+        fs::write(&executable, "#!/bin/sh\n[ -n \"$MV_TOKEN\" ] || exit 1\n(while :; do printf x >> heartbeat; /bin/sleep 0.02; done) &\nwait\nprintf late > late-marker\n").unwrap();
+        fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
+        let destination = if http {
+            json!({"kind":"http","config":{"url":url,"method":"POST","headers":[{"name":"Authorization","value":value(&reference)}],"query":[],"body":null,"timeout_secs":30}})
+        } else {
+            json!({"kind":"process","config":{"executable":executable,"arguments":[],"working_directory":root.path(),"environment":[{"name":"MV_TOKEN","value":value(&reference)}],"stdin":null,"timeout_secs":30}})
+        };
+        let profile = register(
+            root.path(),
+            json!({"label":"Synthetic in-flight shutdown","destination":destination}),
+        )
+        .await;
+        let (entered, ready) = tokio::sync::oneshot::channel();
+        let mut receiver = tokio::task::JoinSet::new();
+        if http {
+            receiver.spawn(async move {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let mut header = Vec::new();
+                while !header.ends_with(b"\r\n\r\n") {
+                    assert!(header.len() < 8192);
+                    header.push(stream.read_u8().await.unwrap());
+                }
+                assert!(String::from_utf8_lossy(&header).contains(CANARY));
+                // Deliberately unfinished body keeps the actual effect in flight.
+                stream
+                    .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 1024\r\n\r\nx")
+                    .await
+                    .unwrap();
+                let _ = entered.send(());
+                let result =
+                    tokio::time::timeout(Duration::from_secs(5), stream.read(&mut [0u8; 1]))
+                        .await
+                        .unwrap();
+                assert!(
+                    matches!(result, Ok(0))
+                        || result.is_err_and(|e| e.kind() == std::io::ErrorKind::ConnectionReset)
+                );
+                assert!(
+                    tokio::time::timeout(Duration::from_millis(250), listener.accept())
+                        .await
+                        .is_err(),
+                    "shutdown must not replay a request"
+                );
+            });
+        }
+        let operation = Uuid::new_v4().to_string();
+        cli(
+            root.path(),
+            &[
+                if http {
+                    "secure-new-http"
+                } else {
+                    "secure-new-process"
+                },
+                "--profile-id",
+                &profile,
+                "--operation-id",
+                &operation,
+            ],
+        )
+        .await;
+        if http {
+            tokio::time::timeout(Duration::from_secs(3), ready)
+                .await
+                .unwrap()
+                .unwrap();
+        } else {
+            tokio::time::timeout(Duration::from_secs(3), async {
+                while fs::metadata(root.path().join("heartbeat")).map_or(true, |m| m.len() == 0) {
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+            })
+            .await
+            .unwrap();
+        }
+        assert_eq!(
+            cli(
+                root.path(),
+                &["delivery-status", "--operation-id", &operation]
+            )
+            .await["data"]["state"],
+            "running"
+        );
+        let started = std::time::Instant::now();
+        broker.shutdown.cancel();
+        tokio::time::timeout(Duration::from_secs(5), daemon)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        let shutdown_us = started.elapsed().as_micros();
+        if http {
+            receiver.join_next().await.unwrap().unwrap();
+        } else {
+            let count = fs::metadata(root.path().join("heartbeat")).unwrap().len();
+            tokio::time::sleep(Duration::from_millis(250)).await;
+            assert_eq!(
+                fs::metadata(root.path().join("heartbeat")).unwrap().len(),
+                count
+            );
+            assert!(!root.path().join("late-marker").exists());
+        }
+        assert!(!broker.socket().exists());
+        assert!(!root.path().join("bridge.sock").exists());
+        println!(
+            "inflight_shutdown_measurement {}",
+            json!({"kind":if http {"http"} else {"process_tree"},"shutdown_us":shutdown_us,"recipient_stopped":true,"replayed":false})
+        );
     }
 }

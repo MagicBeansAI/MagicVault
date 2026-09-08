@@ -118,7 +118,19 @@ async fn connection(
     startup: Option<(&Path, &SyntheticHuman)>,
 ) -> Value {
     let mut diagnostic = json!({});
-    let result = tokio::time::timeout(Duration::from_secs(15), async {
+    let started = Instant::now();
+    let mut missed_deadline = None;
+    // Keep the 15s acceptance bound. On failure only, observe a further bounded
+    // interval to distinguish slow startup from a stuck handshake. This never
+    // retries connection, sends a fill, or turns a late result into a pass.
+    let stages = || {
+        startup.map(|(marker, human)| {
+        json!({"wrapper_launches":fs::metadata(marker).map(|m|m.len()).unwrap_or(0),
+            "owned_host_pid":fs::read_to_string(marker.with_extension("pid")).ok().and_then(|s| s.parse::<u32>().ok()),
+            "synthetic_confirmations":human.confirmations.load(Ordering::SeqCst)})
+    })
+    };
+    let result = tokio::time::timeout(Duration::from_secs(45), async {
         loop {
             let state = options_eval(
                 peer,
@@ -129,6 +141,10 @@ async fn connection(
             diagnostic = json!({"connected":state["connected"].as_bool(),
                 "connecting":state["connecting"].as_bool(),"paused":state["paused"].as_bool(),
                 "reason":state["reason"].as_str().filter(|s| s.len() <= 32 && s.bytes().all(|b| b.is_ascii_lowercase() || b == b'_'))});
+            if started.elapsed() >= Duration::from_secs(15) && missed_deadline.is_none() {
+                missed_deadline = Some(json!({"status":diagnostic,"fixture_stages":stages()}));
+                eprintln!("extension connection deadline missed: {missed_deadline:?}");
+            }
             if state["connected"] == connected {
                 return state;
             }
@@ -136,13 +152,13 @@ async fn connection(
         }
     })
     .await;
+    assert!(missed_deadline.is_none(),
+        "extension missed 15s connection bound: {missed_deadline:?}; observation_us: {}; final_status: {diagnostic}; final_stages: {:?}; settled_late: {}",
+        started.elapsed().as_micros(), stages(), result.is_ok());
     result.unwrap_or_else(|_| {
         // Fixture-owned counts only: never log a native frame, capability,
         // browser state dump, or command arguments while diagnosing startup.
-        let stages = startup.map(|(marker, human)| {
-            json!({"wrapper_launches":fs::metadata(marker).map(|m|m.len()).unwrap_or(0),
-                "synthetic_confirmations":human.confirmations.load(Ordering::SeqCst)})
-        });
+        let stages = stages();
         panic!("extension connection did not settle (expected {connected}): {diagnostic}; fixture stages: {stages:?}")
     })
 }
@@ -246,11 +262,16 @@ async fn real_extension_mcp_fill_denial_profiles_pause_and_reconnect() {
     );
     let marker = root.path().join("host-starts");
     let quoted_marker = marker.to_str().unwrap().replace('\'', "'\\''");
+    let quoted_pid = marker
+        .with_extension("pid")
+        .to_str()
+        .unwrap()
+        .replace('\'', "'\\''");
     // Count entry into the fixture wrapper before exec, independently of the
     // synthetic daemon. This never intercepts or records native protocol bytes.
     let wrapper = native::wrapper(&config).unwrap().replacen(
         "#!/bin/sh\n",
-        &format!("#!/bin/sh\nprintf . >> '{quoted_marker}'\n"),
+        &format!("#!/bin/sh\nprintf . >> '{quoted_marker}'\nprintf '%s' \"$$\" > '{quoted_pid}'\n"),
         1,
     );
     private_file(

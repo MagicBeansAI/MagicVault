@@ -34,13 +34,13 @@ jobs:
           test "$(uname -m)" = arm64
           rustup toolchain install 1.92.0 --profile minimal
           rustup override set 1.92.0
-      - run: make test-distribution test-build-paths test-architecture check test build-standalone
+      - run: make test-extension test-qualification-fixtures test-build-paths test-architecture check test build-standalone
       - name: Assemble allowlisted packages
         run: |
           mkdir "$PACKAGE_PARENT"
           node scripts/package-npm.mjs --binary-dir "$CARGO_TARGET_DIR/release" --output "$PACKAGE_PARENT/packages" --scope "$NPM_SCOPE"
       - name: Qualify offline npm installation, native lifecycle and real IPC
-        run: node scripts/qualify-package.mjs --packages "$PACKAGE_PARENT/packages" --work "$PACKAGE_PARENT/qualification" --with-rust-tests
+        run: node scripts/qualify-package.mjs --packages "$PACKAGE_PARENT/packages" --work "$PACKAGE_PARENT/qualification" --with-rust-tests --reliability-rounds 20 --with-performance-tests
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: MagicVault-UNSIGNED-darwin-arm64

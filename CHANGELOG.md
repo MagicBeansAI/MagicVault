@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Add fail-fast installed-package repetition, explicit internal-volume temporary
+  application placement, and bounded CPU/RSS, delivery/IPC capacity, recovery and
+  in-flight process-tree/HTTP shutdown qualification. Preserve the browser's
+  15-second pass threshold while observing failed startup for up to 45 seconds
+  with value-free fixture stages. These are test/qualification changes, not a
+  runtime fix; shared custody, MagicRun and Magician are unchanged.
+- Expand unsigned candidate CI to the complete extension/fixture suites, 20
+  independent installed-client trials and resource/shutdown probes; align the
+  macOS/Ubuntu manual lane with the candidate toolchain and bounded workloads.
 - Use “Let agents use credentials without seeing them” in the README and npm
   package copy, with the recipient/browser-observation boundary stated nearby.
 - Shorten the README around the credential-use workflow, candidate installation,

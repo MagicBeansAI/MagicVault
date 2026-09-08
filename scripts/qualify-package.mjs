@@ -8,8 +8,14 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { parseArgs } from 'node:util';
 
-const { values } = parseArgs({ options: { packages: { type: 'string' }, work: { type: 'string' }, 'with-rust-tests': { type: 'boolean', default: false }, 'with-browser-tests': { type: 'boolean', default: false } } });
+const { values } = parseArgs({ options: { packages: { type: 'string' }, work: { type: 'string' }, 'app-parent': { type: 'string' }, 'reliability-rounds': { type: 'string', default: '1' }, 'with-performance-tests': { type: 'boolean', default: false }, 'with-rust-tests': { type: 'boolean', default: false }, 'with-browser-tests': { type: 'boolean', default: false } } });
+if (!/^(?:[1-9]|1[0-9]|20)$/.test(values['reliability-rounds']) || ((values['reliability-rounds'] !== '1' || values['with-performance-tests']) && !values['with-rust-tests'])) throw new Error('reliability qualification requires --with-rust-tests and 1..20 rounds');
+const rounds = Number(values['reliability-rounds']);
 if (values['with-browser-tests'] && (!values['with-rust-tests'] || !process.env.MAGICVAULT_CHROME || !path.isAbsolute(process.env.MAGICVAULT_CHROME) || !fs.statSync(process.env.MAGICVAULT_CHROME).isFile())) throw new Error('browser qualification requires --with-rust-tests and an explicit absolute MAGICVAULT_CHROME executable');
+// An external-volume fixture has stalled in the macOS loader before main().
+// Keep packages/builds on the selected volume, but allow an
+// explicit fresh internal-volume installation. Never alter OS access policy.
+if (values['app-parent'] && (!path.isAbsolute(values['app-parent']) || !fs.statSync(values['app-parent']).isDirectory())) throw new Error('app-parent must be an existing absolute directory');
 if (!values.packages || !values.work || process.platform !== 'darwin' || process.arch !== 'arm64') throw new Error('require --packages, fresh --work, and macOS arm64');
 const packages = fs.realpathSync(values.packages);
 const work = path.resolve(values.work);
@@ -42,7 +48,8 @@ const version = JSON.parse(fs.readFileSync(path.join(packages, 'launcher/package
 assert.equal(run(cli, ['--version']).trim(), `magicvault ${version}`);
 assert.equal(run(mcp, ['--version']).trim(), `magicvault-mcp ${version}`);
 const vault = path.join(work, 'vault');
-const app = path.join(work, 'app');
+const appArtifacts = values['app-parent'] ? fs.mkdtempSync(path.join(fs.realpathSync(values['app-parent']), 'mv-package-app-')) : work;
+const app = path.join(appArtifacts, 'app');
 const invoke = args => JSON.parse(run(cli, ['--root', vault, '--app-dir', app, ...args]));
 assert.equal(invoke(['doctor']).installation.installed, false);
 assert(!fs.existsSync(app)); assert(!fs.existsSync(vault));
@@ -56,12 +63,20 @@ if (values['with-rust-tests']) {
   // Rust is needed by the test DRIVER, never the installed clients. Reuse real
   // IPC/effect tests with their in-memory keys and synthetic human interaction.
   const testEnv = { ...process.env, MAGICVAULT_TEST_CLI: cli, MAGICVAULT_TEST_MCP: mcp, MAGICVAULT_TEST_NATIVE_HOST: path.join(app, 'current/bin/magicvault-native-host'), MAGICVAULT_TEST_EXTENSION: setup.extension_directory };
-  execFileSync('cargo', ['test', '--locked', '-p', 'magicvault', '--test', 'cli_flow', '--test', 'delivery_cli', '--test', 'native_host'], { env: testEnv, stdio: 'inherit', timeout: 120_000 });
-  execFileSync('cargo', ['test', '--locked', '-p', 'magicvault-mcp', '--test', 'end_to_end'], { env: testEnv, stdio: 'inherit', timeout: 120_000 });
-  if (values['with-browser-tests']) {
-    // Real Chrome dispatch, isolated user-data roots/host definitions and
-    // synthetic human/key providers. Not native permission/keychain acceptance.
-    execFileSync('cargo', ['test', '--locked', '--release', '-p', 'magicvault-mcp', '--test', 'extension_native', '--', '--ignored', '--nocapture', '--test-threads=1'], { env: testEnv, stdio: 'inherit', timeout: 120_000 });
+  for (let round = 1; round <= rounds; round++) {
+    // These are independent trials, never retries after failure. execFileSync
+    // throws at the first failing lane; no success summary or uninstall follows.
+    console.log(JSON.stringify({ qualification_round: round, rounds }));
+    execFileSync('cargo', ['test', '--locked', '-p', 'magicvault', '--test', 'cli_flow', '--test', 'delivery_cli', '--test', 'native_host'], { env: testEnv, stdio: 'inherit', timeout: 120_000 });
+    execFileSync('cargo', ['test', '--locked', '-p', 'magicvault-mcp', '--test', 'end_to_end'], { env: testEnv, stdio: 'inherit', timeout: 120_000 });
+    if (values['with-browser-tests']) {
+      // Real Chrome dispatch, isolated user-data roots/host definitions and
+      // synthetic human/key providers. Not native permission/keychain acceptance.
+      execFileSync('cargo', ['test', '--locked', '--release', '-p', 'magicvault-mcp', '--test', 'extension_native', '--', '--ignored', '--nocapture', '--test-threads=1'], { env: testEnv, stdio: 'inherit', timeout: 120_000 });
+    }
+  }
+  if (values['with-performance-tests']) {
+    execFileSync('cargo', ['test', '--locked', '--release', '-p', 'magicvault', '--test', 'delivery_cli', '--', '--ignored', '--nocapture', '--test-threads=1'], { env: testEnv, stdio: 'inherit', timeout: 180_000 });
   }
 }
 
@@ -76,4 +91,4 @@ const retired = JSON.parse(run(stableCli, ['--root', vault, '--app-dir', app, 'u
 assert.equal(retired.vault_preserved, true); assert.equal(retired.keychain_preserved, true);
 assert(!fs.existsSync(app)); assert(fs.existsSync(retired.application_archive));
 assert(!fs.existsSync(vault)); assert.deepEqual(fs.readdirSync(home), []);
-console.log(JSON.stringify({ passed: true, version, npm_install: 'offline local tarballs', client_path: 'Node and system utilities only; no Rust', live_custody_or_services_touched: false, rust_fixture_tests: values['with-rust-tests'], isolated_browser_tests: values['with-browser-tests'], artifacts: work }));
+console.log(JSON.stringify({ passed: true, version, npm_install: 'offline local tarballs', client_path: 'Node and system utilities only; no Rust', live_custody_or_services_touched: false, rust_fixture_tests: values['with-rust-tests'], isolated_browser_tests: values['with-browser-tests'], reliability_rounds: rounds, performance_tests: values['with-performance-tests'], artifacts: work, application_artifacts: appArtifacts }));

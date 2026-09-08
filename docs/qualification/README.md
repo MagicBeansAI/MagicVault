@@ -7,6 +7,10 @@ that would not replace destination, custody, transport or output-boundary tests.
 
 ## What is covered
 
+The [reliability investigation](results-reliability-2026-09-08.md) records the
+reproduced pre-entry-point native-host loader stall, fail-fast installed trials,
+and bounded load/capacity/shutdown measurements without claiming a runtime fix.
+
 Use the [public release gate matrix](release.md) to separate automated conformance,
 human desktop acceptance and publisher/registry authorization. The
 [0.8.1 distribution CI record](results-distribution-ci-2026-09-08.md) includes a

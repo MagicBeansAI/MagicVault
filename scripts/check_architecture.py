@@ -80,6 +80,7 @@ def snapshot(root):
         distribution += [root / name for name in (
             "scripts/package-npm.mjs", "scripts/qualify-package.mjs",
             "scripts/sign-release.sh", ".github/workflows/distribution.yml",
+            ".github/workflows/qualification.yml",
         ) if (root / name).exists()]
         for source in sorted(distribution):
             files[source.relative_to(root).as_posix()] = digest(source)

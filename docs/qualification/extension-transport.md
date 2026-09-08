@@ -39,6 +39,7 @@ export MAGICVAULT_CHROME='/Applications/Google Chrome.app/Contents/MacOS/Google 
 export MAGICVAULT_BROWSER_TMPDIR=/Volumes/SSD1/magicvault
 make test-extension-native
 make test-delivery-latency
+make test-service-reliability
 ```
 
 The browser lane builds matching release executables and runs one ignored test.
@@ -58,7 +59,18 @@ Both lanes print bounded, value-free min/median/nearest-rank p95/max microsecond
 Timings include synthetic consent and status polling; CLI timings include process
 startup. They exclude enrollment, destination registration and browser startup.
 There is no brittle latency pass threshold and no claim of native-dialog latency,
-Internet/TLS throughput, constant-time secrecy, idle CPU/memory or long-soak stability.
+Internet/TLS throughput, constant-time secrecy or long-soak stability.
+
+`test-service-reliability` adds 32 process and 32 HTTP deliveries, refusal of the
+next new operation at retained-job capacity, and reconciliation without duplicate
+dispatch. It also exercises 2,000 paced status requests from four concurrent IPC
+clients, the 16-connection admission cap, recovery after those connections close,
+and shutdown with an unfinished frame. A separate case shuts down an actual
+process tree and unfinished HTTP response, checking stopped work and no replay.
+CPU/RSS counters cover the **in-process synthetic broker plus test driver**;
+reaped-child CPU is reported separately. They do not measure a real keychain,
+native human UI, installed standalone daemon or complete browser process tree.
+The run is bounded to seconds, not a production soak or throughput guarantee.
 
 ## Qualify the actual npm-installed assets
 
@@ -69,6 +81,14 @@ make build-standalone
 make package-npm NPM_SCOPE=@magicvault-local PACKAGE_OUTPUT="$candidate_dir/packages"
 make test-package-browser PACKAGE_OUTPUT="$candidate_dir/packages" \
   PACKAGE_TEST_OUTPUT="$candidate_dir/qualification"
+
+# Independent trials stop on the FIRST failure; they never retry failed work.
+# Keep build/tarball/browser-profile artifacts on SSD1, but place the fresh test
+# application on the internal temporary volume for loader-path comparison.
+node scripts/qualify-package.mjs --packages "$candidate_dir/packages" \
+  --work "$candidate_dir/reliability" --app-parent /private/tmp \
+  --with-rust-tests --with-browser-tests --reliability-rounds 10 \
+  --with-performance-tests
 ```
 
 This is an offline local tarball install, not registry publication. It checks
@@ -78,6 +98,21 @@ explicit fixture-only permission change). npm removal must leave stable native
 executables usable; application uninstall archives only the test application and
 does not create a vault or touch a keychain/service. Test-driver Rust is required;
 the installed launchers themselves do not compile Rust.
+
+`--reliability-rounds` accepts 1–20; multiple rounds and performance tests require
+`--with-rust-tests`. `--app-parent` must be an existing absolute directory; the
+driver creates a new private child and reports its artifact location. It never
+reuses a live app. A failed run leaves its isolated app for diagnosis; a successful
+run performs recoverable app removal and keeps the archive as evidence.
+
+An external-volume candidate has reproduced a native-host stall in macOS `dyld`
+before MagicVault's entry point. An internal-volume candidate passed, but later
+external-path passes do **not** establish a fix or prove the underlying OS cause.
+See the [reliability record](results-reliability-2026-09-08.md). Do not grant Full
+Disk Access, disable Gatekeeper, approve native prompts automatically or increase
+the acceptance deadline to make this lane green. After missing its 15-second
+connection bound, the browser fixture observes up to 45 seconds for closed stage
+diagnostics; even a late connection remains a failure. No fill follows that failure.
 
 `MAGICVAULT_TEST_CLI`, `MAGICVAULT_TEST_MCP`, `MAGICVAULT_TEST_NATIVE_HOST` and
 `MAGICVAULT_TEST_EXTENSION` are test-only seams, not production configuration.

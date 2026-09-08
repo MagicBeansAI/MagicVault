@@ -121,9 +121,16 @@ change is introduced; the native handshake requires a coordinated upgrade. Core,
 migration. [Installation/recovery](distribution.md) covers partial-state behavior.
 
 The architecture gate includes npm launchers, package assembly/qualification,
-signing script and distribution workflow as executable trust inputs. Release
+signing script and both qualification/distribution workflows as executable trust inputs. Release
 credentials/publication remain separate authorized operator actions; the checked-in
 workflow produces explicitly unsigned local-tarball candidates only.
+Qualification can run 1–20 independent installed-client trials, failing on the
+first error, plus explicit bounded load/capacity/shutdown probes. These use only
+synthetic custody in test executables, not a production bypass or daemon flag.
+An explicit `--app-parent` separates a fresh disposable application installation
+from external build/package artifacts for macOS loader/access-policy diagnosis;
+it never changes OS permissions. CPU/RSS counters cover the in-process test
+broker and driver, not an installed-daemon or whole-browser-tree benchmark.
 
 ## Browser-profile connection lifecycle
 

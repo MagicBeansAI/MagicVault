@@ -3,7 +3,7 @@
   "project": "MagicVault",
   "architecture_version": "0.8.1",
   "document": "docs/architecture.md",
-  "document_sha256": "90706b7fdc03804d9141d24679b0adadee3d2b1a7470df4d2e803a2d079db311",
+  "document_sha256": "f95d7594b0cf2359fca20d679fd5828292414b6b6acf3907b88cb03bea582341",
   "component_versions": {
     "extension": "0.6.1",
     "magicvault": "0.8.1",
@@ -15,7 +15,8 @@
     "magicvault-service": "0.8.1"
   },
   "source_sha256": {
-    ".github/workflows/distribution.yml": "225f6a7b1ade38c3b576e106387c1dc7cae614946a89b1fe5074acdd20f5ccde",
+    ".github/workflows/distribution.yml": "7adb20ff49211acd1fdb3165f3b2feb2852c2c1d2305d4308ea44d83f0f47e67",
+    ".github/workflows/qualification.yml": "30c7320e100240fd08c7be430ffb7f09bcb220b4511858bbd16bcdc266bb9942",
     "Cargo.lock": "1d4354326e498932da452c5c41a4cfb61b2956f750bd7caf2b4573a6a5048a32",
     "Cargo.toml": "7f5b8f9eaed713c5c68dedc540340f93693ab5d7fcc0d7c2856d4dd0553742cb",
     "extension/manifest.json": "bcc73a79017ffa7c9e8c73716b6537e0cc2aeeba62786c7414100924b5e3bf51",
@@ -81,7 +82,7 @@
     "npm/launcher.cjs": "8bdb4405158d161867e587acdad94395eda1c35535f657dc0504b839ffeffcdf",
     "npm/mcp.cjs": "2233e6719217ccbb08ae28b97499632ba773905c552c598a554f938a033e402b",
     "scripts/package-npm.mjs": "e0bb2954bb146c227408805e3261d2833c243210a3440f470d4e0568440fbccf",
-    "scripts/qualify-package.mjs": "193717da8078a097b41b7d24109336a6a68b273f028b93f2bdd22e0ae9ddca06",
+    "scripts/qualify-package.mjs": "3720279010ac2ec12f4e2c16774df5d9b638d217cd7be5be45151833a3796482",
     "scripts/sign-release.sh": "9ca4fc668579185168f3ceab017568d3b06a7286c4e7d29a0b5f34c70bb89726"
   }
 }

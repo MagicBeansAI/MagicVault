@@ -7,26 +7,30 @@ gates have passed or a substitute for the [security boundary](../../SECURITY.md)
 
 ## Gates and evidence
 
-Latest successful unsigned candidate: [signal-observer CI on `01a1cfd`](results-process-signal-2026-09-08.md)
+Latest independently downloaded candidate: [signal-observer CI on `01a1cfd`](results-process-signal-2026-09-08.md)
 passed normal checks/builds, 20 installed rounds and bounded performance/shutdown
 tests. Its [independently downloaded CLI/MCP/real-browser qualification passed](results-focused-candidate-2026-09-08.md).
-The latest [launch-stage investigation on `44f5a05`](results-launch-stage-2026-09-08.md)
+The preceding [launch-stage investigation on `44f5a05`](results-launch-stage-2026-09-08.md)
 **failed in trial 22**: no callback entry store was observed, and the owned child
 was already `SIGKILL`-terminated before cleanup, with OS category **Foundation**.
 The HTTP companion passed. This narrows the pre-callback launch interval, not
 the exact exception site/root cause; no defective framework is established.
-Neither browser success nor the earlier CI pass closes that process finding,
-qualifies genuine native acceptance, or produces a signed/public release.
+The [0.8.3 native-spawn correction on `1baf57b`](results-native-spawn-2026-09-08.md)
+then passed all 200 original concurrent process/HTTP trials on its first CI
+attempt, explicitly confirming the native backend. This qualifies the scoped
+launch correction; the historical exception remains unattributed. The focused
+workflow does not upload a distribution artifact, qualify genuine native
+acceptance or produce a signed/public release. Next: a fresh broader candidate.
 
 | Gate | Current evidence | Required before claiming completion |
 | --- | --- | --- |
-| Committed source, architecture and automated conformance | [Standalone `0.8.2` correction, full local tests and first-attempt macOS/Ubuntu/distribution CI on `23e648c`](results-completion-order-2026-09-08.md); prior failures remain separately identified | Requalify changed inputs and the final release revision; do not erase intermittent failures or attribute older CI to new binaries |
+| Committed source, architecture and automated conformance | [0.8.3 targeted checks/regressions, reviewed architecture and 200-trial focused macOS CI](results-native-spawn-2026-09-08.md); [prior 0.8.2 full macOS/Ubuntu/distribution evidence](results-completion-order-2026-09-08.md) remains version-specific | Run full supported-target conformance and broader distribution qualification on the new revision; do not attribute older CI to new binaries |
 | Offline prebuilt installation | [Unsigned `01a1cfd` candidate](results-focused-candidate-2026-09-08.md): downloaded ZIP/tarball hashes and all 14 installed bundle entries verified; installed CLI/MCP and real-browser trial passed | Qualify the actual final signed packages and quarantined download; unsigned artifact success is not publisher/Gatekeeper acceptance |
 | Real browser dispatch and profile independence | Headed/headless CDP, shipped CLI, two-profile native extension/MCP, repeated fresh starts; [external-volume OS startup limitation](results-startup-policy-2026-09-08.md) | Qualify the internal runtime installation; external native-host startup is not qualified for unattended use. Keep unsampled failures visible and complete remaining [native extension cases](extension.md) |
 | Genuine installed keychain and browser consent | [One-host basic acceptance](results-discovery-2026-09-08.md); [remembered-use permission removal/restoration and pause/resume](results-permission-recovery-2026-09-08.md) | First-pairing denial, full-browser restart/long outage, native profile/client revocation, wider permission combinations and remaining recovery cases |
-| New-process and HTTP delivery | Automated conformance plus [genuine modes and revocation](results-consent-2026-09-08.md), [pending cancellation and process-grant restart](results-cancellation-2026-09-08.md), and [actual in-flight cancellation](results-permission-recovery-2026-09-08.md) | Resolve [launch-stage CI trial 22 failure](results-launch-stage-2026-09-08.md#interpretation-and-next-boundary): `CallbackNotEntered`, owned child already `SIGKILL`-terminated before cleanup, Foundation OS category, dispatched `RuntimeFailure`. Exact exception/root cause remains unknown; earlier failures remain retained. Native cases are in the [runbook](process.md) |
+| New-process and HTTP delivery | [0.8.3 scoped native-spawn correction and 200 concurrent CI trials](results-native-spawn-2026-09-08.md); historical [genuine consent](results-consent-2026-09-08.md), [pending cancellation/restart](results-cancellation-2026-09-08.md), and [in-flight cancellation](results-permission-recovery-2026-09-08.md) remain tied to their tested versions | Qualify the new distribution/native lifecycle and wider hosts; the exact historical exception is unattributed, not grounds to replay uncertain work. Native cases are in the [runbook](process.md) |
 | Installation recovery and removal | Synthetic ownership, corruption, activation, drain and recoverable-retirement tests; packaged app-only lifecycle | [Native lifecycle](distribution.md), interrupted upgrade/drain and managed removal in a disposable account or explicitly authorized dedicated installation |
-| Performance and reliability | [Corrected `0.8.2` installed load/capacity/shutdown observations](results-completion-order-2026-09-08.md) and [downloaded-candidate two-profile real-browser/120-second idle observations](results-focused-candidate-2026-09-08.md); process failures retained | Resolve the process failure; installed standalone-daemon/native-host resources and a long soak remain unqualified. Browser counters exclude those processes, include the large-tab fixture and can miss transient peaks; no production guarantee |
+| Performance and reliability | [0.8.3 focused process/HTTP qualification](results-native-spawn-2026-09-08.md); prior [0.8.2 load/capacity/shutdown observations](results-completion-order-2026-09-08.md) and [downloaded-candidate browser/idle observations](results-focused-candidate-2026-09-08.md) are not new-version performance evidence | Requalify bounded resource/shutdown lanes on 0.8.3; installed standalone-daemon/native-host resources and a long soak remain unqualified. Browser counters exclude those processes and can miss transient peaks; no production guarantee |
 | Publisher identity and Gatekeeper | Signing procedure exists; current candidates are unsigned/ad-hoc | Explicitly authorized Developer ID identity and notary profile; notarize and qualify a fresh quarantined download of the exact final bytes |
 | Public npm installation and provenance | Local-only `@magicvault-local` candidate scope | Maintainer-selected and verified owned scope, protected trusted publishing, native package then matching launcher, registry/provenance/install verification |
 | Public GitHub release and onboarding | Concise MCP-first README and technical guides | Reviewed release notes/checksums, a deliberately authorized release/tag, usable download/install commands and matching repository description |

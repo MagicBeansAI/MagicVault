@@ -87,13 +87,56 @@ MagicVault `0.8.3` all-target check, five process and eight HTTP tests passed
 against the exact locked dependency. The five real adapter diagnostic cases
 passed while asserting native-spawn selection, and the original CLI driver
 compiled with the same assertion. Eighteen orchestration/packaging tests and
-12 architecture tests passed. Previous CI failures and the earlier local timeout
-remain in their original records; no full suite or live acceptance was rerun.
+12 architecture tests and the reviewed 74-input baseline passed. Previous CI
+failures and the earlier local timeout remain in their original records; no
+full suite or live acceptance was rerun.
 
 ## Original-scenario CI
 
-Pending one manual run on the reviewed MagicVault revision: uninstrumented
-unsigned clients, instrumented synthetic broker, original concurrent process/HTTP
-pair, at most 200 fresh trials within ten minutes, stop at first failure. No
-failed-trial replay, broader crash collection, signing, publication or live
-desktop modification is authorized by this qualification.
+[Run 34198513509, attempt 1](https://github.com/MagicBeansAI/MagicVault/actions/runs/34198513509)
+**PASSED** on MagicVault `1baf57b2dc6334faf5705a31d05d8d5705b16d5b`, using
+the MagicRun revision above. Job `101971666075`; macOS `15.7.9` arm64
+(`24G830`), image `20260829.0321.1`, Rust `1.92.0`, Node `22.23.2`.
+
+The clean uninstrumented client build, unsigned local-tarball assembly,
+orchestration/architecture gates, three diagnostic registry units, five real
+adapter cases and explicit instrumented-release refusal passed. Only the
+synthetic broker/driver was instrumented. The original process and HTTP fixtures
+ran together, with unchanged recipients, deadlines and first-failure behavior.
+
+**All 200 fresh trials passed both cases: 200 process deliveries and 200 HTTP
+companion passes; zero failed cases.** All 200 process observations recorded
+`MacosPosixSpawn`, no pre-exec stage, one owned child, confirmed group ownership,
+normal successful reap and completed adapter settlement. No signal exit or OS
+reason query occurred. Trials ran from `07:22:08.902Z` to `07:24:54.511Z`, about
+166 seconds within the ten-minute budget. There was no trial 201 or failed-trial
+replay. The package's isolated app-only cleanup completed and the job passed.
+
+The existing pre-reap group-kill observation was `Denied` after these known
+normal exits, as in the preceding passing fixtures. These single-recipient
+trials are not evidence of successful live-descendant termination; the separate
+local cancellation/tree/timeout regressions cover that path. No cleanup decision
+or error was hidden or relaxed to make this run pass.
+
+The generic investigation summary deliberately remains
+`inconclusive_no_reproduction` / `bounded investigation completed; cause
+unresolved`: repetition alone cannot attribute the earlier exception. Combined
+with the deterministic no-fork proof and retained authority/lifecycle regressions,
+this result qualifies the **scoped launch correction** on this runner. It is not
+a guarantee of zero future failures, a latency benchmark, or proof that the old
+Foundation category came from a particular API.
+
+## Remaining release gates and handoff
+
+The next priority is broader qualification of a fresh `0.8.3` distribution
+candidate: full supported-target conformance, downloaded artifact verification,
+installed-client/browser compatibility and the bounded resource/shutdown lanes.
+This focused workflow does not upload a distributable artifact or exercise real
+keychain/native dialogs, browsers, long soaks, signed/quarantined downloads or
+registry publication. Earlier `0.8.1`/`0.8.2` acceptance cannot qualify new bytes.
+Jailed/PTY fork safety and wider platforms remain separate scope.
+
+Magician and the live acceptance installation remain unchanged. No additional
+run, native-consent action, signing, publication or uncertain-operation retry
+followed this successful bounded run. Earlier failures remain in their original
+records; the [release matrix](release.md) tracks the remaining work.

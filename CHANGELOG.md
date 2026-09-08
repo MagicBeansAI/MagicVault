@@ -2,6 +2,10 @@
 
 ## 0.8.3 — macOS process launch correction — 2026-09-08
 
+- First-attempt focused macOS CI passed all 200 fresh concurrent process/HTTP
+  trials, explicitly confirming native-spawn selection for every process.
+  This qualifies the scoped launch change, not the exact historical exception,
+  wider acceptance, performance guarantees or a public release.
 - Select MagicRun `0.1.74`: standalone macOS process delivery now uses native
   `posix_spawn` with the authorized cwd descriptor, eliminating its userspace
   fork/pre-exec interval. Preserve exact executable/argv/env, bounded output,

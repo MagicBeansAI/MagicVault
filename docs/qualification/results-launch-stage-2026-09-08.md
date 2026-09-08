@@ -1,5 +1,9 @@
 # Owned-child launch-stage investigation — 2026-09-08
 
+Follow-up: the [native-spawn correction](results-native-spawn-2026-09-08.md)
+removes this userspace fork interval and records its first-attempt 200-trial
+result. The failed-run evidence below remains unchanged.
+
 The [preceding CI recurrence](results-os-exit-reason-2026-09-08.md#named-namespace-follow-up)
 identified `Observed(Foundation)` on an owned child killed before cleanup, with
 all recipient markers absent. That OS namespace does not identify a framework

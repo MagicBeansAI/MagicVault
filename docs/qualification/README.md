@@ -7,17 +7,25 @@ that would not replace destination, custody, transport or output-boundary tests.
 
 ## What is covered
 
+The [0.8.3 native-spawn correction](results-native-spawn-2026-09-08.md) passed its
+first-attempt focused CI: all 200 original concurrent process/HTTP trials, with
+native launch explicitly confirmed for every process. The affected non-jailed
+macOS path no longer runs the parent's userspace fork callbacks. This qualifies
+the scoped correction, not the exact historical exception or broader release
+readiness. Next is a fresh distribution candidate and wider qualification.
+
 The [launch-stage investigation](results-launch-stage-2026-09-08.md) narrows the
 latest recurrence: CI trial 22 reported `CallbackNotEntered` and the Foundation
-OS category before cleanup, while the HTTP companion passed. The next review
-targets the pre-callback launch interval; no exact exception or runtime fix is
-established. The fail-fast run was not retried and the process gate stays open.
+OS category before cleanup, while the HTTP companion passed. The subsequent review
+targeted the pre-callback launch interval. That historical run established no
+exact exception or fix and was not retried; the correction is recorded above.
 
 The [OS exit-reason investigation](results-os-exit-reason-2026-09-08.md) adds a
 bounded parent-only observation to the debug synthetic broker, with explicit
 unavailable outcomes and real self-signal preflight. CI trial 53 identified the
 Foundation OS category before cleanup; the exception site/root cause remains
-unknown. Normal runtime behavior is unchanged and the process gate stays open.
+unknown. That diagnostic changed no runtime behavior and did not close the
+process gate; the later scoped correction is recorded above.
 
 The [focused investigation and downloaded-candidate record](results-focused-candidate-2026-09-08.md)
 identifies the independently hash-verified `01a1cfd` candidate and its installed
@@ -66,7 +74,7 @@ committed `0.7.0` revision, including CI and repeated fresh browser starts.
 | Actual CLI → daemon → real Chrome | `make test-cli-native` | Genuine native dialogs/keychain in [CLI runbook](cli.md) |
 | MCP and native-host executables | Real subprocess/IPC tests; `make test-extension-native` adds actual Chrome dispatch and two independent profiles; [basic installed native acceptance](results-discovery-2026-09-08.md) on one host | Remaining permission/recovery cases in [extension runbook](extension.md); wider hosts and live agent-model sessions not yet qualified |
 | Public demo pages | Opt-in `make test-public-web` | Non-gating compatibility smoke, not login/provider qualification |
-| New process / HTTP requests | `make test-delivery`: real local HTTP/TLS and MagicRun children, shipped CLI/MCP; `make test-delivery-latency` adds local repeated-call observations; native consent and in-flight results linked above | Resolve the [pre-callback process failure](results-launch-stage-2026-09-08.md#interpretation-and-next-boundary); remaining native recovery, wider hosts, Internet latency and resource/soak performance; see [delivery runbook](process.md) |
+| New process / HTTP requests | `make test-delivery`: real local HTTP/TLS and MagicRun children, shipped CLI/MCP; [0.8.3 scoped launch correction and 200 concurrent CI trials](results-native-spawn-2026-09-08.md); native consent and in-flight results linked above apply to their original versions | Fresh artifact/native recovery qualification, wider hosts, Internet latency and resource/soak performance; see [delivery runbook](process.md) |
 | Running-service destinations | `make test-qualification-fixtures` exercises a cooperative Node service | Product refresh/rotation integration remains **unimplemented** |
 | Prebuilt CLI/MCP installation | `make test-distribution`, offline `make test-package-install`; opt-in `make test-package-browser` adds installed extension assets | Developer ID/quarantined downloads, registry publication and full native lifecycle in [distribution runbook](distribution.md) |
 

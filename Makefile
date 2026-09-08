@@ -150,7 +150,7 @@ test-package-install:
 
 test-package-browser:
 	@test -n "$(PACKAGE_OUTPUT)" -a -n "$(PACKAGE_TEST_OUTPUT)" || (echo 'Set PACKAGE_OUTPUT and a fresh PACKAGE_TEST_OUTPUT directory'; exit 1)
-	node scripts/qualify-package.mjs --packages "$(PACKAGE_OUTPUT)" --work "$(PACKAGE_TEST_OUTPUT)" --with-rust-tests --with-browser-tests
+	node scripts/qualify-package.mjs --packages "$(PACKAGE_OUTPUT)" --work "$(PACKAGE_TEST_OUTPUT)" --app-parent /private/tmp --with-rust-tests --with-browser-tests
 
 .PHONY: test-distribution package-npm test-package-install
 .PHONY: test-extension

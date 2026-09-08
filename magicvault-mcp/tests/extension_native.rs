@@ -28,6 +28,9 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
+#[path = "support/native_startup.rs"]
+mod native_startup;
+
 #[derive(Default)]
 struct SyntheticHuman {
     deny: AtomicBool,
@@ -169,23 +172,30 @@ async fn load(
     human: &SyntheticHuman,
 ) -> (CdpPeer, String, String) {
     let started = Instant::now();
+    let observation = native_startup::Observation::start(marker);
     let mut peer = owner.peer().await;
     let result = peer
         .command("Extensions.loadUnpacked", json!({"path":assets}), None)
         .await;
     assert_eq!(result["id"], native::EXTENSION_ID);
+    let unpacked = started.elapsed();
     let (_, options) = peer
         .open_page(&format!(
             "chrome-extension://{}/options.html",
             native::EXTENSION_ID
         ))
         .await;
+    let options_ready = started.elapsed();
     let (_, page) = peer.open_page(&format!("{}/login", owner.origin)).await;
+    let page_ready = started.elapsed();
     connection(&mut peer, &options, true, Some((marker, human))).await;
     eprintln!(
-        "native extension startup settled in {:?}",
-        started.elapsed()
+        "native extension startup settled in {:?}; cumulative stages: unpacked {:?}, options {:?}, fixture {:?}; diagnostic sampling enabled: {}",
+        started.elapsed(), unpacked, options_ready, page_ready, observation.is_some()
     );
+    if let Some(observation) = observation {
+        observation.finish().await;
+    }
     (peer, options, page)
 }
 
@@ -271,7 +281,7 @@ async fn real_extension_mcp_fill_denial_profiles_pause_and_reconnect() {
     // synthetic daemon. This never intercepts or records native protocol bytes.
     let wrapper = native::wrapper(&config).unwrap().replacen(
         "#!/bin/sh\n",
-        &format!("#!/bin/sh\nprintf . >> '{quoted_marker}'\nprintf '%s' \"$$\" > '{quoted_pid}'\n"),
+        &format!("#!/bin/sh\nprintf '%s' \"$$\" > '{quoted_pid}'\nprintf . >> '{quoted_marker}'\n"),
         1,
     );
     private_file(

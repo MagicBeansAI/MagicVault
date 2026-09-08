@@ -18,11 +18,21 @@ test('real package browser qualification requires explicit prerequisites before 
   const work = path.join(root, 'must-not-exist');
   for (const [extra, browser] of [[[], process.execPath], [['--with-rust-tests'], 'relative-chrome']]) {
     assert.throws(() => execFileSync(process.execPath, [path.join(repo, 'scripts/qualify-package.mjs'),
-      '--packages', root, '--work', work, '--with-browser-tests', ...extra], {
+      '--packages', root, '--work', work, '--app-parent', root, '--with-browser-tests', ...extra], {
       env: {...process.env, MAGICVAULT_CHROME: browser}, stdio: 'pipe', timeout: 5000,
     }), error => error.status !== 0 && String(error.stderr).includes('browser qualification requires'));
     assert.equal(fs.existsSync(work), false);
   }
+});
+test('browser qualification never implicitly installs its native host on the artifact volume', t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'magicvault-browser-app-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const work = path.join(root, 'must-not-exist');
+  assert.throws(() => execFileSync(process.execPath, [path.join(repo, 'scripts/qualify-package.mjs'),
+    '--packages', root, '--work', work, '--with-rust-tests', '--with-browser-tests'], {
+    env: {...process.env, MAGICVAULT_CHROME: process.execPath}, stdio: 'pipe', timeout: 5000,
+  }), error => error.status !== 0 && String(error.stderr).includes('requires explicit --app-parent'));
+  assert.equal(fs.existsSync(work), false);
 });
 test('reliability qualification rejects unbounded or implicit workloads before creating artifacts', t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'magicvault-reliability-options-'));

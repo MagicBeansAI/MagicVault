@@ -139,12 +139,17 @@ workflow produces explicitly unsigned local-tarball candidates only.
 Qualification can run 1–20 independent installed-client trials, failing on the
 first error, plus explicit bounded load/capacity/shutdown probes. These use only
 synthetic custody in test executables, not a production bypass or daemon flag.
-The process adapter's explicit stress test captures closed terminal classes and
+The process adapter's serial and async-with-child-churn stress tests capture closed terminal classes and
 known-error booleans only under `cfg(test)`; neither that observer nor arbitrary
 recipient diagnostics is compiled into the shipped client or service.
-An explicit `--app-parent` separates a fresh disposable application installation
-from external build/package artifacts for macOS loader/access-policy diagnosis;
-it never changes OS permissions. CPU/RSS counters cover the in-process test
+Browser qualification requires explicit `--app-parent`; its Make target selects
+an internal temporary application separately from external build/package artifacts.
+The external-host path can block in macOS loader/access-policy work before the
+synthetic provider starts. An opt-in test-only sampler checks the fixture PID's
+image before retaining a bounded private stack capture; it never reads protocol
+frames or changes OS permissions. These are diagnostic/qualification seams, not
+production behavior or a fix for unexplained process uncertainty.
+CPU/RSS counters cover the in-process test
 broker and driver, not an installed-daemon or whole-browser-tree benchmark.
 
 ## Browser-profile connection lifecycle

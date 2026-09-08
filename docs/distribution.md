@@ -43,6 +43,14 @@ remain private, absolute and at most 85 bytes for the Unix socket. Do not run as
 root/sudo, point at Magician's data, or put credentials in paths, labels or profile
 names. No setup operation grants browser/process/HTTP delivery authority.
 
+Keep the managed application on the internal user volume. An unsigned native
+host installed on an external/removable volume has stalled in macOS's loader
+before MagicVault starts, alongside removable-volume authorization requests.
+That path is **not qualified for unattended startup**. Build caches and package
+archives can remain on an external SSD; they need not be the runtime installation.
+Do not grant Full Disk Access or disable OS protection as a workaround. See the
+[startup investigation](qualification/results-startup-policy-2026-09-08.md).
+
 Setup returns a `mcpServers` object with the installed MCP executable's absolute
 path and reference-only root/profile arguments. Use that configuration in your
 MCP client. Existing CLI commands and manually run daemons remain supported.

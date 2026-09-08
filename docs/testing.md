@@ -124,6 +124,12 @@ package/work directories and explicit `MAGICVAULT_CHROME`. It also runs the real
 extension transport fixture with the installed MCP launcher, native host and
 extension code. The fixture's single loopback permission pregrant still applies;
 this does not exercise the production host installer or real human consent.
+The target puts its disposable application under `/private/tmp`; builds, package
+artifacts and selected browser-profile storage still use SSD1. Direct browser
+qualification requires `--app-parent` explicitly, because an external native
+host can trigger OS removable-volume authorization before the test's synthetic
+provider runs. See the [startup investigation](qualification/results-startup-policy-2026-09-08.md)
+for evidence, the optional private sampler and the still-open process finding.
 
 ## Build and test artifact location
 

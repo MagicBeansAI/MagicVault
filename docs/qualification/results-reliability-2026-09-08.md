@@ -1,6 +1,8 @@
 # Reliability investigation and bounded qualification — 2026-09-08
 
 Status: **additional evidence, not closure of the two intermittent findings**.
+The [subsequent policy investigation](results-startup-policy-2026-09-08.md)
+narrows the sampled external-volume startup issue; process uncertainty remains open.
 This record covers the `0.8.1` investigation; a subsequently demonstrated standalone
 admission race and its `0.8.2` correction have a [separate record](results-completion-order-2026-09-08.md).
 No production Rust behavior, extension/launcher code, custody schema, MagicRun revision or

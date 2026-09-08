@@ -12,9 +12,11 @@ const { values } = parseArgs({ options: { packages: { type: 'string' }, work: { 
 if (!/^(?:[1-9]|1[0-9]|20)$/.test(values['reliability-rounds']) || ((values['reliability-rounds'] !== '1' || values['with-performance-tests']) && !values['with-rust-tests'])) throw new Error('reliability qualification requires --with-rust-tests and 1..20 rounds');
 const rounds = Number(values['reliability-rounds']);
 if (values['with-browser-tests'] && (!values['with-rust-tests'] || !process.env.MAGICVAULT_CHROME || !path.isAbsolute(process.env.MAGICVAULT_CHROME) || !fs.statSync(process.env.MAGICVAULT_CHROME).isFile())) throw new Error('browser qualification requires --with-rust-tests and an explicit absolute MAGICVAULT_CHROME executable');
-// An external-volume fixture has stalled in the macOS loader before main().
-// Keep packages/builds on the selected volume, but allow an
-// explicit fresh internal-volume installation. Never alter OS access policy.
+// A native host on an external volume can block in dyld while macOS requests
+// removable-volume access, before our synthetic consent provider can run.
+// Require a deliberate app location for browser qualification; use an internal
+// parent for the non-interactive lane. Builds/packages/profiles can stay on SSD.
+if (values['with-browser-tests'] && !values['app-parent']) throw new Error('browser qualification requires explicit --app-parent (normally /private/tmp); external application volumes can request native OS permission');
 if (values['app-parent'] && (!path.isAbsolute(values['app-parent']) || !fs.statSync(values['app-parent']).isDirectory())) throw new Error('app-parent must be an existing absolute directory');
 if (!values.packages || !values.work || process.platform !== 'darwin' || process.arch !== 'arm64') throw new Error('require --packages, fresh --work, and macOS arm64');
 const packages = fs.realpathSync(values.packages);

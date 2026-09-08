@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased — Qualification diagnostics
+
+- Require explicit application placement for packaged browser qualification;
+  its Make target uses an internal temporary application while SSD build/package
+  paths remain unchanged. Document the observed pre-entry removable-volume
+  authorization delay, without bypassing OS permissions or claiming it fixed.
+- Add opt-in private native-host startup sampling and an async process/child-exit
+  stress probe. Keep the original process uncertainty open; no production Rust,
+  extension, core, MagicRun, Magician or wire-format change is included. See the
+  [investigation](docs/qualification/results-startup-policy-2026-09-08.md).
+
 ## 0.8.2 — 2026-09-08 — Completion and admission ordering
 
 - Fix a standalone scheduling race: browser, process/HTTP and metadata completion

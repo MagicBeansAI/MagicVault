@@ -75,16 +75,18 @@ The run is bounded to seconds, not a production soak or throughput guarantee.
 ## Qualify the actual npm-installed assets
 
 ```bash
-# Keep all candidate artifacts on the external drive; parent must exist.
+# Keep builds/tarballs/browser profiles on SSD; parent must exist.
 candidate_dir=$(mktemp -d /Volumes/SSD1/magicvault/candidate.XXXXXX)
 make build-standalone
 make package-npm NPM_SCOPE=@magicvault-local PACKAGE_OUTPUT="$candidate_dir/packages"
 make test-package-browser PACKAGE_OUTPUT="$candidate_dir/packages" \
   PACKAGE_TEST_OUTPUT="$candidate_dir/qualification"
+# This target explicitly places its disposable application under /private/tmp.
 
 # Independent trials stop on the FIRST failure; they never retry failed work.
 # Keep build/tarball/browser-profile artifacts on SSD1, but place the fresh test
-# application on the internal temporary volume for loader-path comparison.
+# application on the internal temporary volume to avoid implicit removable-
+# volume authorization. This is not permission/OS-policy acceptance.
 node scripts/qualify-package.mjs --packages "$candidate_dir/packages" \
   --work "$candidate_dir/reliability" --app-parent /private/tmp \
   --with-rust-tests --with-browser-tests --reliability-rounds 10 \
@@ -100,19 +102,33 @@ does not create a vault or touch a keychain/service. Test-driver Rust is require
 the installed launchers themselves do not compile Rust.
 
 `--reliability-rounds` accepts 1–20; multiple rounds and performance tests require
-`--with-rust-tests`. `--app-parent` must be an existing absolute directory; the
+`--with-rust-tests`. Browser qualification requires explicit `--app-parent`;
+normally use `/private/tmp` on the internal volume. It must be an existing absolute directory; the
 driver creates a new private child and reports its artifact location. It never
 reuses a live app. A failed run leaves its isolated app for diagnosis; a successful
 run performs recoverable app removal and keeps the archive as evidence.
 
 An external-volume candidate has reproduced a native-host stall in macOS `dyld`
-before MagicVault's entry point. An internal-volume candidate passed, but later
-external-path passes do **not** establish a fix or prove the underlying OS cause.
-See the [reliability record](results-reliability-2026-09-08.md). Do not grant Full
+before MagicVault's entry point. New fixture-scoped stack and policy observations
+associate that path with removable-volume authorization; it is not qualified for
+unattended startup. Internal-volume comparisons passed with identical host bytes.
+See the [policy investigation](results-startup-policy-2026-09-08.md) and retained
+[original failures](results-reliability-2026-09-08.md). Do not grant Full
 Disk Access, disable Gatekeeper, approve native prompts automatically or increase
 the acceptance deadline to make this lane green. After missing its 15-second
 connection bound, the browser fixture observes up to 45 seconds for closed stage
 diagnostics; even a late connection remains a failure. No fill follows that failure.
+
+For a deliberately authorized slow-start diagnostic, set
+`MAGICVAULT_TEST_STARTUP_DIAGNOSTICS` to an existing absolute private directory
+(mode `0700`). After two seconds, the test can sample only its newly launched
+host, checking the recorded PID's executable against the expected installed host.
+A bounded one-second stack sample stays in a private child directory; public
+output contains only stages and capture success. This never reads frames,
+capabilities or process environments. It does not alter OS access policy.
+Sampling perturbs timing: keep it disabled in the normal performance lane, and
+never publish raw traces. A fixture using an external application may trigger an
+OS permission request despite its synthetic MagicVault consent provider.
 
 `MAGICVAULT_TEST_CLI`, `MAGICVAULT_TEST_MCP`, `MAGICVAULT_TEST_NATIVE_HOST` and
 `MAGICVAULT_TEST_EXTENSION` are test-only seams, not production configuration.

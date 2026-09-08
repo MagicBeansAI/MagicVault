@@ -8,6 +8,9 @@
   the diagnostic cfg. No runtime fix is claimed. MagicRun source attestation
   bytes change; Magician's existing dependency and shared custody are untouched.
   See the [signal investigation](docs/qualification/results-process-signal-2026-09-08.md).
+- Record first-attempt unsigned CI success on `01a1cfd`: normal conformance,
+  20 installed-client trials and bounded capacity/in-flight shutdown tests pass.
+  The original process failure did not recur; its cause remains an open gate.
 - Require explicit application placement for packaged browser qualification;
   its Make target uses an internal temporary application while SSD build/package
   paths remain unchanged. Document the observed pre-entry removable-volume

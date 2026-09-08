@@ -7,6 +7,11 @@ gates have passed or a substitute for the [security boundary](../../SECURITY.md)
 
 ## Gates and evidence
 
+Latest unsigned candidate: [signal-observer CI on `01a1cfd`](results-process-signal-2026-09-08.md)
+passed normal checks/builds, 20 installed rounds and bounded performance/shutdown
+tests. It did not reproduce or fix the earlier process failure, execute genuine
+native acceptance, or produce a signed/public release.
+
 | Gate | Current evidence | Required before claiming completion |
 | --- | --- | --- |
 | Committed source, architecture and automated conformance | [Standalone `0.8.2` correction, full local tests and first-attempt macOS/Ubuntu/distribution CI on `23e648c`](results-completion-order-2026-09-08.md); prior failures remain separately identified | Requalify changed inputs and the final release revision; do not erase intermittent failures or attribute older CI to new binaries |

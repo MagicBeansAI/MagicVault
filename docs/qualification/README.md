@@ -7,6 +7,11 @@ that would not replace destination, custody, transport or output-boundary tests.
 
 ## What is covered
 
+The [owned-child signal investigation](results-process-signal-2026-09-08.md)
+records test-only MagicRun/MagicVault observation and a first-attempt unsigned
+CI pass on `01a1cfd`, including 20 installed trials and bounded shutdown probes.
+The original failure did not recur; its cause is not resolved.
+
 The [exact-path diagnostic record](results-exact-path-2026-09-08.md) distinguishes
 installed artifact bytes from the debug-only synthetic broker observer. Passing
 independent trials do not close the original intermittent process finding.

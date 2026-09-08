@@ -64,7 +64,47 @@ observer through its real process-adapter and exact installed-client fixtures.
 
 ## CI investigation
 
-The next unsigned candidate run will perform at most 20 independent installed
-trials, stop at the first failure and retain its closed observations. A passing
-run cannot establish the original intermittent failure's cause or fix it.
-Signing, publication and genuine native acceptance remain separate gates.
+[Unsigned run 34187369986, attempt 1](https://github.com/MagicBeansAI/MagicVault/actions/runs/34187369986)
+**PASSED** on MagicVault `01a1cfd97f8d8230c6c7ee710f0970834699dbd2` and the
+locked MagicRun revision above. Job `101938310547`; macOS `15.7.9` arm64,
+image `20260829.0321.1`, Rust `1.92.0`, Node `22.23.2`. No retry was requested.
+
+| Executed lane | Result |
+| --- | --- |
+| Normal all-target check and release build | PASS |
+| Default Rust suite | 255 passed, 13 explicitly opt-in tests ignored |
+| JavaScript / Python / architecture | 88 JavaScript and 24 Python passed; 72 architecture inputs match |
+| Serial and async process stress | 200 serial launches and 200 async launches with 2,000 noise children passed |
+| Diagnostic isolation/classification and release refusal | 3 units, four real recipient cases and explicit release guard passed |
+| Offline installed CLI/native-host/MCP | 20 independent fail-fast rounds passed; 260 default case executions |
+| Separate bounded performance/capacity/shutdown lane | All 3 opt-in tests passed |
+| npm removal / recoverable app-only uninstall / upload | PASS |
+
+All 20 process snapshots showed one owned child, a matching child notification,
+an ordinary successful exit before cleanup, and the same successful final reap.
+They recorded 2–3 wait polls, no interruptions/errors, one before-reap group kill
+attempt classified `Denied`, and no explicit termination cleanup. The denial
+classification also appeared locally and does not identify the original failure's
+cause. The separate in-flight child-tree test confirmed its owned recipient
+stopped without replay; these are different scenarios, not interchangeable proofs.
+
+The 20-sample CLI delivery lane measured process median/p95 `93.847/100.329 ms`
+and loopback HTTP `224.948/266.147 ms`. The capacity lane used 32 operations per
+surface and 2,000 status requests at concurrency four; capacity recovered.
+In-flight shutdown measured `326.994 ms` for the owned process tree and `2.064 ms`
+for HTTP, with both recipients stopped and no replay. These include synthetic
+consent and test-driver costs, not production latency or real native acceptance.
+Resource scope is the in-process synthetic broker/driver, not a standalone daemon
+or browser. This run did not execute a real-browser or long-soak trial.
+
+Uploaded unsigned artifact: `10041209598`, `MagicVault-UNSIGNED-darwin-arm64`,
+6,531,459 bytes. GitHub-reported ZIP SHA-256:
+`15c07b224d543d81296268b9a2e9065abda99ef50fa527570c0d4180f2a3a24f`.
+It is a temporary Actions artifact, not a signed or published release; it was
+not downloaded or installed on the live acceptance setup in this follow-up.
+
+The original intermittent failure did **not** recur. Its signal/source remains
+unknown: this pass validates the observer and this bounded run, not a fix. The
+next informative recurrence must retain the before-cleanup and final-reap
+categories; do not rerun a failure away or automatically replay an uncertain
+delivery. Signing, publication and genuine native acceptance remain separate gates.

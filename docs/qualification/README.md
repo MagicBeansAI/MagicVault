@@ -9,8 +9,9 @@ that would not replace destination, custody, transport or output-boundary tests.
 
 The [OS exit-reason investigation](results-os-exit-reason-2026-09-08.md) adds a
 bounded parent-only observation to the debug synthetic broker, with explicit
-unavailable outcomes and real self-signal preflight. It does not change normal
-runtime behavior or close the process release gate without a diagnosed fix.
+unavailable outcomes and real self-signal preflight. CI trial 53 identified the
+Foundation OS category before cleanup; the exception site/root cause remains
+unknown. Normal runtime behavior is unchanged and the process gate stays open.
 
 The [focused investigation and downloaded-candidate record](results-focused-candidate-2026-09-08.md)
 identifies the independently hash-verified `01a1cfd` candidate and its installed

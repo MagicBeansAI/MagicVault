@@ -101,6 +101,47 @@ of the failed revision or an uncertain operation.
 The classifier follow-up selects MagicRun
 `e2099b3f69c3f20e75229c6e7b614a63d83db791`. MagicVault's all-target check and
 five real adapter diagnostic cases passed again with that exact dependency.
-Its CI result is pending in this record. A reason
-category narrows an investigation; it does not by itself prove the underlying
-bug, its sender or safe retry behavior. All earlier failures remain open.
+
+[Run 34192231874, attempt 1](https://github.com/MagicBeansAI/MagicVault/actions/runs/34192231874)
+**FAILED** on MagicVault `e72f900d2304e5dd0340a86e43f5687df6a5ad03`, using
+that MagicRun revision. Job `101952473406`; same macOS `15.7.9` arm64 image,
+Rust `1.92.0` and Node `22.23.2`. Client build/package assembly, orchestration and
+architecture checks, diagnostic preflight and instrumented-release refusal passed.
+
+Trials 1–52 passed both cases. **Trial 53 failed the process case; its HTTP
+companion passed.** The loop stopped after about 55 seconds, well before its
+ten-minute budget. No trial 54, retry, success summary, post-success uninstall
+or upload followed. The failed disposable CI installation was left for runner
+teardown; the live installation and custody state were not involved.
+
+| Failed-child observation | Result |
+| --- | --- |
+| Runtime and spawn | Runtime entered; one owned child spawned |
+| First pre-cleanup wait | Matching owned child / `SIGCHLD`, `CLD_KILLED`, `SIGKILL`; no wait interruption/error |
+| OS exit reason | **`Observed(Foundation)`**; basic query succeeded |
+| Cleanup | No explicit termination cleanup; later before-reap group kill returned `NoSuchProcess` |
+| Final reap | `SIGKILL`; no normal exit status or wait error |
+| Adapter and recipient | Dispatched `RuntimeFailure`, `uncertain` / `unavailable`, `may_have_run: true`; empty stderr; entry/material-present/completion markers absent |
+
+## Interpretation and remaining gate
+
+The OS category is now known for this occurrence: **Foundation**, before
+MagicRun cleanup. It does **not** identify a Foundation API call, the exception
+site or a defective framework. Apple's kernel
+[`maybe_unrecoverable_exception_triage`](https://github.com/apple-oss-distributions/xnu/blob/f6217f891ac0bb64f3d375211650a4c1ff8ca1ea/osfmk/kern/exception.c)
+also assigns this namespace to its unrecoverable-exception termination path.
+The category alone cannot prove this child took that specific path, whether
+exec completed, or who caused the underlying failure. The first run's catch-all
+cannot be retrospectively relabeled as Foundation.
+
+The next useful work is to localize the owned child's failing launch/exception
+stage in the original concurrent process/HTTP fixture, with a separately reviewed
+bounded, value-free observation. Specific exception details, stacks and program
+counters were not collected here. Do not substitute broad OS-log/crash-report
+collection, disable fork/OS safety checks, serialize away the original scenario,
+relax deadlines or replay an uncertain delivery as a fix.
+
+This completes the OS-category diagnostic step, **not the process reliability
+fix or release qualification**. No additional trial run, runtime-policy change,
+Magician update, signing or publication followed. All prior failures, including
+the local preflight timeout, remain recorded.

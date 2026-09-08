@@ -2,6 +2,10 @@
 
 ## Unreleased — Qualification diagnostics
 
+- Record the final named-namespace CI recurrence: trial 53 identified
+  **Foundation** before cleanup, with matching final `SIGKILL`. Its exception
+  site/root cause remains unknown; all failures are retained and no runtime fix,
+  framework attribution, retry safety or release readiness is claimed.
 - Retain the first OS-observer CI failure in trial 29. Its successful query hit
   the decoder's catch-all, so extend named namespace coverage to the full
   reviewed Apple header with regression coverage; no raw values are exposed.

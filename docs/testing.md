@@ -70,7 +70,11 @@ remain technical evidence, not a production-readiness claim.
 
 No coverage-percentage tool ran. The separate
 [committed 0.7.0 CI results](qualification/results-release-2026-09-08.md) do not
-qualify the current 0.8.1 source.
+qualify the current 0.8.1 source. The
+[0.8.1 distribution CI record](qualification/results-distribution-ci-2026-09-08.md)
+records a successful current unsigned package/install workflow and its preceding
+intermittent process-delivery failure. The latter remains unresolved; the green
+run is not evidence of a runtime fix or a pass for the separate browser lanes.
 Automated CLI/native-extension lanes use test-only human and key providers;
 the separately recorded installed acceptance uses genuine native UI/keychain.
 Small-sample local latency is measured, not a production benchmark. Browser

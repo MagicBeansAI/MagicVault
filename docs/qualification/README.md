@@ -9,6 +9,9 @@ that would not replace destination, custody, transport or output-boundary tests.
 
 Use the [public release gate matrix](release.md) to separate automated conformance,
 human desktop acceptance and publisher/registry authorization. The
+[0.8.1 distribution CI record](results-distribution-ci-2026-09-08.md) includes a
+successful unsigned package/install workflow on `43b6a1f`, while retaining the
+first run's unresolved intermittent process-delivery uncertainty. The
 [installed permission/recovery record](results-permission-recovery-2026-09-08.md)
 adds genuine remembered-use permission refusal/restoration, pause/resume and
 process/HTTP in-flight cancellation on committed `34fee4a`. The

@@ -3,8 +3,8 @@
 MagicVault `0.8.1` is a source alpha, not a production-qualified release.
 Basic installed-browser/native-human/keychain and selected remembered-use,
 permission/recovery and in-flight cancellation cases passed on one host. Broader
-native acceptance and startup reliability remain open. Do not use valuable
-credentials until the relevant [qualification gates](docs/testing.md) pass. Source review, a
+native acceptance and startup/process-delivery reliability remain open. Do not
+use valuable credentials until the relevant [qualification gates](docs/testing.md) pass. Source review, a
 `secure_` name, or password masking is not proof of safety.
 
 ## The supported promise

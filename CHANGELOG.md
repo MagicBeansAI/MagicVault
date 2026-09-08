@@ -8,6 +8,10 @@
   MCP quick start and compact surface coverage. Move full coverage/CLI recipes
   into linked guides, retain existing entry-point anchors, and separate packaged
   extension instructions from source builds without hiding native acceptance gaps.
+- Add closed, value-free process-test failure diagnostics and record
+  [unsigned `0.8.1` distribution CI](docs/qualification/results-distribution-ci-2026-09-08.md).
+  The fresh workflow passed; its preceding intermittent process-delivery failure
+  remains unresolved. No runtime fix, signing or publication is implied.
 
 ## 0.8.1 — 2026-09-08 — Native cancellation receipts
 

@@ -2,6 +2,11 @@
 
 ## Unreleased — Qualification diagnostics
 
+- Record the [focused CI failure and independent candidate qualification](docs/qualification/results-focused-candidate-2026-09-08.md):
+  trial 42 observed the owned child already `SIGKILL`-terminated before cleanup;
+  sender/OS reason remains unknown and the first failure is retained. Downloaded
+  `01a1cfd` package hashes, installed CLI/MCP, real CDP and two-profile extension
+  tests passed separately. No process runtime fix or release readiness is claimed.
 - Add a separate manual bounded process investigation: fresh exact-path trials,
   original HTTP companion concurrency, fail-fast behavior and a ten-minute trial
   budget. Passing trials explicitly remain inconclusive about the prior failure.

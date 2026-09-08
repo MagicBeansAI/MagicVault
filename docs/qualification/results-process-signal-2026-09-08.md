@@ -4,6 +4,10 @@ The [reproduced exact-path failure](results-exact-path-2026-09-08.md) remains an
 open release gate. This follow-up captures the missing process evidence; it is
 not a runtime correction or a release qualification claim.
 
+Later evidence: the [focused run on `58592ee`](results-focused-candidate-2026-09-08.md#first-ci-failure-retained)
+reproduced a failure and observed `SIGKILL` before cleanup. Its sender/OS reason
+remains unknown. The successful run below remains historical, separate evidence.
+
 ## Boundary and revisions
 
 MagicVault changes build on `f548dbc`. MagicRun revision

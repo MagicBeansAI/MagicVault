@@ -9,8 +9,9 @@ that would not replace destination, custody, transport or output-boundary tests.
 
 The [focused investigation and downloaded-candidate record](results-focused-candidate-2026-09-08.md)
 identifies the independently hash-verified `01a1cfd` candidate and its installed
-CLI/MCP/real-browser acceptance. It also tracks the bounded process-only CI lane;
-passing browser tests do not resolve the separate process finding.
+CLI/MCP/real-browser qualification. The bounded process CI failed on trial 42:
+the owned child was already `SIGKILL`-terminated before cleanup, with sender/OS
+reason still unknown. Passing browser tests do not resolve that process finding.
 
 The [owned-child signal investigation](results-process-signal-2026-09-08.md)
 records test-only MagicRun/MagicVault observation and a first-attempt unsigned

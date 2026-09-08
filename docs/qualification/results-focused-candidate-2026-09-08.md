@@ -58,9 +58,10 @@ It is not a long soak. [Method and limits](extension-transport.md#browser-proces
 
 ## Focused process investigation
 
-The bounded CI run is pending at this initial record. Local runner preflight
-passed two fresh trials (four process/HTTP case executions), three diagnostic
-units, four real recipient classification cases and the explicit instrumented
+### Preflight
+
+Local runner preflight passed two fresh trials (four process/HTTP case executions),
+three diagnostic units, four real recipient classification cases and the explicit instrumented
 release refusal. Both observed recipients exited normally before cleanup and
 after reap. This preflight validates direct Cargo-reported driver execution and
 its package working directory, not the intermittent failure's cause.
@@ -69,7 +70,66 @@ The 18 distribution/orchestration tests, 12 architecture regression tests,
 74-input architecture gate and installed-browser CLI selection regression passed.
 Failure propagation, no retry, invalid opt-ins and budget exhaustion are covered
 by deterministic orchestration tests; no synthetic result replaces actual CI.
+
+### First CI failure retained
+
+[Focused run 34189318693, attempt 1](https://github.com/MagicBeansAI/MagicVault/actions/runs/34189318693)
+**FAILED** on source `58592ee5c6579b62e1d8d31265e55b20e181a663`, with the
+same locked MagicRun revision. Job `101943932578`; macOS `15.7.9` arm64,
+image `20260829.0321.1`, Rust `1.92.0`, Node `22.23.2`.
+Uninstrumented clients were built from that revision; the synthetic broker/driver
+enabled the two explicit diagnostic cfgs. These are not the downloaded
+`01a1cfd` candidate bytes qualified above.
+
+The manual workflow requested at most 200 fresh trials with a ten-minute trial
+budget and 25-minute job ceiling. Orchestration tests, the architecture gate,
+client build, diagnostic classification and instrumented-release refusal passed
+before the loop. Trials 1–41 passed both original process and HTTP companion
+cases. **Trial 42 failed the process case; its HTTP companion passed.** The loop
+ran for about 33 seconds before stopping. No trial 43, retry, success summary,
+post-success uninstall or artifact upload followed. Failure evidence remains on
+the original run; only disposable CI installation state was left for runner
+teardown. No live app or custody state was involved.
+
+| Observation in the failed process case | Recorded result |
+| --- | --- |
+| Runtime and launch | Runtime entered; one child spawned |
+| First wait, before group cleanup | Matching owned child and `SIGCHLD`; `CLD_KILLED`, `SIGKILL`; one poll, no interruption or error |
+| Cleanup | Before-reap cleanup only; no explicit termination cleanup, no group `SIGTERM`; subsequent group `SIGKILL` returned `NoSuchProcess` |
+| Final reap | `SIGKILL`, no normal exit status, no wait error |
+| Adapter receipt | Dispatched `RuntimeFailure`, `uncertain` / `unavailable`, `may_have_run: true`; no normal exit code, empty stderr |
+| Recipient markers | Entry, material-present and completion markers all absent |
+
+The child was already signal-terminated when observed, **before** MagicRun's
+recorded group cleanup. That cleanup call therefore did not cause this
+occurrence. Static review confirmed the observer runs immediately after
+`waitid(WNOWAIT)`, before cleanup and `Child::wait`; timeout/cancellation and
+explicit termination take separately observed paths. The executable snapshot
+owner is retained through collection; the fixture is a plain `/bin/sh` script,
+not a copied platform Mach-O executable. Review did not establish a corrective
+runtime change.
+
+The sender or OS termination reason remains **unknown**. The
+`spawn_group_owned: None` observation records an unavailable positive group query,
+not proof that group setup failed. Missing markers do not prove the child never executed or that no effect
+occurred. The matching external symptoms do not prove all earlier intermittent
+failures had the same cause. Keep the uncertain receipt and no-replay behavior;
+do not disable executable validation, process-group cleanup or OS security to
+make this test green.
+
+### Outcome and next evidence
+
+The bounded investigation is complete with a reproduced failure and a narrower
+signal/cleanup finding, **not a resolved process reliability gate**. Independent
+downloaded-candidate browser/client qualification passed within its synthetic,
+single-host scope. The qualification-driver bug was fixed and regression-tested;
+no shipped runtime or Magician change was made in this follow-up.
+
+The next useful investigation is an owned-child-only OS termination-reason
+observation at the existing pre-reap boundary, with unsupported/denied results
+explicitly classified. It needs separate ABI/privacy review and regression
+coverage before another bounded run; it is not implemented here. Do not replace
+it with broad process/log enumeration or repeat runs without new evidence.
 The original [intermittent process finding](results-exact-path-2026-09-08.md)
-remains open until a cause is established and addressed; an inconclusive bounded
-run does not close it. Signing/publication and genuine native recovery gates are
-separate.
+remains open until a cause is established and addressed. Signing/publication and
+genuine native recovery gates remain separate.

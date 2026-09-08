@@ -7,12 +7,27 @@ that would not replace destination, custody, transport or output-boundary tests.
 
 ## What is covered
 
+The [browser-command investigation](results-browser-command-2026-09-08.md)
+retains later failures during evaluation, discovery and fill settlement after
+both profiles connected. A separate ten-trial Chrome-only control and a final
+ten-round installed-candidate run passed. Failure-only, value-free observations
+now distinguish fixture phases and bound post-failure MCP/daemon/renderer/extension
+health checks. No runtime correction or browser-reliability closure is claimed.
+
+The [fresh 0.8.3 distribution record](results-broad-candidate-2026-09-08.md) adds
+first-attempt full macOS/Linux and unsigned distribution CI passes, 20 installed
+rounds, bounded capacity/shutdown checks and independently verified downloads.
+Installed CLI/MCP and real CDP passed; the first independent extension setup
+hit a browser-command timeout. One fresh diagnostic two-profile/idle and local
+performance/shutdown trial passed, without attributing or fixing that timeout.
+These remain separate evidence, not a green browser-reliability or release gate.
+
 The [0.8.3 native-spawn correction](results-native-spawn-2026-09-08.md) passed its
 first-attempt focused CI: all 200 original concurrent process/HTTP trials, with
 native launch explicitly confirmed for every process. The affected non-jailed
 macOS path no longer runs the parent's userspace fork callbacks. This qualifies
 the scoped correction, not the exact historical exception or broader release
-readiness. Next is a fresh distribution candidate and wider qualification.
+readiness. The broader candidate outcome is recorded above.
 
 The [launch-stage investigation](results-launch-stage-2026-09-08.md) narrows the
 latest recurrence: CI trial 22 reported `CallbackNotEntered` and the Foundation

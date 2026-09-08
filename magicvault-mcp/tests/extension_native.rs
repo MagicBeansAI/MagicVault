@@ -4,6 +4,7 @@
 //! this does NOT qualify Chrome's permission dialog or native human/keychain UI.
 #![cfg(target_os = "macos")]
 use async_trait::async_trait;
+use futures_util::FutureExt;
 use magicvault_core::{store::SecretStore, InMemoryKeyProvider};
 use magicvault_service::{
     broker::Broker, client::Client, human::HumanInteraction, ipc, native, protocol::*, storage,
@@ -32,6 +33,9 @@ use zeroize::Zeroizing;
 mod native_startup;
 #[path = "support/browser_resources.rs"]
 mod browser_resources;
+#[path = "support/extension_progress.rs"]
+mod extension_progress;
+use extension_progress::{Phase, Progress};
 
 #[derive(Default)]
 struct SyntheticHuman {
@@ -176,11 +180,15 @@ async fn load(
     let started = Instant::now();
     let observation = native_startup::Observation::start(marker);
     let mut peer = owner.peer().await;
+    // Closed startup checkpoints survive an early CDP timeout; do not print
+    // profile paths, expressions, native frames or material. No retry follows.
+    eprintln!("extension startup checkpoint: peer_connected");
     let result = peer
         .command("Extensions.loadUnpacked", json!({"path":assets}), None)
         .await;
     assert_eq!(result["id"], native::EXTENSION_ID);
     let unpacked = started.elapsed();
+    eprintln!("extension startup checkpoint: unpacked");
     let (_, options) = peer
         .open_page(&format!(
             "chrome-extension://{}/options.html",
@@ -188,8 +196,10 @@ async fn load(
         ))
         .await;
     let options_ready = started.elapsed();
+    eprintln!("extension startup checkpoint: options_ready");
     let (_, page) = peer.open_page(&format!("{}/login", owner.origin)).await;
     let page_ready = started.elapsed();
+    eprintln!("extension startup checkpoint: fixture_ready");
     connection(&mut peer, &options, true, Some((marker, human))).await;
     eprintln!(
         "native extension startup settled in {:?}; cumulative stages: unpacked {:?}, options {:?}, fixture {:?}; diagnostic sampling enabled: {}",
@@ -204,6 +214,7 @@ async fn load(
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "explicit real Chrome/native-host/MCP qualification; synthetic consent and loopback permission fixture"]
 async fn real_extension_mcp_fill_denial_profiles_pause_and_reconnect() {
+    let progress = Progress::new();
     // Test-only opt-in. The package qualifier validates the same bound before
     // creating any artifacts and supplies a separate bounded wall-time budget.
     let resource_idle = std::env::var("MAGICVAULT_BROWSER_RESOURCE_IDLE_SECS").ok().map(|value| {
@@ -301,14 +312,19 @@ async fn real_extension_mcp_fill_denial_profiles_pause_and_reconnect() {
     );
     let assets = extension_assets(root.path());
     let manifest = native::manifest(&config).unwrap();
+    progress.at(Phase::FirstProfile);
     let first = DisposableBrowser::with_native_host(true, &manifest).await;
     let (mut a, options_a, page_a) = load(&first, &assets, &marker, &human).await;
+    progress.at(Phase::SecondProfile);
     let second = DisposableBrowser::with_native_host(true, &manifest).await;
     let (mut b, options_b, _) = load(&second, &assets, &marker, &human).await;
+    progress.at(Phase::VerifyFirstProfile);
     let info_a = connection(&mut a, &options_a, true, None).await;
+    progress.at(Phase::VerifySecondProfile);
     let info_b = connection(&mut b, &options_b, true, None).await;
     assert_ne!(info_a["profile_id"], info_b["profile_id"]);
     assert_ne!(info_a["browser_handle"], info_b["browser_handle"]);
+    progress.at(Phase::Configure);
     client
         .call(Request::ConfigureBrowserCredential(BrowserRule {
             credential_ref: credential.credential_ref.clone(),
@@ -318,6 +334,7 @@ async fn real_extension_mcp_fill_denial_profiles_pause_and_reconnect() {
         .await
         .unwrap();
 
+    progress.at(Phase::McpSetup);
     let mcp = std::env::var_os("MAGICVAULT_TEST_MCP")
         .unwrap_or_else(|| env!("CARGO_BIN_EXE_magicvault-mcp").into());
     let mut child = tokio::process::Command::new(mcp)
@@ -345,9 +362,13 @@ async fn real_extension_mcp_fill_denial_profiles_pause_and_reconnect() {
                         .with_arguments(args.as_object().unwrap().clone()),
                 ),
             )
-            .await
-            .unwrap()
-            .unwrap();
+            .await;
+            let reply = match reply {
+                Ok(reply) => reply.unwrap_or_else(|_| panic!("MCP fixture transport failed ({})", extension_progress::tool_label(name))),
+                Err(_) => {
+                    panic!("MCP fixture tool call timed out ({})", extension_progress::tool_label(name));
+                }
+            };
             let CallToolResponse::Complete(result) = reply else {
                 panic!("complete MCP result");
             };
@@ -361,6 +382,10 @@ async fn real_extension_mcp_fill_denial_profiles_pause_and_reconnect() {
             .unwrap()
         }
     };
+    // Keep owners and peers alive for bounded, read-only observations on any
+    // scenario failure, including the outer fill-settlement deadline. The same
+    // panic is resumed afterward; cleanup and the gate can never report success.
+    let scenario = std::panic::AssertUnwindSafe(async {
     let Response::Browsers(rows) = invoke("list_browsers", json!({})).await else {
         panic!("browsers");
     };
@@ -369,6 +394,7 @@ async fn real_extension_mcp_fill_denial_profiles_pause_and_reconnect() {
     // A real profile with more than 64 unrelated tabs must still discover and
     // fill its permitted login. These empty background tabs have no site grant;
     // only this disposable browser owns them, and its Drop reaps them all.
+    progress.at(Phase::LargeTabFixture);
     for _ in 0..65 {
         a.command(
             "Target.createTarget",
@@ -387,6 +413,8 @@ async fn real_extension_mcp_fill_denial_profiles_pause_and_reconnect() {
     // Below the broker's 32 retained-operation bound. These are small-sample
     // observations including status polling, not throughput or native-UI claims.
     for iteration in 0..21 {
+        progress.iteration(iteration);
+        progress.at(Phase::ClearField);
         let deny = iteration == 1;
         human.deny.store(deny, Ordering::SeqCst);
         assert!(
@@ -396,6 +424,7 @@ async fn real_extension_mcp_fill_denial_profiles_pause_and_reconnect() {
             )
             .await
         );
+        progress.at(Phase::Discovery);
         let Response::BrowserTargets(targets) = invoke(
             "browser_targets",
             if iteration % 2 == 0 {
@@ -414,6 +443,7 @@ async fn real_extension_mcp_fill_denial_profiles_pause_and_reconnect() {
             .expect("permitted fixture target")
             .clone();
         if iteration == 0 {
+            progress.at(Phase::NarrowedDiscovery);
             let Response::BrowserTargets(narrowed) = invoke(
                 "browser_targets",
                 json!({"browser_handle":handle,"top_origin":first.origin,"tab_id":target.tab_id}),
@@ -430,7 +460,9 @@ async fn real_extension_mcp_fill_denial_profiles_pause_and_reconnect() {
         }
         let operation = Uuid::new_v4();
         let started = Instant::now();
+        progress.at(Phase::FillDispatch);
         invoke("secure_fill", json!({"operation_id":operation,"browser_handle":handle,"target_handle":target.target_handle,"fields":[{"css":"#password","credential_ref":credential.credential_ref,"credential_field":"password"}]})).await;
+        progress.at(Phase::FillSettlement);
         let status = tokio::time::timeout(Duration::from_secs(10), async {
             loop {
                 let Response::Fill(status) =
@@ -459,6 +491,7 @@ async fn real_extension_mcp_fill_denial_profiles_pause_and_reconnect() {
         } else {
             samples.push(started.elapsed().as_micros());
         }
+        progress.at(Phase::VerifyField);
         assert!(a.evaluate_bool(&page_a, if deny {"document.querySelector('#password').value === ''"} else {"document.querySelector('#password').value === 'SYNTHETIC-CHROMIUM-FILL-CANARY' && document.body.dataset.reactive === 'ok' && document.body.dataset.submitted !== 'yes'"}).await);
         if let Some(resources) = &mut resources {
             resources.observe(browser_resources::sample([
@@ -466,6 +499,7 @@ async fn real_extension_mcp_fill_denial_profiles_pause_and_reconnect() {
             ]).await);
         }
     }
+    progress.end_iterations();
     if let Some(resources) = &resources {
         println!("browser_process_resources {}", resources.report("active"));
     }
@@ -474,6 +508,7 @@ async fn real_extension_mcp_fill_denial_profiles_pause_and_reconnect() {
     // waiting. A previously discovered handle must never authorize replacement
     // documents or bypass a newly installed human site block.
     for navigate in [true, false] {
+        progress.at(if navigate { Phase::NavigationRace } else { Phase::BlockRace });
         let Response::BrowserTargets(targets) =
             invoke("browser_targets", json!({"browser_handle":handle})).await
         else {
@@ -499,6 +534,7 @@ async fn real_extension_mcp_fill_denial_profiles_pause_and_reconnect() {
         if navigate {
             a.navigate(&page_a, &format!("{}/next", first.origin)).await;
         } else {
+            progress.at(Phase::BlockRequest);
             let result = options_eval(
                 &mut a,
                 &options_a,
@@ -543,6 +579,7 @@ async fn real_extension_mcp_fill_denial_profiles_pause_and_reconnect() {
                 ErrorCode::PermissionDenied
             })
         );
+        if !navigate { progress.at(Phase::BlockVerify); }
         assert!(
             a.evaluate_bool(&page_a, "document.querySelector('#password').value === ''")
                 .await
@@ -554,6 +591,7 @@ async fn real_extension_mcp_fill_denial_profiles_pause_and_reconnect() {
                 panic!("targets");
             };
             assert!(!targets.iter().any(|t| t.origin == first.origin));
+            progress.at(Phase::UnblockRequest);
             let result = options_eval(
                 &mut a,
                 &options_a,
@@ -565,9 +603,11 @@ async fn real_extension_mcp_fill_denial_profiles_pause_and_reconnect() {
             .await;
             assert_eq!(result["ok"], true);
         }
+        progress.at(Phase::ReturnToLogin);
         a.navigate(&page_a, &format!("{}/login", first.origin))
             .await;
     }
+    progress.at(Phase::Pause);
     let count = human.confirmations.load(Ordering::SeqCst);
     options_eval(
         &mut a,
@@ -584,6 +624,7 @@ async fn real_extension_mcp_fill_denial_profiles_pause_and_reconnect() {
     };
     assert_eq!(rows.len(), 1);
     assert_eq!(json!(rows[0].browser_handle), info_b["browser_handle"]);
+    progress.at(Phase::Resume);
     options_eval(
         &mut a,
         &options_a,
@@ -599,6 +640,7 @@ async fn real_extension_mcp_fill_denial_profiles_pause_and_reconnect() {
         info_b["browser_handle"]
     );
     if let Some(duration) = resource_idle {
+        progress.at(Phase::Idle);
         let launches = fs::metadata(&marker).unwrap().len();
         let confirmations = human.confirmations.load(Ordering::SeqCst);
         let mut idle = browser_resources::Window::new(browser_resources::sample([
@@ -617,6 +659,7 @@ async fn real_extension_mcp_fill_denial_profiles_pause_and_reconnect() {
         assert_eq!(fs::metadata(&marker).unwrap().len(), launches, "unexpected native-host relaunch during idle observation");
         assert_eq!(human.confirmations.load(Ordering::SeqCst), confirmations);
     }
+    progress.at(Phase::AuditAndCleanup);
     let audit = fs::read_to_string(
         root.path()
             .join("vault")
@@ -629,6 +672,24 @@ async fn real_extension_mcp_fill_denial_profiles_pause_and_reconnect() {
         "extension_transport_measurement {}",
         json!({"synthetic_consent":true,"samples":samples.len(),"fill_us":{"min":samples[0],"median":(samples[9]+samples[10])/2,"p95":samples[18],"max":samples[19]},"denial_us":denial_us,"profiles":2})
     );
+    }).catch_unwind().await;
+    extension_progress::finish_observed(scenario, async {
+        let (mcp, daemon, primary, secondary) = tokio::join!(
+            extension_progress::observe(async {
+                peer.list_tools(None).await.is_ok_and(|r| r.tools.len() == 14)
+            }),
+            extension_progress::observe(async {
+                client.status().await.is_ok_and(|s| s.ready)
+            }),
+            async {
+                let page = a.renderer_probe(&page_a).await;
+                let connection = a.extension_status_probe(&options_a).await;
+                (page, connection)
+            },
+            b.extension_status_probe(&options_b),
+        );
+        eprintln!("extension failure observation: mcp={mcp:?}; daemon={daemon:?}; primary_page={:?}; primary_connection={:?}; secondary_connection={secondary:?}", primary.0, primary.1);
+    }).await;
     peer.cancel().await.unwrap();
     tokio::time::timeout(Duration::from_secs(3), child.wait())
         .await

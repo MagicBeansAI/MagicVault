@@ -17,6 +17,30 @@ pub const BROWSER_CANARY: &str = "SYNTHETIC-CHROMIUM-FILL-CANARY";
 const HTML: &str = include_str!("../browser-fixtures/index.html");
 const JS: &str = include_str!("../browser-fixtures/fixture.js");
 
+// Closed labels only: unknown methods, arguments, expressions and replies may
+// contain fixture material. Never include them in a browser failure diagnostic.
+fn command_label(method: &str) -> &'static str {
+    match method {
+        "Extensions.loadUnpacked" => "Extensions.loadUnpacked",
+        "Target.attachToTarget" => "Target.attachToTarget",
+        "Target.createTarget" => "Target.createTarget",
+        "Runtime.evaluate" => "Runtime.evaluate",
+        "Page.navigate" => "Page.navigate",
+        "SystemInfo.getProcessInfo" => "SystemInfo.getProcessInfo",
+        _ => "Other",
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub enum RendererProbe {
+    Responsive,
+    NotReady,
+    Error,
+    Closed,
+    Invalid,
+    TimedOut,
+}
+
 pub struct CdpPeer {
     socket: WebSocketStream<MaybeTlsStream<TcpStream>>,
     next: u64,
@@ -33,13 +57,15 @@ impl CdpPeer {
         Self { socket, next: 0 }
     }
     pub async fn command(&mut self, method: &str, params: Value, session: Option<&str>) -> Value {
+        let label = command_label(method);
+        let awaits_promise = params.get("awaitPromise") == Some(&Value::Bool(true));
         self.next += 1;
         let id = self.next;
         let mut request = json!({"id":id,"method":method,"params":params});
         if let Some(session) = session {
             request["sessionId"] = json!(session);
         }
-        tokio::time::timeout(Duration::from_secs(10), async {
+        let result = tokio::time::timeout(Duration::from_secs(10), async {
             self.socket
                 .send(Message::Text(request.to_string()))
                 .await
@@ -52,15 +78,102 @@ impl CdpPeer {
                 if response["id"] == id {
                     assert!(
                         response.get("error").is_none(),
-                        "test browser command failed"
+                        "test browser command failed ({label})"
                     );
                     return response["result"].clone();
                 }
             }
-            panic!("test browser peer closed");
+            panic!("test browser peer closed ({label})");
+        })
+        .await;
+        match result {
+            Ok(result) => result,
+            Err(_) => {
+                // The original command has already failed. One fixed read-only
+                // probe records responsiveness after failure, not throughout
+                // the failed command; never replay it or resume effects.
+                if method == "Runtime.evaluate" {
+                    if let Some(session) = session {
+                        let probe = self.renderer_probe(session).await;
+                        eprintln!("test renderer timeout observation: awaits_promise={awaits_promise}; probe={probe:?}");
+                    }
+                }
+                panic!("test browser command timed out ({label})")
+            }
+        }
+    }
+    /// Failure-only fixed read, never a retry of the command that failed.
+    pub async fn renderer_probe(&mut self, session: &str) -> RendererProbe {
+        self.boolean_probe(session, "true", false).await
+    }
+    /// Fixed value-free status message to our disposable extension options page.
+    /// This does not connect, rediscover targets, change grants or deliver values.
+    pub async fn extension_status_probe(&mut self, session: &str) -> RendererProbe {
+        self.boolean_probe(
+            session,
+            "chrome.runtime.sendMessage({action:'status'}).then(s => s.connected === true)",
+            true,
+        )
+        .await
+    }
+    async fn boolean_probe(
+        &mut self,
+        session: &str,
+        expression: &str,
+        await_promise: bool,
+    ) -> RendererProbe {
+        self.next += 1;
+        let id = self.next;
+        tokio::time::timeout(Duration::from_secs(2), async {
+            let mut request = json!({"id":id,"method":"Runtime.evaluate","sessionId":session,
+                "params":{"expression":expression,"returnByValue":true,"silent":true}});
+            if await_promise {
+                request["params"]["awaitPromise"] = json!(true);
+            }
+            if self
+                .socket
+                .send(Message::Text(request.to_string()))
+                .await
+                .is_err()
+            {
+                return RendererProbe::Closed;
+            }
+            // Bounded diagnostic only; no event/response bodies are retained or
+            // printed. Late replies to the failed request are never its success.
+            for _ in 0..128 {
+                let Some(Ok(message)) = self.socket.next().await else {
+                    return RendererProbe::Closed;
+                };
+                if matches!(message, Message::Close(_)) {
+                    return RendererProbe::Closed;
+                }
+                let Message::Text(text) = message else {
+                    continue;
+                };
+                let Ok(response) = serde_json::from_str::<Value>(&text) else {
+                    return RendererProbe::Invalid;
+                };
+                if response["id"] != id {
+                    continue;
+                }
+                if response["sessionId"].as_str() != Some(session) {
+                    return RendererProbe::Invalid;
+                }
+                if response.get("error").is_some()
+                    || response["result"].get("exceptionDetails").is_some()
+                {
+                    return RendererProbe::Error;
+                }
+                return match response["result"]["result"]["value"].as_bool() {
+                    Some(true) => RendererProbe::Responsive,
+                    Some(false) => RendererProbe::NotReady,
+                    None => RendererProbe::Invalid,
+                };
+            }
+            RendererProbe::Invalid
         })
         .await
-        .expect("test browser command timed out")
+        .unwrap_or(RendererProbe::TimedOut)
     }
     pub async fn attach(&mut self, tab: &str) -> String {
         self.command(
@@ -296,5 +409,280 @@ impl Drop for DisposableBrowser {
         // Test-only teardown; never enumerate or kill unrelated browser PIDs.
         let _ = self.child.kill();
         let _ = self.child.wait();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use futures_util::FutureExt;
+
+    #[test]
+    fn browser_command_diagnostic_labels_are_closed() {
+        for method in [
+            "Extensions.loadUnpacked",
+            "Target.attachToTarget",
+            "Target.createTarget",
+            "Runtime.evaluate",
+            "Page.navigate",
+            "SystemInfo.getProcessInfo",
+        ] {
+            assert_eq!(command_label(method), method);
+        }
+        for unknown in [
+            BROWSER_CANARY,
+            "Runtime.evaluate?private",
+            "",
+            "unknown\nprivate",
+        ] {
+            assert_eq!(command_label(unknown), "Other");
+        }
+    }
+
+    #[tokio::test]
+    async fn browser_command_errors_withhold_parameters_and_response_payloads() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            let mut socket = tokio_tungstenite::accept_async(socket).await.unwrap();
+            let request = socket.next().await.unwrap().unwrap();
+            let request: Value = serde_json::from_str(request.to_text().unwrap()).unwrap();
+            socket
+                .send(Message::Text(
+                    json!({
+                        "id":request["id"], "error":{"message":BROWSER_CANARY}
+                    })
+                    .to_string(),
+                ))
+                .await
+                .unwrap();
+        });
+        let mut peer = CdpPeer::connect(&format!("ws://{address}")).await;
+        let failure = std::panic::AssertUnwindSafe(peer.command(
+            "Runtime.evaluate",
+            json!({"expression":BROWSER_CANARY}),
+            Some(BROWSER_CANARY),
+        ))
+        .catch_unwind()
+        .await
+        .expect_err("error response must fail the fixture");
+        let message = failure.downcast_ref::<String>().unwrap();
+        assert_eq!(message, "test browser command failed (Runtime.evaluate)");
+        assert!(!message.contains(BROWSER_CANARY));
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn browser_command_timeout_keeps_the_original_bound_and_closed_label() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            let mut socket = tokio_tungstenite::accept_async(socket).await.unwrap();
+            assert!(socket.next().await.unwrap().unwrap().is_text());
+            // Keep the owned connection open without a response. The command
+            // must fail at its unchanged normal fixture ten-second bound.
+            std::future::pending::<()>().await;
+        });
+        let mut peer = CdpPeer::connect(&format!("ws://{address}")).await;
+        let started = tokio::time::Instant::now();
+        let failure = tokio::time::timeout(
+            Duration::from_secs(15),
+            std::panic::AssertUnwindSafe(peer.command(
+                BROWSER_CANARY,
+                json!({"private":BROWSER_CANARY}),
+                Some(BROWSER_CANARY),
+            ))
+            .catch_unwind(),
+        )
+        .await;
+        server.abort();
+        assert!(server.await.unwrap_err().is_cancelled());
+        let failure = failure
+            .expect("fixture must retain its bounded timeout")
+            .expect_err("missing response must fail the fixture");
+        assert!(started.elapsed() >= Duration::from_secs(10));
+        assert_eq!(
+            failure.downcast_ref::<String>().unwrap(),
+            "test browser command timed out (Other)"
+        );
+    }
+
+    #[tokio::test]
+    async fn renderer_probe_is_read_only_correlated_and_payload_free() {
+        for (body, session, expected) in [
+            (
+                json!({"result":{"result":{"value":true}}}),
+                "owned",
+                RendererProbe::Responsive,
+            ),
+            (
+                json!({"error":{"message":BROWSER_CANARY}}),
+                "owned",
+                RendererProbe::Error,
+            ),
+            (
+                json!({"result":{"result":{"value":true}}}),
+                "wrong",
+                RendererProbe::Invalid,
+            ),
+            (
+                json!({"result":{"result":{"value":BROWSER_CANARY}}}),
+                "owned",
+                RendererProbe::Invalid,
+            ),
+        ] {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = tokio::spawn(async move {
+                let (socket, _) = listener.accept().await.unwrap();
+                let mut socket = tokio_tungstenite::accept_async(socket).await.unwrap();
+                let request = socket.next().await.unwrap().unwrap();
+                let request: Value = serde_json::from_str(request.to_text().unwrap()).unwrap();
+                assert_eq!(request["method"], "Runtime.evaluate");
+                assert_eq!(
+                    request["params"],
+                    json!({"expression":"true","returnByValue":true,"silent":true})
+                );
+                socket
+                    .send(Message::Text(
+                        json!({"id":0,"result":BROWSER_CANARY}).to_string(),
+                    ))
+                    .await
+                    .unwrap();
+                let mut reply = body;
+                reply["id"] = request["id"].clone();
+                reply["sessionId"] = json!(session);
+                socket.send(Message::Text(reply.to_string())).await.unwrap();
+            });
+            let mut peer = CdpPeer::connect(&format!("ws://{address}")).await;
+            assert_eq!(peer.renderer_probe("owned").await, expected);
+            server.await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn extension_probe_only_requests_boolean_connection_status() {
+        for connected in [true, false] {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = tokio::spawn(async move {
+                let (socket, _) = listener.accept().await.unwrap();
+                let mut socket = tokio_tungstenite::accept_async(socket).await.unwrap();
+                let request = socket.next().await.unwrap().unwrap();
+                let request: Value = serde_json::from_str(request.to_text().unwrap()).unwrap();
+                assert_eq!(request["method"], "Runtime.evaluate");
+                assert_eq!(
+                    request["params"],
+                    json!({
+                        "expression":"chrome.runtime.sendMessage({action:'status'}).then(s => s.connected === true)",
+                        "awaitPromise":true,"returnByValue":true,"silent":true
+                    })
+                );
+                socket
+                    .send(Message::Text(
+                        json!({"id":request["id"],"sessionId":request["sessionId"],
+                    "result":{"result":{"value":connected}}})
+                        .to_string(),
+                    ))
+                    .await
+                    .unwrap();
+            });
+            let mut peer = CdpPeer::connect(&format!("ws://{address}")).await;
+            assert_eq!(
+                peer.extension_status_probe("owned").await,
+                if connected {
+                    RendererProbe::Responsive
+                } else {
+                    RendererProbe::NotReady
+                }
+            );
+            server.await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn silent_probe_obeys_its_independent_deadline() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            let mut socket = tokio_tungstenite::accept_async(socket).await.unwrap();
+            let _ = socket.next().await.unwrap().unwrap();
+            std::future::pending::<()>().await;
+        });
+        let mut peer = CdpPeer::connect(&format!("ws://{address}")).await;
+        let result =
+            tokio::time::timeout(Duration::from_secs(5), peer.renderer_probe("owned")).await;
+        server.abort();
+        assert!(server.await.unwrap_err().is_cancelled());
+        assert_eq!(result.unwrap(), RendererProbe::TimedOut);
+    }
+
+    #[tokio::test]
+    async fn unrelated_probe_frames_cannot_extend_its_budget() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            let mut socket = tokio_tungstenite::accept_async(socket).await.unwrap();
+            let _ = socket.next().await.unwrap().unwrap();
+            for _ in 0..128 {
+                socket
+                    .send(Message::Text(
+                        json!({"id":0,"result":BROWSER_CANARY}).to_string(),
+                    ))
+                    .await
+                    .unwrap();
+            }
+            std::future::pending::<()>().await;
+        });
+        let mut peer = CdpPeer::connect(&format!("ws://{address}")).await;
+        let result =
+            tokio::time::timeout(Duration::from_secs(5), peer.renderer_probe("owned")).await;
+        server.abort();
+        assert!(server.await.unwrap_err().is_cancelled());
+        assert_eq!(result.unwrap(), RendererProbe::Invalid);
+    }
+
+    #[tokio::test]
+    async fn responsive_probe_and_late_reply_never_rescue_a_timed_out_command() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            let mut socket = tokio_tungstenite::accept_async(socket).await.unwrap();
+            let first = socket.next().await.unwrap().unwrap();
+            let first: Value = serde_json::from_str(first.to_text().unwrap()).unwrap();
+            let probe = socket.next().await.unwrap().unwrap();
+            let probe: Value = serde_json::from_str(probe.to_text().unwrap()).unwrap();
+            assert_eq!(probe["params"]["expression"], "true");
+            assert_ne!(probe["id"], first["id"]);
+            for request in [first, probe] {
+                socket
+                    .send(Message::Text(
+                        json!({"id":request["id"],"sessionId":request["sessionId"],
+                    "result":{"result":{"value":true}}})
+                        .to_string(),
+                    ))
+                    .await
+                    .unwrap();
+            }
+        });
+        let mut peer = CdpPeer::connect(&format!("ws://{address}")).await;
+        let failure = std::panic::AssertUnwindSafe(peer.command(
+            "Runtime.evaluate",
+            json!({"expression":BROWSER_CANARY,"awaitPromise":true}),
+            Some("owned"),
+        ))
+        .catch_unwind()
+        .await
+        .expect_err("diagnosis must preserve timeout failure");
+        assert_eq!(
+            failure.downcast_ref::<String>().unwrap(),
+            "test browser command timed out (Runtime.evaluate)"
+        );
+        server.await.unwrap();
     }
 }

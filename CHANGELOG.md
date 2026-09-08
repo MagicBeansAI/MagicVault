@@ -2,6 +2,17 @@
 
 ## 0.8.3 — macOS process launch correction — 2026-09-08
 
+- Retain post-connection evaluation/discovery/settlement failures, a passing
+  ten-trial Chrome-only control and a final ten-round installed-candidate pass
+  in the [browser investigation](docs/qualification/results-browser-command-2026-09-08.md).
+  Add failure-only phase/health observations with fixed read-only probes,
+  unchanged acceptance deadlines and regression coverage. No shipped runtime
+  fix, credential exposure, permission change or browser gate closure is implied.
+- Record first-attempt full macOS/Linux and unsigned distribution CI passes,
+  independently verified 0.8.3 downloads, installed clients and the retained
+  independent extension-setup timeout. Add test-only, closed browser command
+  labels/checkpoints without changing package bytes, deadlines or permissions.
+  See the [broader candidate record](docs/qualification/results-broad-candidate-2026-09-08.md).
 - First-attempt focused macOS CI passed all 200 fresh concurrent process/HTTP
   trials, explicitly confirming native-spawn selection for every process.
   This qualifies the scoped launch change, not the exact historical exception,

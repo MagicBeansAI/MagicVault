@@ -2,6 +2,21 @@
 
 ## Current evidence
 
+The [fresh 0.8.3 candidate qualification](qualification/results-broad-candidate-2026-09-08.md)
+records full macOS/Linux and unsigned distribution CI passes on `81fe8c6`,
+downloaded package identity, installed-client tests and bounded measurements.
+Its first independent extension setup failed at the existing CDP command timeout;
+the original failure and value-free test-diagnostic follow-up are retained.
+Passing process/HTTP or CDP cases do not close native-extension reliability.
+
+The [browser-command follow-up](qualification/results-browser-command-2026-09-08.md)
+retains post-connection evaluation, discovery and settlement failures alongside
+a final ten-round installed-candidate pass. Its separate, ignored
+`chromium_control` target passed ten Chrome-only trials; `make test-browser-native`
+remains five cases. Fixed post-failure health probes have timeout/correlation/value-
+boundary regressions and cannot rescue a failed operation. Product bytes and the
+architecture baseline remain unchanged.
+
 The [0.8.3 native-spawn correction](qualification/results-native-spawn-2026-09-08.md)
 removes userspace fork from the affected macOS process path. Regression tests
 require descriptor-bound cwd, exact bytes, stdio/descriptor isolation and a

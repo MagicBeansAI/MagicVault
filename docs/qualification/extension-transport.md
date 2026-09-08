@@ -158,6 +158,26 @@ Sampling perturbs timing: keep it disabled in the normal performance lane, and
 never publish raw traces. A fixture using an external application may trigger an
 OS permission request despite its synthetic MagicVault consent provider.
 
+The fixture also emits four fixed setup checkpoints (peer connected, unpacked,
+options ready, fixture ready). Browser-command failures identify only a closed
+method label; unknown methods are `Other`. The existing ten-second command and
+15-second connection bounds remain unchanged. No expressions, parameters,
+native frames or capabilities belong in these diagnostics. An early browser
+command timeout does not establish that the native host launched or that the OS
+blocked it. The [0.8.3 downloaded-candidate record](results-broad-candidate-2026-09-08.md)
+retains such a failure and one passing diagnostic trial without claiming a fix.
+
+The [browser-command follow-up](results-browser-command-2026-09-08.md) also retains
+post-connection failures. A closed phase and optional iteration (0–20) print only
+on failure. A timed-out evaluation may perform one fixed `true` probe. Failures
+after MCP setup additionally observe MCP/daemon readiness, primary-page
+responsiveness and both extension connections before rethrowing the original
+panic. Each read-only probe has a separate two-second bound; the two primary
+browser probes are sequential. No probe replays discovery/fills, reconnects,
+changes permissions or accepts a late original result. Responsiveness after a
+failure does not prove responsiveness throughout it. The ten-trial Chrome-only
+control is a separate explicit target, not an addition to the normal browser lane.
+
 `MAGICVAULT_TEST_CLI`, `MAGICVAULT_TEST_MCP`, `MAGICVAULT_TEST_NATIVE_HOST` and
 `MAGICVAULT_TEST_EXTENSION` are test-only seams, not production configuration.
 Do not point them at unrelated or untrusted binaries/assets. Default tests and

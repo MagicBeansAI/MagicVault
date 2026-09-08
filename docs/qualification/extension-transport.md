@@ -108,6 +108,33 @@ driver creates a new private child and reports its artifact location. It never
 reuses a live app. A failed run leaves its isolated app for diagnosis; a successful
 run performs recoverable app removal and keeps the archive as evidence.
 
+### Browser process resources
+
+For one bounded resource trial, add `--browser-idle-secs 120` to a fresh
+`--with-rust-tests --with-browser-tests --app-parent /private/tmp` invocation.
+The flag accepts 30–300 seconds, requires one round, and refuses simultaneous
+stack sampling. Default qualification has no extra idle delay. Direct Rust test
+invocation uses the test-only `MAGICVAULT_BROWSER_RESOURCE_IDLE_SECS` variable;
+the package driver clears ambient values and sets it only from the explicit flag.
+
+This samples the two disposable browsers after setup and after each of 21
+fill/deny operations, followed by an approximately one-second cadence during
+the idle window. It asserts both profile handles remain connected, with no
+additional native-host launches or synthetic confirmations during idle.
+No personal process enumeration, command lines, environments or memory contents
+are read. The peer's browser PID must match the fixture-owned child.
+
+CPU comes from [CDP `SystemInfo.getProcessInfo`](https://chromedevtools.github.io/devtools-protocol/tot/SystemInfo/#type-ProcessInfo)
+in cumulative seconds. Current resident and physical-footprint bytes come from
+macOS `proc_pid_rusage`, not a lifetime peak. CPU deltas match PID **and process
+start identity** between adjacent samples. Missing, new, departed or regressed
+counters are reported; short-lived unsampled work is not included. Memory sums
+can count shared pages more than once. Reported peaks are sampled peaks only.
+The population excludes native hosts, MCP, the test broker and a standalone
+daemon. These measurements include CDP observer overhead and the fixture's 65
+unrelated tabs; they are not MagicVault-only overhead or latency guarantees.
+Do not interpret a two-minute idle observation as a long soak.
+
 An external-volume candidate has reproduced a native-host stall in macOS `dyld`
 before MagicVault's entry point. New fixture-scoped stack and policy observations
 associate that path with removable-volume authorization; it is not qualified for

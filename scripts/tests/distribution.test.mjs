@@ -12,6 +12,34 @@ const require = createRequire(import.meta.url);
 const { resolveBinary } = require('../../npm/launcher.cjs');
 const { fixture: extensionFixture, options: extensionOptions, tick } = require('../../extension/tests/harness.cjs');
 const repo = path.resolve(import.meta.dirname, '../..');
+test('browser resource observation bounds are checked before creating artifacts', t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'magicvault-resource-optin-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const work = path.join(root, 'must-not-exist');
+  for (const args of [
+    ['--browser-idle-secs', '120'],
+    ...['0', '29', '301', '1e2', '-1', '30.0', ' 30', ''].map(n => ['--with-browser-tests', `--browser-idle-secs=${n}`]),
+    ['--with-browser-tests', '--browser-idle-secs', '120', '--reliability-rounds', '2'],
+  ]) {
+    assert.throws(() => execFileSync(process.execPath, [path.join(repo, 'scripts/qualify-package.mjs'),
+      '--packages', root, '--work', work, ...args], {stdio: 'pipe', timeout: 5000}),
+    error => error.status !== 0 && String(error.stderr).includes('browser resource observations require'));
+    assert.equal(fs.existsSync(work), false);
+  }
+  for (const n of ['30', '300']) {
+    const env = {...process.env, MAGICVAULT_CHROME: ''};
+    delete env.MAGICVAULT_TEST_STARTUP_DIAGNOSTICS;
+    assert.throws(() => execFileSync(process.execPath, [path.join(repo, 'scripts/qualify-package.mjs'),
+      '--packages', root, '--work', work, '--with-rust-tests', '--with-browser-tests', `--browser-idle-secs=${n}`],
+    {env, stdio: 'pipe', timeout: 5000}), error => error.status !== 0 && String(error.stderr).includes('browser qualification requires'));
+    assert.equal(fs.existsSync(work), false);
+  }
+  assert.throws(() => execFileSync(process.execPath, [path.join(repo, 'scripts/qualify-package.mjs'),
+    '--packages', root, '--work', work, '--with-rust-tests', '--with-browser-tests', '--browser-idle-secs=120'],
+  {env: {...process.env, MAGICVAULT_TEST_STARTUP_DIAGNOSTICS: ''}, stdio: 'pipe', timeout: 5000}),
+  error => error.status !== 0 && String(error.stderr).includes('browser resource observations require'));
+  assert.equal(fs.existsSync(work), false);
+});
 test('process diagnostic driver refuses implicit instrumentation and ambient compiler flags', t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'magicvault-diagnostic-optin-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));

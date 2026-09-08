@@ -162,6 +162,15 @@ frames or changes OS permissions. These are diagnostic/qualification seams, not
 production behavior or a fix for unexplained process uncertainty.
 CPU/RSS counters cover the in-process test
 broker and driver, not an installed-daemon or whole-browser-tree benchmark.
+An additional opt-in browser test samples only the two fixture-owned browsers'
+CDP-reported process populations. macOS resource counters contribute current
+resident/physical-footprint bytes and process-start identity; CDP contributes
+cumulative CPU seconds. A bounded map tracks adjacent-sample deltas without
+crossing reused PIDs, and reports missing/changing populations explicitly.
+Only aggregates are printed. This sampling does not include native-host/MCP or
+standalone-daemon processes, cannot capture every transient peak, and adds its
+own observer cost. The bounded idle window is not a long production soak.
+Its `libc` dependency belongs only to the MCP test target, not the shipped MCP.
 
 ## Browser-profile connection lifecycle
 

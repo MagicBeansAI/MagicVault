@@ -15,6 +15,16 @@
   validates real recipient failure classes, and is rejected by standard release
   compilation. Unsigned candidate CI runs 20 fail-fast diagnostic trials;
   passing repeats do not resolve the retained intermittent process failure.
+- Add opt-in, bounded real-browser process CPU/resident/footprint observations
+  and profile-connection idle assertions. Sampling uses only disposable browser
+  peers, tracks PID start identity, and reports population gaps; it does not
+  measure a live daemon or claim long-soak stability. Default runtime behavior
+  and shared core/MagicRun/Magician remain unchanged.
+- Record the [exact-path investigation](docs/qualification/results-exact-path-2026-09-08.md):
+  CI reproduced a dispatched process `RuntimeFailure` in round 15 with no normal
+  exit code or entry marker. Its signal/source remains unresolved; no retry or
+  new artifact upload followed. The independent real-browser/resource trial
+  passed on the prior available unsigned candidate, not the failed run's bytes.
 
 ## 0.8.2 — 2026-09-08 — Completion and admission ordering
 

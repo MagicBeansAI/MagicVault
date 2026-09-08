@@ -1456,6 +1456,7 @@ dependencies = [
  "bytes",
  "clap",
  "futures-util",
+ "libc",
  "log",
  "magicvault-core",
  "magicvault-service",

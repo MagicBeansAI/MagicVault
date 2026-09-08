@@ -130,6 +130,9 @@ booleans; there is no recipient-output dump, agent-facing tool or runtime flag.
 The first failed trial stops the run. Diagnostic builds may require a cold
 compile; use SSD1 for the fresh work directory. See the
 [exact-path result record](qualification/results-exact-path-2026-09-08.md).
+The committed diagnostic CI run reproduced the failure in round 15: a dispatched
+runtime settlement with no normal exit code, empty stderr and no entry marker.
+The termination signal/source remains unknown; the run is failed, not retried.
 
 `make test-package-browser` is a separate opt-in superset: supply the same fresh
 package/work directories and explicit `MAGICVAULT_CHROME`. It also runs the real
@@ -142,6 +145,10 @@ qualification requires `--app-parent` explicitly, because an external native
 host can trigger OS removable-volume authorization before the test's synthetic
 provider runs. See the [startup investigation](qualification/results-startup-policy-2026-09-08.md)
 for evidence, the optional private sampler and the still-open process finding.
+The separate [browser-resource opt-in](qualification/extension-transport.md#browser-process-resources)
+adds active samples and a bounded 30–300 second idle window for only the
+fixture browsers' CDP-reported processes. It reports sampling/population limits
+explicitly; installed-daemon resources and genuine native recovery are separate.
 
 ## Build and test artifact location
 

@@ -3,7 +3,7 @@
   "project": "MagicVault",
   "architecture_version": "0.8.2",
   "document": "docs/architecture.md",
-  "document_sha256": "868c4263bc5202525ba454609261111e341cc5e6868323a92c1776dcf872c7ea",
+  "document_sha256": "604d69c0e55d03952feeab723a9356e72fa1601af9a83023ddc1bf48124e99e7",
   "component_versions": {
     "extension": "0.6.1",
     "magicvault": "0.8.2",
@@ -17,7 +17,7 @@
   "source_sha256": {
     ".github/workflows/distribution.yml": "145b6a9f6a7c97f857f3c031ab8ce6f9e03e34a4f522489d0eec7bd16e0b02b7",
     ".github/workflows/qualification.yml": "30c7320e100240fd08c7be430ffb7f09bcb220b4511858bbd16bcdc266bb9942",
-    "Cargo.lock": "f948cf5a692a4088533e2b5a6f9d8c15459920ba6ccd1f93f3761221cd376afe",
+    "Cargo.lock": "85976f58ea54f0f3663dfb8bdf4c36e43c9b8fc6d04a45ad12bd39c001847b4b",
     "Cargo.toml": "7f5b8f9eaed713c5c68dedc540340f93693ab5d7fcc0d7c2856d4dd0553742cb",
     "extension/manifest.json": "bcc73a79017ffa7c9e8c73716b6537e0cc2aeeba62786c7414100924b5e3bf51",
     "extension/options.css": "529df3a87d0985c60068454c32d85363f72fb9bf0628de894b4329830acd9028",
@@ -42,7 +42,7 @@
     "magicvault-effect/src/lib.rs": "9318131e8dd4431c72442990dbc231c7501c6750576da27de4556f5e133be3de",
     "magicvault-effect/src/process.rs": "c324137fa9a551b9c72e1e4d3c87a5d9931ea77b6d93d46ef4679766920c9c0a",
     "magicvault-effect/src/test_diagnostics.rs": "a7ae446c7db5534fe90b22c188b45dfb2dcc6f943a3561b6497042ed5e762136",
-    "magicvault-mcp/Cargo.toml": "35db717a001cae95d4819926c7a20770ee9ad9066ebc934484ac5fc571039bad",
+    "magicvault-mcp/Cargo.toml": "9f82559ef4c08366bcc416baf9da3776a475cbfe8f62587e9624c3fb538cde65",
     "magicvault-mcp/src/lib.rs": "f46a258850fcc6e90c8f993c7a4c08b413a29846bb2c3f15571b9af606713401",
     "magicvault-mcp/src/main.rs": "c34c6708cb8c57fa25947832a62d7a00dba2cf758e0701623eb4403f331dd53e",
     "magicvault-mcp/src/transport.rs": "1e246e9fa588982d503a2a7a606713e81daa97a1bb019605cab0cb6581fa0046",
@@ -85,7 +85,7 @@
     "npm/launcher.cjs": "8bdb4405158d161867e587acdad94395eda1c35535f657dc0504b839ffeffcdf",
     "npm/mcp.cjs": "2233e6719217ccbb08ae28b97499632ba773905c552c598a554f938a033e402b",
     "scripts/package-npm.mjs": "e0bb2954bb146c227408805e3261d2833c243210a3440f470d4e0568440fbccf",
-    "scripts/qualify-package.mjs": "06c8a6b68670d164048ad5c006e997c51ad2457bc0e8c82c5f8df2d2269d3e39",
+    "scripts/qualify-package.mjs": "d9aec0b514141db8cb6650cd35fe8ac0ebf4ba310a0ea571d9318f0cc500a209",
     "scripts/sign-release.sh": "9ca4fc668579185168f3ceab017568d3b06a7286c4e7d29a0b5f34c70bb89726"
   }
 }

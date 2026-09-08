@@ -8,7 +8,9 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { parseArgs } from 'node:util';
 
-const { values } = parseArgs({ options: { packages: { type: 'string' }, work: { type: 'string' }, 'app-parent': { type: 'string' }, 'reliability-rounds': { type: 'string', default: '1' }, 'with-performance-tests': { type: 'boolean', default: false }, 'with-rust-tests': { type: 'boolean', default: false }, 'with-browser-tests': { type: 'boolean', default: false }, 'with-process-diagnostics': { type: 'boolean', default: false } } });
+const { values } = parseArgs({ options: { packages: { type: 'string' }, work: { type: 'string' }, 'app-parent': { type: 'string' }, 'browser-idle-secs': { type: 'string' }, 'reliability-rounds': { type: 'string', default: '1' }, 'with-performance-tests': { type: 'boolean', default: false }, 'with-rust-tests': { type: 'boolean', default: false }, 'with-browser-tests': { type: 'boolean', default: false }, 'with-process-diagnostics': { type: 'boolean', default: false } } });
+const browserIdle = values['browser-idle-secs'];
+if (browserIdle !== undefined && (!/^(?:[3-9][0-9]|[12][0-9]{2}|300)$/.test(browserIdle) || !values['with-browser-tests'] || values['reliability-rounds'] !== '1' || process.env.MAGICVAULT_TEST_STARTUP_DIAGNOSTICS !== undefined)) throw new Error('browser resource observations require --with-browser-tests, 30..300 idle seconds, one round and no stack sampling');
 if (values['with-process-diagnostics'] && (!values['with-rust-tests'] || process.env.RUSTFLAGS || process.env.CARGO_ENCODED_RUSTFLAGS)) throw new Error('process diagnostics require --with-rust-tests and no ambient Rust flags');
 if (!/^(?:[1-9]|1[0-9]|20)$/.test(values['reliability-rounds']) || ((values['reliability-rounds'] !== '1' || values['with-performance-tests']) && !values['with-rust-tests'])) throw new Error('reliability qualification requires --with-rust-tests and 1..20 rounds');
 const rounds = Number(values['reliability-rounds']);
@@ -66,6 +68,9 @@ if (values['with-rust-tests']) {
   // Rust is needed by the test DRIVER, never the installed clients. Reuse real
   // IPC/effect tests with their in-memory keys and synthetic human interaction.
   const testEnv = { ...process.env, MAGICVAULT_TEST_CLI: cli, MAGICVAULT_TEST_MCP: mcp, MAGICVAULT_TEST_NATIVE_HOST: path.join(app, 'current/bin/magicvault-native-host'), MAGICVAULT_TEST_EXTENSION: setup.extension_directory };
+  // An ambient test variable must not silently add minutes to normal CI.
+  delete testEnv.MAGICVAULT_BROWSER_RESOURCE_IDLE_SECS;
+  if (browserIdle !== undefined) testEnv.MAGICVAULT_BROWSER_RESOURCE_IDLE_SECS = browserIdle;
   // Only the synthetic test DRIVER is instrumented; installed clients remain
   // the reviewed package bytes. Never share these build outputs with packaging.
   const diagnosticEnv = { ...testEnv, CARGO_TARGET_DIR: path.join(work, 'diagnostic-builds'), CARGO_ENCODED_RUSTFLAGS: '--cfg\x1fmagicvault_test_diagnostics' };
@@ -97,7 +102,7 @@ if (values['with-rust-tests']) {
     if (values['with-browser-tests']) {
       // Real Chrome dispatch, isolated user-data roots/host definitions and
       // synthetic human/key providers. Not native permission/keychain acceptance.
-      execFileSync('cargo', ['test', '--locked', '--release', '-p', 'magicvault-mcp', '--test', 'extension_native', '--', '--ignored', '--nocapture', '--test-threads=1'], { env: testEnv, stdio: 'inherit', timeout: 120_000 });
+      execFileSync('cargo', ['test', '--locked', '--release', '-p', 'magicvault-mcp', '--test', 'extension_native', '--', '--ignored', '--nocapture', '--test-threads=1'], { env: testEnv, stdio: 'inherit', timeout: 120_000 + Number(browserIdle || 0) * 1000 });
     }
   }
   if (values['with-performance-tests']) {
@@ -116,4 +121,4 @@ const retired = JSON.parse(run(stableCli, ['--root', vault, '--app-dir', app, 'u
 assert.equal(retired.vault_preserved, true); assert.equal(retired.keychain_preserved, true);
 assert(!fs.existsSync(app)); assert(fs.existsSync(retired.application_archive));
 assert(!fs.existsSync(vault)); assert.deepEqual(fs.readdirSync(home), []);
-console.log(JSON.stringify({ passed: true, version, npm_install: 'offline local tarballs', client_path: 'Node and system utilities only; no Rust', live_custody_or_services_touched: false, rust_fixture_tests: values['with-rust-tests'], isolated_browser_tests: values['with-browser-tests'], process_diagnostics: values['with-process-diagnostics'], reliability_rounds: rounds, performance_tests: values['with-performance-tests'], artifacts: work, application_artifacts: appArtifacts }));
+console.log(JSON.stringify({ passed: true, version, npm_install: 'offline local tarballs', client_path: 'Node and system utilities only; no Rust', live_custody_or_services_touched: false, rust_fixture_tests: values['with-rust-tests'], isolated_browser_tests: values['with-browser-tests'], browser_idle_seconds: Number(browserIdle || 0), process_diagnostics: values['with-process-diagnostics'], reliability_rounds: rounds, performance_tests: values['with-performance-tests'], artifacts: work, application_artifacts: appArtifacts }));

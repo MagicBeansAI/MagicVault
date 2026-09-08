@@ -30,6 +30,8 @@ use zeroize::Zeroizing;
 
 #[path = "support/native_startup.rs"]
 mod native_startup;
+#[path = "support/browser_resources.rs"]
+mod browser_resources;
 
 #[derive(Default)]
 struct SyntheticHuman {
@@ -202,6 +204,14 @@ async fn load(
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "explicit real Chrome/native-host/MCP qualification; synthetic consent and loopback permission fixture"]
 async fn real_extension_mcp_fill_denial_profiles_pause_and_reconnect() {
+    // Test-only opt-in. The package qualifier validates the same bound before
+    // creating any artifacts and supplies a separate bounded wall-time budget.
+    let resource_idle = std::env::var("MAGICVAULT_BROWSER_RESOURCE_IDLE_SECS").ok().map(|value| {
+        let seconds: u64 = value.parse().expect("integer resource idle seconds");
+        assert!((30..=300).contains(&seconds));
+        assert!(std::env::var_os("MAGICVAULT_TEST_STARTUP_DIAGNOSTICS").is_none(), "stack sampling and resource observations must be separate trials");
+        Duration::from_secs(seconds)
+    });
     let root = tempfile::Builder::new()
         .permissions(fs::Permissions::from_mode(0o700))
         .tempdir()
@@ -369,6 +379,11 @@ async fn real_extension_mcp_fill_denial_profiles_pause_and_reconnect() {
     }
     let mut samples = Vec::new();
     let mut denial_us = 0;
+    let mut resources = if resource_idle.is_some() {
+        Some(browser_resources::Window::new(browser_resources::sample([
+            (&mut a, first.owned_pid()), (&mut b, second.owned_pid()),
+        ]).await))
+    } else { None };
     // Below the broker's 32 retained-operation bound. These are small-sample
     // observations including status polling, not throughput or native-UI claims.
     for iteration in 0..21 {
@@ -445,6 +460,14 @@ async fn real_extension_mcp_fill_denial_profiles_pause_and_reconnect() {
             samples.push(started.elapsed().as_micros());
         }
         assert!(a.evaluate_bool(&page_a, if deny {"document.querySelector('#password').value === ''"} else {"document.querySelector('#password').value === 'SYNTHETIC-CHROMIUM-FILL-CANARY' && document.body.dataset.reactive === 'ok' && document.body.dataset.submitted !== 'yes'"}).await);
+        if let Some(resources) = &mut resources {
+            resources.observe(browser_resources::sample([
+                (&mut a, first.owned_pid()), (&mut b, second.owned_pid()),
+            ]).await);
+        }
+    }
+    if let Some(resources) = &resources {
+        println!("browser_process_resources {}", resources.report("active"));
     }
     human.deny.store(false, Ordering::SeqCst);
     // Navigate or block the site only after the synthetic consent gate is
@@ -575,6 +598,25 @@ async fn real_extension_mcp_fill_denial_profiles_pause_and_reconnect() {
         connection(&mut b, &options_b, true, None).await["browser_handle"],
         info_b["browser_handle"]
     );
+    if let Some(duration) = resource_idle {
+        let launches = fs::metadata(&marker).unwrap().len();
+        let confirmations = human.confirmations.load(Ordering::SeqCst);
+        let mut idle = browser_resources::Window::new(browser_resources::sample([
+            (&mut a, first.owned_pid()), (&mut b, second.owned_pid()),
+        ]).await);
+        let started = Instant::now();
+        while started.elapsed() < duration {
+            tokio::time::sleep(Duration::from_secs(1).min(duration.saturating_sub(started.elapsed()))).await;
+            idle.observe(browser_resources::sample([
+                (&mut a, first.owned_pid()), (&mut b, second.owned_pid()),
+            ]).await);
+        }
+        println!("browser_process_resources {}", idle.report("idle"));
+        assert_eq!(connection(&mut a, &options_a, true, None).await["browser_handle"], reconnected["browser_handle"]);
+        assert_eq!(connection(&mut b, &options_b, true, None).await["browser_handle"], info_b["browser_handle"]);
+        assert_eq!(fs::metadata(&marker).unwrap().len(), launches, "unexpected native-host relaunch during idle observation");
+        assert_eq!(human.confirmations.load(Ordering::SeqCst), confirmations);
+    }
     let audit = fs::read_to_string(
         root.path()
             .join("vault")

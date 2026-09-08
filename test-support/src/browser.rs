@@ -286,6 +286,10 @@ impl DisposableBrowser {
     pub fn running(&mut self) -> bool {
         self.child.try_wait().unwrap().is_none()
     }
+    /// Fixture ownership anchor for read-only resource sampling, not PID discovery.
+    pub fn owned_pid(&self) -> u32 {
+        self.child.id()
+    }
 }
 impl Drop for DisposableBrowser {
     fn drop(&mut self) {

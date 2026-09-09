@@ -1,144 +1,55 @@
 # Changelog
 
+Entries describe source changes, not publication announcements. See
+[versions and compatibility](docs/versioning.md), the
+[release acceptance checklist](docs/qualification/release.md) and
+[version-specific test evidence](docs/qualification/README.md#evidence-records).
+
+## Unreleased
+
+- Consolidate documentation navigation and remove duplicated investigation
+  narratives from public reference pages. Preserve dated qualification evidence
+  and open release gates; no product, package or architecture change.
+
 ## 0.8.3 — macOS process launch correction — 2026-09-08
 
-- Retain post-connection evaluation/discovery/settlement failures, a passing
-  ten-trial Chrome-only control and a final ten-round installed-candidate pass
-  in the [browser investigation](docs/qualification/results-browser-command-2026-09-08.md).
-  Add failure-only phase/health observations with fixed read-only probes,
-  unchanged acceptance deadlines and regression coverage. No shipped runtime
-  fix, credential exposure, permission change or browser gate closure is implied.
-- Record first-attempt full macOS/Linux and unsigned distribution CI passes,
-  independently verified 0.8.3 downloads, installed clients and the retained
-  independent extension-setup timeout. Add test-only, closed browser command
-  labels/checkpoints without changing package bytes, deadlines or permissions.
-  See the [broader candidate record](docs/qualification/results-broad-candidate-2026-09-08.md).
-- First-attempt focused macOS CI passed all 200 fresh concurrent process/HTTP
-  trials, explicitly confirming native-spawn selection for every process.
-  This qualifies the scoped launch change, not the exact historical exception,
-  wider acceptance, performance guarantees or a public release.
-- Select MagicRun `0.1.74`: standalone macOS process delivery now uses native
-  `posix_spawn` with the authorized cwd descriptor, eliminating its userspace
-  fork/pre-exec interval. Preserve exact executable/argv/env, bounded output,
-  parent resource enforcement, cancellation, owned-group cleanup and uncertainty.
-- Validate the original authorized launch bytes directly; malformed values fail
-  closed. No shell fallback, automatic replay, concurrency reduction or longer
-  deadline. Native-spawn selection is asserted in the existing diagnostic fixture.
-- Bump CLI/MCP/service bundles to `0.8.3` and the effect crate to `0.6.1`.
-  Custody core, wire/storage formats and extension `0.6.1` remain unchanged.
-  MagicRun's jailed/PTY/non-macOS backends and Magician's checkout remain unchanged.
-- Record focused validation and exact CI evidence in the
-  [native-spawn qualification](docs/qualification/results-native-spawn-2026-09-08.md).
-  Earlier failures remain retained; this is not a signed/public release or
-  completion of all native/browser/performance acceptance gates.
-
-## Earlier 0.8.2 qualification diagnostics
-
-- Retain the first launch-stage CI failure: trial 22 reported
-  `CallbackNotEntered` with `Observed(Foundation)` before cleanup; its HTTP
-  companion passed. This narrows the launch interval but does not identify
-  the exception site or close the process reliability gate.
-- Add debug-only macOS pre-exec stage evidence to the original concurrent
-  process/HTTP investigation. A shared atomic marker distinguishes callback
-  entry/completion; it does not prove exec or safe replay. Normal clients,
-  deadlines, custody and cleanup behavior remain unchanged. See the
-  [launch-stage record](docs/qualification/results-launch-stage-2026-09-08.md).
-- Record the final named-namespace CI recurrence: trial 53 identified
-  **Foundation** before cleanup, with matching final `SIGKILL`. Its exception
-  site/root cause remains unknown; all failures are retained and no runtime fix,
-  framework attribution, retry safety or release readiness is claimed.
-- Retain the first OS-observer CI failure in trial 29. Its successful query hit
-  the decoder's catch-all, so extend named namespace coverage to the full
-  reviewed Apple header with regression coverage; no raw values are exposed.
-  The classifier follow-up selects MagicRun `e2099b3f` only.
-- Extend the debug-only owned-child observer with a parent-only macOS OS
-  exit-reason query before cleanup/reap. Select reviewed MagicRun `1ab46d90`
-  without a crate-version or production-policy change; add real adapter
-  self-SIGTERM/SIGKILL assertions. Only fixed reason categories survive, never
-  raw reports or payloads. See the [OS exit-reason investigation](docs/qualification/results-os-exit-reason-2026-09-08.md).
-- Record the [focused CI failure and independent candidate qualification](docs/qualification/results-focused-candidate-2026-09-08.md):
-  trial 42 observed the owned child already `SIGKILL`-terminated before cleanup;
-  sender/OS reason remains unknown and the first failure is retained. Downloaded
-  `01a1cfd` package hashes, installed CLI/MCP, real CDP and two-profile extension
-  tests passed separately. No process runtime fix or release readiness is claimed.
-- Add a separate manual bounded process investigation: fresh exact-path trials,
-  original HTTP companion concurrency, fail-fast behavior and a ten-minute trial
-  budget. Passing trials explicitly remain inconclusive about the prior failure.
-- Correct packaged-browser qualification to select the downloaded CLI for its
-  real-CDP fixture and run that case alongside installed native-extension/MCP
-  coverage. This changes test orchestration only; shipped binaries, shared core,
-  MagicRun and Magician are unchanged by this follow-up.
-- Extend the synthetic exact-process observer into MagicRun's owned-child wait,
-  signal and cleanup path. Update only the locked MagicRun Git revision to
-  `25f1c449`; standard builds omit all observer hooks and release builds reject
-  the diagnostic cfg. No runtime fix is claimed. MagicRun source attestation
-  bytes change; Magician's existing dependency and shared custody are untouched.
-  See the [signal investigation](docs/qualification/results-process-signal-2026-09-08.md).
-- Record first-attempt unsigned CI success on `01a1cfd`: normal conformance,
-  20 installed-client trials and bounded capacity/in-flight shutdown tests pass.
-  The original process failure did not recur; its cause remains an open gate.
-- Require explicit application placement for packaged browser qualification;
-  its Make target uses an internal temporary application while SSD build/package
-  paths remain unchanged. Document the observed pre-entry removable-volume
-  authorization delay, without bypassing OS permissions or claiming it fixed.
-- Add opt-in private native-host startup sampling and an async process/child-exit
-  stress probe. Keep the original process uncertainty open; no default runtime,
-  extension, core, MagicRun, Magician or wire-format behavior changes. See the
-  [investigation](docs/qualification/results-startup-policy-2026-09-08.md).
-- Add an opt-in, bounded debug-only observer to the exact installed CLI →
-  synthetic broker → MagicRun fixture. It captures closed categories only,
-  validates real recipient failure classes, and is rejected by standard release
-  compilation. Unsigned candidate CI runs 20 fail-fast diagnostic trials;
-  passing repeats do not resolve the retained intermittent process failure.
-- Add opt-in, bounded real-browser process CPU/resident/footprint observations
-  and profile-connection idle assertions. Sampling uses only disposable browser
-  peers, tracks PID start identity, and reports population gaps; it does not
-  measure a live daemon or claim long-soak stability. Default runtime behavior
-  and shared core/MagicRun/Magician remain unchanged.
-- Record the [exact-path investigation](docs/qualification/results-exact-path-2026-09-08.md):
-  CI reproduced a dispatched process `RuntimeFailure` in round 15 with no normal
-  exit code or entry marker. Its signal/source remains unresolved; no retry or
-  new artifact upload followed. The independent real-browser/resource trial
-  passed on the prior available unsigned candidate, not the failed run's bytes.
+- Select MagicRun `0.1.74`: non-jailed macOS process delivery uses native
+  `posix_spawn` with descriptor-bound cwd, removing its userspace fork/pre-exec
+  interval. Preserve exact executable/argv/env, output/resource bounds,
+  cancellation, owned-group cleanup and uncertain outcomes.
+- Validate original authorized launch bytes; malformed values fail closed.
+  No shell fallback, replay, concurrency reduction or longer deadline.
+- CLI/MCP/service `0.8.3`, effect `0.6.1`; custody, wire/storage formats and
+  extension `0.6.1` are unchanged. MagicRun's jailed/PTY/non-macOS backends are
+  unchanged. Embedded consumers advance their own reviewed dependency pins.
+- Add regression and failure-only browser health observations without changing
+  shipped browser behavior or acceptance deadlines. Intermittent evaluation,
+  discovery and settlement failures remain unresolved.
+- Record [200 concurrent process/HTTP trials](docs/qualification/results-native-spawn-2026-09-08.md),
+  [downloaded-candidate and CI results](docs/qualification/results-broad-candidate-2026-09-08.md)
+  and [retained browser failures](docs/qualification/results-browser-command-2026-09-08.md).
+  The scoped process correction is not a signed release or general reliability
+  certification.
 
 ## 0.8.2 — 2026-09-08 — Completion and admission ordering
 
-- Fix a standalone scheduling race: browser, process/HTTP and metadata completion
-  now release their human-operation slot in the final serialized transaction,
-  after cleanup/audit and before readers can observe the terminal decision.
-  An immediate next operation no longer races the previous async worker's wake-up.
-- Explicitly drain background job futures/destructors during shutdown so early
-  admission release cannot leave a finishing worker holding the instance lock
-  across an immediate restart. Completed tasks are not retained as an unbounded list.
-- Add deterministic current-thread regressions for successful and audit-uncertain
-  fills, denied delivery and decided metadata. The browser regression was observed
-  failing before the fix, then passing afterwards. See the [qualification record](docs/qualification/results-completion-order-2026-09-08.md).
-- CLI/MCP/service `0.8.2`; core, primitives, MagicRun, wire formats, extension and
-  vault schema are unchanged. This source version is not a publication or a claim
-  that the separate intermittent process/native-startup findings are resolved.
-
-- Preserve the reproduced installed-process CI failure as an open release gate;
-  add fixture-only launch stages and a bounded synthetic process stress probe.
-  The additional observations are diagnostics, not a claimed runtime fix.
-- Add fail-fast installed-package repetition, explicit internal-volume temporary
-  application placement, and bounded CPU/RSS, delivery/IPC capacity, recovery and
-  in-flight process-tree/HTTP shutdown qualification. Preserve the browser's
-  15-second pass threshold while observing failed startup for up to 45 seconds
-  with value-free fixture stages. These are test/qualification changes, not a
-  runtime fix; shared custody, MagicRun and Magician are unchanged.
-- Expand unsigned candidate CI to the complete extension/fixture suites, 20
-  independent installed-client trials and resource/shutdown probes; align the
-  macOS/Ubuntu manual lane with the candidate toolchain and bounded workloads.
-- Use “Let agents use credentials without seeing them” in the README and npm
-  package copy, with the recipient/browser-observation boundary stated nearby.
-- Shorten the README around the credential-use workflow, candidate installation,
-  MCP quick start and compact surface coverage. Move full coverage/CLI recipes
-  into linked guides, retain existing entry-point anchors, and separate packaged
-  extension instructions from source builds without hiding native acceptance gaps.
-- Add closed, value-free process-test failure diagnostics and record
-  [unsigned `0.8.1` distribution CI](docs/qualification/results-distribution-ci-2026-09-08.md).
-  The fresh workflow passed; its preceding intermittent process-delivery failure
-  remains unresolved. No runtime fix, signing or publication is implied.
+- Release the human-operation slot in the final serialized browser/delivery/
+  metadata completion transaction, after cleanup/audit and before terminal
+  receipt visibility. An immediate next operation no longer races worker wake-up.
+- Drain background futures/destructors during shutdown so a finishing worker
+  cannot retain the instance lock across an immediate restart. Add deterministic
+  success and audit-uncertainty regressions. [Correction evidence](docs/qualification/results-completion-order-2026-09-08.md).
+- Add fail-fast installed-package repetition, bounded capacity/resource/shutdown
+  tests and opt-in debug-only process diagnostics. Default clients omit those
+  observers; standard release builds reject diagnostic instrumentation. Retain
+  earlier failures in the [investigation records](docs/qualification/README.md#evidence-records).
+- Require explicit internal-volume application placement for packaged-browser
+  qualification; build and package storage can remain on SSD1. The observed
+  external-volume loader delay is not worked around by bypassing OS permissions.
+- Expand unsigned candidate CI to installed-client and bounded workload tests;
+  make README onboarding MCP-first with linked coverage and CLI recipes.
+- CLI/MCP/service `0.8.2`; shared custody, wire/storage formats and extension are
+  unchanged. No signing or public publication is implied.
 
 ## 0.8.1 — 2026-09-08 — Native cancellation receipts
 
@@ -372,18 +283,10 @@ announced. [Qualification and limits](docs/qualification/results-delivery-2026-0
 
 ### Documentation
 
-- Label Rust edition 2021 and the standalone MCP compiler requirement of 1.88+
-  separately; explain the SDK requirement and the recorded qualification toolchain.
-- Restructure the README around the product, with a Bash quick start, CDP and
-  extension setup choices, an MCP configuration example, and explicit coverage
-  for existing browsers, new HTTP requests, processes, terminals and stateful
-  services. Separate available interfaces from unimplemented credential-delivery
-  destinations. Use the headline “Keep secrete away from Agents” while retaining
-  the explicit security boundary.
-- Remove planning and implementation-review journals from the current docs tree;
-  keep technical architecture, contracts, setup and acceptance documentation.
-- Clarify when embedded consumers need a shared-library update. No runtime,
-  protocol or shared-library behavior changes accompany these documentation edits.
+- Separate user setup/coverage, builder contracts, architecture and acceptance
+  runbooks. Distinguish Rust edition 2021 from the standalone compiler minimum.
+- Remove planning and implementation-review journals. Documentation-only changes
+  do not alter runtime, protocol or shared-library behavior.
 
 ## 0.3.0 — 2026-09-07 — Browser-delivery source alpha
 

@@ -178,6 +178,7 @@ software. Password masking is not an observation filter.
 
 ## Documentation and contributing
 
+[Documentation index](docs/README.md) ·
 [Architecture and drift baseline](docs/architecture.md) ·
 [Usage and coverage](docs/coverage.md) · [Qualification and runbooks](docs/qualification/README.md) ·
 [Changelog](CHANGELOG.md) · [Versions](docs/versioning.md)

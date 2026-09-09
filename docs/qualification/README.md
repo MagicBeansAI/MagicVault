@@ -1,112 +1,75 @@
 # Real-world qualification
 
-These are **integration/conformance tests** when automated and **acceptance
-runbooks** when a person must interact with native UI. They are not model-quality
-evals. A future eval could measure whether an agent selects `secure_fill`, but
-that would not replace destination, custody, transport or output-boundary tests.
+Start with the [release acceptance checklist](release.md) for current readiness,
+the [testing guide](../testing.md) for automated lanes and coverage, or a runbook
+below for a specific surface.
+
+Automated cases are integration/conformance tests; cases requiring a person to
+interact with native UI are acceptance tests. Neither proves how an agent model
+will choose tools. Fixture-only running-service tests do not implement a product
+refresh/rotation adapter.
 
 ## What is covered
 
-The [browser-command investigation](results-browser-command-2026-09-08.md)
-retains later failures during evaluation, discovery and fill settlement after
-both profiles connected. A separate ten-trial Chrome-only control and a final
-ten-round installed-candidate run passed. Failure-only, value-free observations
-now distinguish fixture phases and bound post-failure MCP/daemon/renderer/extension
-health checks. No runtime correction or browser-reliability closure is claimed.
-
-The [fresh 0.8.3 distribution record](results-broad-candidate-2026-09-08.md) adds
-first-attempt full macOS/Linux and unsigned distribution CI passes, 20 installed
-rounds, bounded capacity/shutdown checks and independently verified downloads.
-Installed CLI/MCP and real CDP passed; the first independent extension setup
-hit a browser-command timeout. One fresh diagnostic two-profile/idle and local
-performance/shutdown trial passed, without attributing or fixing that timeout.
-These remain separate evidence, not a green browser-reliability or release gate.
-
-The [0.8.3 native-spawn correction](results-native-spawn-2026-09-08.md) passed its
-first-attempt focused CI: all 200 original concurrent process/HTTP trials, with
-native launch explicitly confirmed for every process. The affected non-jailed
-macOS path no longer runs the parent's userspace fork callbacks. This qualifies
-the scoped correction, not the exact historical exception or broader release
-readiness. The broader candidate outcome is recorded above.
-
-The [launch-stage investigation](results-launch-stage-2026-09-08.md) narrows the
-latest recurrence: CI trial 22 reported `CallbackNotEntered` and the Foundation
-OS category before cleanup, while the HTTP companion passed. The subsequent review
-targeted the pre-callback launch interval. That historical run established no
-exact exception or fix and was not retried; the correction is recorded above.
-
-The [OS exit-reason investigation](results-os-exit-reason-2026-09-08.md) adds a
-bounded parent-only observation to the debug synthetic broker, with explicit
-unavailable outcomes and real self-signal preflight. CI trial 53 identified the
-Foundation OS category before cleanup; the exception site/root cause remains
-unknown. That diagnostic changed no runtime behavior and did not close the
-process gate; the later scoped correction is recorded above.
-
-The [focused investigation and downloaded-candidate record](results-focused-candidate-2026-09-08.md)
-identifies the independently hash-verified `01a1cfd` candidate and its installed
-CLI/MCP/real-browser qualification. The bounded process CI failed on trial 42:
-the owned child was already `SIGKILL`-terminated before cleanup, with sender/OS
-reason still unknown. Passing browser tests do not resolve that process finding.
-
-The [owned-child signal investigation](results-process-signal-2026-09-08.md)
-records test-only MagicRun/MagicVault observation and a first-attempt unsigned
-CI pass on `01a1cfd`, including 20 installed trials and bounded shutdown probes.
-The original failure did not recur; its cause is not resolved.
-
-The [exact-path diagnostic record](results-exact-path-2026-09-08.md) distinguishes
-installed artifact bytes from the debug-only synthetic broker observer. Passing
-independent trials do not close the original intermittent process finding.
-
-The [0.8.2 completion-order record](results-completion-order-2026-09-08.md)
-documents the deterministic admission race, its standalone-only fix and the
-separate unresolved reliability findings. Earlier versions' results remain
-historical evidence, not qualification of changed binaries.
-
-The [reliability investigation](results-reliability-2026-09-08.md) records the
-reproduced pre-entry-point native-host loader stall, fail-fast installed trials,
-and bounded load/capacity/shutdown measurements without claiming a runtime fix.
-
-Use the [public release gate matrix](release.md) to separate automated conformance,
-human desktop acceptance and publisher/registry authorization. The
-[0.8.1 distribution CI record](results-distribution-ci-2026-09-08.md) includes a
-successful unsigned package/install workflow on `43b6a1f`, while retaining the
-first run's unresolved intermittent process-delivery uncertainty. The
-[installed permission/recovery record](results-permission-recovery-2026-09-08.md)
-adds genuine remembered-use permission refusal/restoration, pause/resume and
-process/HTTP in-flight cancellation on committed `34fee4a`. The
-[0.8.1 cancellation record](results-cancellation-2026-09-08.md) records the current
-receipt correction, automated/package passes, installed native pending-consent
-cancellation and process-grant restart/reuse passes. The
-[0.8.0 consent results](results-consent-2026-09-08.md) record local/native
-consent conformance, unresolved startup failures and the original reset-receipt
-failure. The
-[broader release results](results-release-2026-09-08.md) apply only to the prior
-committed `0.7.0` revision, including CI and repeated fresh browser starts.
-
-| Surface | Runnable evidence | Remaining gate |
+| Surface | Automated lane | Acceptance / reproduction |
 | --- | --- | --- |
-| Real headed/headless Chrome through CDP | `make test-browser-native` | More brands/platforms and accessibility/control combinations |
-| Actual CLI → daemon → real Chrome | `make test-cli-native` | Genuine native dialogs/keychain in [CLI runbook](cli.md) |
-| MCP and native-host executables | Real subprocess/IPC tests; `make test-extension-native` adds actual Chrome dispatch and two independent profiles; [basic installed native acceptance](results-discovery-2026-09-08.md) on one host | Remaining permission/recovery cases in [extension runbook](extension.md); wider hosts and live agent-model sessions not yet qualified |
-| Public demo pages | Opt-in `make test-public-web` | Non-gating compatibility smoke, not login/provider qualification |
-| New process / HTTP requests | `make test-delivery`: real local HTTP/TLS and MagicRun children, shipped CLI/MCP; [0.8.3 scoped launch correction and 200 concurrent CI trials](results-native-spawn-2026-09-08.md); native consent and in-flight results linked above apply to their original versions | Fresh artifact/native recovery qualification, wider hosts, Internet latency and resource/soak performance; see [delivery runbook](process.md) |
-| Running-service destinations | `make test-qualification-fixtures` exercises a cooperative Node service | Product refresh/rotation integration remains **unimplemented** |
-| Prebuilt CLI/MCP installation | `make test-distribution`, offline `make test-package-install`; opt-in `make test-package-browser` adds installed extension assets | Developer ID/quarantined downloads, registry publication and full native lifecycle in [distribution runbook](distribution.md) |
+| Headed/headless Chromium through CDP | `make test-browser-native` | [Browser runbook](browser.md) |
+| CLI and daemon | `make test-cli-native` | [CLI runbook](cli.md) |
+| MCP, native host and two independent extension profiles | `make test-extension-native` | [Transport commands](extension-transport.md), [native extension acceptance](extension.md) |
+| New process and HTTP delivery | `make test-delivery`, `make test-delivery-latency` | [Delivery runbook](process.md) |
+| Prebuilt packages and managed installation | `make test-distribution`, `make test-package-install`, `make test-package-browser` | [Native installation lifecycle](distribution.md) |
+| Bounded service capacity and shutdown | `make test-service-reliability` | [Measurement scope](../testing.md#performance-recovery-and-consumer-gates) |
+| Public demonstration pages | Opt-in `make test-public-web` | [Non-gating smoke test](browser.md#optional-public-page-compatibility-smoke) |
 
-The [0.7.0 discovery record](results-discovery-2026-09-08.md) covers large-profile
-regressions, rebuilt packages and installed-candidate acceptance. The
-[0.6.1 transport record](results-native-transport-2026-09-07.md) identifies the
-earlier native dispatch fix, executed lanes, small-sample latency and remaining
-release gates. [Repeatable native transport commands](extension-transport.md)
-keep automated synthetic qualification separate from human acceptance.
+Real-browser automation uses disposable profiles and synthetic consent/key
+providers. Only separately recorded human acceptance qualifies native dialogs,
+keychain interaction and OS-user installation.
 
-The [browser runbook](browser.md) describes the local pages, exact commands and
-outcome checks. [The dated results](results-2026-09-07.md) distinguish actual
-execution from manual and future gates. The [0.4.0 delivery record](results-delivery-2026-09-07.md)
-covers delivery. The [0.5.0 distribution record](results-distribution-2026-09-07.md)
-covers packaging/onboarding. MagicRun is the standalone new-process dependency;
-the shared custody contract and Magician remain unchanged.
-See the [architecture](../architecture.md).
+## Evidence records
+
+The latest independently downloaded candidate is **0.8.3 on `81fe8c6`**.
+Its automated CI passes do not close the intermittent browser/extension failures,
+remaining native recovery cases, publisher verification or public distribution.
+See the [release gates](release.md#gates-and-evidence).
+
+These records retain original revisions, commands, failures and limitations.
+Older passes do not qualify changed packages; later passing trials do not erase
+earlier failures. They are technical evidence, not a task queue or roadmap.
+
+### Current candidate and browser reliability
+
+- [0.8.3 downloaded candidate, CI and installed tests](results-broad-candidate-2026-09-08.md)
+- [Browser evaluation, discovery and settlement failures; later passes](results-browser-command-2026-09-08.md)
+- [Native macOS launch correction and 200 concurrent trials](results-native-spawn-2026-09-08.md)
+
+### Version-specific native acceptance
+
+- [Browser permissions, pause/reconnect and in-flight cancellation](results-permission-recovery-2026-09-08.md)
+- [Cancellation receipts and installed recovery](results-cancellation-2026-09-08.md)
+- [Process/HTTP native consent modes, revocation and persistence](results-consent-2026-09-08.md)
+- [Large-profile discovery and installed keychain/browser acceptance](results-discovery-2026-09-08.md)
+
+<details>
+<summary>Earlier conformance and investigations</summary>
+
+- [Owned-child pre-exec stage observations](results-launch-stage-2026-09-08.md)
+- [Owned-child OS exit-reason observations](results-os-exit-reason-2026-09-08.md)
+- [Focused process failure and separate downloaded-candidate tests](results-focused-candidate-2026-09-08.md)
+- [Owned-child signal and cleanup observations](results-process-signal-2026-09-08.md)
+- [Exact installed process path and browser resource observations](results-exact-path-2026-09-08.md)
+- [External-volume native-host startup limitation](results-startup-policy-2026-09-08.md)
+- [Completion/admission race and correction](results-completion-order-2026-09-08.md)
+- [Initial process/native-host reliability investigation](results-reliability-2026-09-08.md)
+- [0.8.1 distribution CI: retained failure and later pass](results-distribution-ci-2026-09-08.md)
+- [0.7.0 broader conformance and distribution CI](results-release-2026-09-08.md)
+- [Chromium document-ID correction and native transport](results-native-transport-2026-09-07.md)
+- [Automatic independent browser connections](results-extension-connections-2026-09-07.md)
+- [Site grants, blocklist and access indicators](results-extension-access-2026-09-07.md)
+- [Initial prebuilt package and app-only lifecycle](results-distribution-2026-09-07.md)
+- [Initial process/HTTP delivery](results-delivery-2026-09-07.md)
+- [Initial browser/CLI and synthetic fixture qualification](results-2026-09-07.md)
+
+</details>
 
 ## Safety rules
 

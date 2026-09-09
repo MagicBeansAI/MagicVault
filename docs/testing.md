@@ -2,118 +2,26 @@
 
 ## Current evidence
 
-The [fresh 0.8.3 candidate qualification](qualification/results-broad-candidate-2026-09-08.md)
-records full macOS/Linux and unsigned distribution CI passes on `81fe8c6`,
-downloaded package identity, installed-client tests and bounded measurements.
-Its first independent extension setup failed at the existing CDP command timeout;
-the original failure and value-free test-diagnostic follow-up are retained.
-Passing process/HTTP or CDP cases do not close native-extension reliability.
+The [release acceptance checklist](qualification/release.md) is the current
+readiness reference. The [evidence index](qualification/README.md#evidence-records)
+links version-specific results without treating old runs as current qualification.
 
-The [browser-command follow-up](qualification/results-browser-command-2026-09-08.md)
-retains post-connection evaluation, discovery and settlement failures alongside
-a final ten-round installed-candidate pass. Its separate, ignored
-`chromium_control` target passed ten Chrome-only trials; `make test-browser-native`
-remains five cases. Fixed post-failure health probes have timeout/correlation/value-
-boundary regressions and cannot rescue a failed operation. Product bytes and the
-architecture baseline remain unchanged.
+- **0.8.3 candidate:** full macOS/Linux and unsigned distribution CI passed on
+  `81fe8c6`; downloaded package hashes, installed CLI/MCP/CDP and bounded
+  load/shutdown cases were checked. [Candidate record](qualification/results-broad-candidate-2026-09-08.md).
+- **Browser reliability remains open:** evaluation, discovery and fill-settlement
+  failures were retained alongside a later ten-round pass. Test-only health
+  probes are not a runtime fix. [Browser investigation](qualification/results-browser-command-2026-09-08.md).
+- **Process launch:** the scoped macOS native-spawn correction passed 200
+  original concurrent process/HTTP trials. This does not identify the exact
+  historical exception or qualify every host. [Launch record](qualification/results-native-spawn-2026-09-08.md).
+- **Human acceptance:** one-host keychain/browser and process/HTTP consent,
+  remembered-use permission removal/restoration, and cancellation results apply
+  only to their recorded versions and cases. [Native evidence](qualification/README.md#version-specific-native-acceptance).
 
-The [0.8.3 native-spawn correction](qualification/results-native-spawn-2026-09-08.md)
-removes userspace fork from the affected macOS process path. Regression tests
-require descriptor-bound cwd, exact bytes, stdio/descriptor isolation and a
-no-fork positive control. The original concurrent process/HTTP fixture remains
-the bounded CI scenario; its exact revision and result are recorded separately.
-
-The [0.8.2 completion-order correction](qualification/results-completion-order-2026-09-08.md)
-has deterministic browser/delivery/metadata regression tests. Terminal publication
-must release admission in the same serialized completion, not on a later async
-worker wake-up. This does not explain the separate process/native-startup findings.
-
-The [reliability investigation](qualification/results-reliability-2026-09-08.md)
-adds installed-client repetition, cold-start stage observations and explicit
-`make test-service-reliability` CPU/RSS, capacity, recovery and shutdown probes.
-It preserves both intermittent findings and distinguishes test-process counters
-from a real installed-daemon/browser-tree performance gate.
-
-The [installed permission/recovery record](qualification/results-permission-recovery-2026-09-08.md)
-qualifies committed `34fee4a` with genuine native browser remembered use, website
-permission removal/restoration, pause/resume with fresh bindings, and process/HTTP
-cancellation after observed delivery. Test grants and temporary profiles were
-removed; the dedicated daemon and extension remained ready. No runtime change,
-full-suite rerun or broad release qualification is implied.
-
-The [0.8.1 cancellation record](qualification/results-cancellation-2026-09-08.md)
-records 251 Rust and 84 JavaScript passes, packaged qualification and genuine
-installed HTTP-reset/process-cancellation passes, subsequent human denial and
-process-grant restart/reuse. It also records upgrade readiness recovery after
-human Keychain approval and automatic extension reconnection. Original failures
-remain recorded, not replaced by later passes.
-
-The [0.8.0 consent record](qualification/results-consent-2026-09-08.md) covers
-248 Rust and 84 JavaScript tests, compilation, exact-use policy review and local
-packaged/real-browser conformance. Its genuine native cases separately cover
-process/HTTP consent modes, revocation and HTTP grant persistence. Source and
-packaged extension startup timeouts reproduced; later
-passing diagnostic trials do not establish a fix. Prior version results below
-must not be treated as acceptance of the new policy.
-
-The [0.7.0 discovery and installed acceptance record](qualification/results-discovery-2026-09-08.md)
-adds permission-aware large-profile enumeration and exact origin/tab narrowing.
-It records 235 Rust tests, 84 JavaScript tests, actual CDP/CLI/native-extension
-lanes and qualified local npm artifacts. A dedicated installation in an explicitly
-authorized current OS account also exercised real keychain approval, retained
-pairing, human site/destination permission, native per-use denial and a separate
-approved MCP/extension fill. Receipts were value-free and post-fill readiness
-passed. Full recovery/permission matrices, wider hosts and signed/public release
-gates remain open; the record preserves an unexplained automated startup timeout
-and the installed upgrade's keychain-readiness timeout/reconciliation.
-
-The [0.6.1 real transport qualification](qualification/results-native-transport-2026-09-07.md)
-adds actual Chrome → extension → native host → daemon → shipped MCP delivery,
-including npm-installed assets, two profiles, repeated fills, denial, navigation
-and blocking during pending synthetic consent, pause and fresh-handle reconnect.
-It found and corrected rejection of Chrome's actual hexadecimal document IDs.
-It also records repeated release-build CLI/process/loopback HTTP latency, full
-regressions and exact limits. Browser permission grants and custody/UI are
-explicit synthetic fixtures; this does **not** qualify real permission or keychain UI.
-
-The [automatic connection qualification](qualification/results-extension-connections-2026-09-07.md)
-records profile isolation, reconnect/backoff, pause/refusal, managed installation
-repair and unchanged delivery regression checks for standalone 0.6.0 / extension 0.5.0.
-
-The [extension 0.4.0 access qualification](qualification/results-extension-access-2026-09-07.md)
-records 48 focused JS/package cases after the access-indicator and ID-chip follow-ups,
-24 tooling cases and a disposable Chrome
-startup/blocklist smoke check. Native browser permission approval remains a
-separate manual gate; current isolated native dispatch evidence is linked above.
-
-The [0.5.0 distribution qualification](qualification/results-distribution-2026-09-07.md)
-adds offline npm tarball installation, real packaged CLI/MCP IPC, stable application
-paths after npm removal, and app-only lifecycle/negative cases. It does not qualify
-Apple signing, registry publishing or live LaunchAgent/keychain setup.
-
-The [0.4.0 delivery qualification](qualification/results-delivery-2026-09-07.md)
-records current browser/process/HTTP regressions, builds and their limits.
-Real headed/headless Chrome, CLI-to-daemon-to-Chrome, and opt-in public-page
-smoke cases passed for the earlier browser baseline. See the
-[historical browser qualification](qualification/results-2026-09-07.md)
-for counts, commands, environments and limits. Real-browser cases stay ignored
-in the default suite and run through explicit targets. Versioned test results
-remain technical evidence, not a production-readiness claim.
-
-No coverage-percentage tool ran. The separate
-[committed 0.7.0 CI results](qualification/results-release-2026-09-08.md) do not
-qualify the current source. The
-[0.8.1 distribution CI record](qualification/results-distribution-ci-2026-09-08.md)
-records a successful current unsigned package/install workflow and its preceding
-intermittent process-delivery failure. The latter remains unresolved; the green
-run is not evidence of a runtime fix or a pass for the separate browser lanes.
-Automated CLI/native-extension lanes use test-only human and key providers;
-the separately recorded installed acceptance uses genuine native UI/keychain.
-Small-sample local latency is measured, not a production benchmark. Browser
-success does not establish all consumer regressions, broader browser compatibility
-or production readiness.
-The [qualification index](qualification/README.md) separates executable
-conformance tests, manual acceptance runbooks and unimplemented running-service gates.
+No coverage-percentage measurement or production performance guarantee is
+claimed. Automated synthetic consent does not qualify native consent; a green
+workflow does not imply signing, notarization, npm publication or a public release.
 
 ## Architecture consistency
 
@@ -151,9 +59,6 @@ booleans; there is no recipient-output dump, agent-facing tool or runtime flag.
 The first failed trial stops the run. Diagnostic builds may require a cold
 compile; use SSD1 for the fresh work directory. See the
 [exact-path result record](qualification/results-exact-path-2026-09-08.md).
-The committed diagnostic CI run reproduced the failure in round 15: a dispatched
-runtime settlement with no normal exit code, empty stderr and no entry marker.
-The termination signal/source remains unknown; the run is failed, not retried.
 
 `make test-package-browser` is a separate opt-in superset: supply the same fresh
 package/work directories and explicit `MAGICVAULT_CHROME`. It also runs the real
@@ -165,7 +70,8 @@ artifacts and selected browser-profile storage still use SSD1. Direct browser
 qualification requires `--app-parent` explicitly, because an external native
 host can trigger OS removable-volume authorization before the test's synthetic
 provider runs. See the [startup investigation](qualification/results-startup-policy-2026-09-08.md)
-for evidence, the optional private sampler and the still-open process finding.
+for the recorded limitation and optional private sampler. The later scoped
+process-launch correction has its own evidence linked above.
 The separate [browser-resource opt-in](qualification/extension-transport.md#browser-process-resources)
 adds active samples and a bounded 30–300 second idle window for only the
 fixture browsers' CDP-reported processes. It reports sampling/population limits
@@ -337,9 +243,13 @@ enrollment and a disposable browser profile. Follow the
 Basic genuine keychain, installation/upgrade, site permission and per-use native
 deny/allow acceptance passed on one macOS/Chrome setup; see the
 [installed discovery results](qualification/results-discovery-2026-09-08.md).
-First-pairing denial, permission removal and the full recovery matrix remain
-unexecuted. `test-extension-native` separately exercises real native dispatch
-with synthetic consent; neither lane qualifies other browser builds.
+Selected permission removal/restoration, pause/reconnect and in-flight
+cancellation cases also passed; see the
+[permission/recovery results](qualification/results-permission-recovery-2026-09-08.md).
+First-pairing denial and the remaining native recovery matrix are still open in
+the [release checklist](qualification/release.md). `test-extension-native`
+separately exercises real native dispatch with synthetic consent; neither lane
+qualifies other browser builds.
 
 ## Performance, recovery and consumer gates
 
@@ -349,13 +259,16 @@ non-queuing adapter admission, no browser I/O under the custody lock, and no hum
 under that lock. Selected credential entries are cloned once per request rather
 than once per field, and temporary owned values are zeroized on drop.
 
-The current result records 20-operation release-build latency samples for browser,
-process and HTTP, including status polling. Idle CPU/memory, peak allocation,
-long soak, saturation and broad shutdown measurements remain outstanding. Synthetic audit-failure
-propagation and selected packaged install/upgrade lifecycle cases pass. Genuine
-keychain-backed upgrades were also exercised on one host, including readiness
-reconciliation after a native prompt. Repeated-install stress, crash/recovery,
-power-loss durability and rollback drills remain unexecuted.
+The [0.8.3 candidate record](qualification/results-broad-candidate-2026-09-08.md)
+includes release-build latency, bounded delivery/IPC capacity and in-flight
+process-tree/HTTP shutdown tests. A separate browser trial measured a 120-second
+idle window. These use synthetic custody/consent; browser counters exclude the
+standalone daemon/native host and may miss transient peaks. Long-soak stability,
+complete native-process resource measurements and wider-host acceptance remain
+unqualified. Synthetic audit-failure and app-only installation/upgrade/removal
+cases passed; one-host genuine keychain upgrades include readiness reconciliation
+after a native prompt. Interrupted native lifecycle, power-loss durability and
+the remaining recovery cases are separate gates in the release checklist.
 Qualification must retain the core compatibility lane and relevant consumer-owned
 tests against any changed shared dependency; unchanged shared source is evidence
 of scope, not a substitute for all consumer runtime tests.

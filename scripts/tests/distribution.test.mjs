@@ -176,18 +176,17 @@ function fixture(t) {
 }
 function install(f) {
   f.build();
-  const modules = path.join(f.output, 'launcher/node_modules/@magicvault-local');
-  fs.mkdirSync(modules, { recursive: true });
-  fs.renameSync(path.join(f.output, 'native'), path.join(modules, 'magicvault-darwin-arm64'));
-  return { main: path.join(f.output, 'launcher/package.json'), native: path.join(modules, 'magicvault-darwin-arm64') };
+  return { main: path.join(f.output, 'launcher/package.json'), native: path.join(f.output, 'launcher/native/darwin-arm64') };
 }
-test('assembly includes only explicit assets and exact platform dependency, with no install hooks', t => {
+
+test('assembly includes only explicit bundled assets, with no install hooks', t => {
   const f = fixture(t); f.build();
   const main = JSON.parse(fs.readFileSync(path.join(f.output, 'launcher/package.json')));
-  const native = JSON.parse(fs.readFileSync(path.join(f.output, 'native/package.json')));
   assert.equal(main.description, 'Let agents use credentials without seeing them — reference-only credential delivery');
   assert.match(fs.readFileSync(path.join(f.output, 'launcher/README.md'), 'utf8'), /\*\*Let agents use credentials without seeing them\*\*/);
-  assert.equal(main.optionalDependencies[native.name], native.version);
+  assert.equal(main.optionalDependencies, undefined);
+  assert.equal(main.private, true);
+  assert.equal(main.magicvault.layout, 'bundled-v1');
   assert.equal(main.main, './sdk.cjs');
   assert.equal(main.types, './sdk.d.cts');
   assert.deepEqual(main.exports['.'], {types:'./sdk.d.cts', default:'./sdk.cjs'});
@@ -195,11 +194,11 @@ test('assembly includes only explicit assets and exact platform dependency, with
   const sdk = require(path.join(f.output, 'launcher'));
   assert.equal(typeof sdk.MagicVault, 'function');
   assert.equal(typeof sdk.createOperationId, 'function');
-  assert.equal(main.scripts, undefined); assert.equal(native.scripts, undefined);
-  assert.deepEqual(native.os, ['darwin']); assert.deepEqual(native.cpu, ['arm64']);
-  const manifest = JSON.parse(fs.readFileSync(path.join(f.output, 'native/bundle.json')));
+  assert.equal(main.scripts, undefined);
+  assert.deepEqual(main.os, ['darwin']); assert.deepEqual(main.cpu, ['arm64']);
+  const manifest = JSON.parse(fs.readFileSync(path.join(f.output, 'launcher/native/darwin-arm64/bundle.json')));
   assert.equal(Object.keys(manifest.files).length, 15);
-  assert.equal(fs.existsSync(path.join(f.output, 'native/Cargo.lock')), false);
+  assert.equal(fs.existsSync(path.join(f.output, 'launcher/native/darwin-arm64/Cargo.lock')), false);
   assert.throws(f.build); // Cannot overwrite an output directory.
 });
 test('assembly refuses binary symlinks and wrong architecture before producing output', t => {
@@ -214,7 +213,7 @@ test('assembly refuses binary symlinks and wrong architecture before producing o
 
 test('assembled extension boots actual worker imports and wires site-access setup', async t => {
   const f = fixture(t); f.build();
-  const directory = path.join(f.output, 'native/extension');
+  const directory = path.join(f.output, 'launcher/native/darwin-arm64/extension');
   const extension = extensionFixture({directory});
   const ui = extensionOptions(extension); await tick();
   await ui.click('allow-all'); assert(extension.grants.has('https://*/*'));
@@ -230,7 +229,7 @@ test('launcher verifies exact version and bytes; unsupported platforms fail clos
   assert.throws(() => resolveBinary('magicvault-native-host', p.main, 'darwin', 'arm64'));
   fs.appendFileSync(path.join(p.native, 'bin/magicvault'), 'tamper');
   assert.throws(() => resolveBinary('magicvault', p.main, 'darwin', 'arm64'));
-  const file = path.join(p.native, 'package.json');
+  const file = path.join(p.native, 'bundle.json');
   const metadata = JSON.parse(fs.readFileSync(file)); metadata.version = '99.0.0';
   fs.writeFileSync(file, JSON.stringify(metadata));
   assert.throws(() => resolveBinary('magicvault-mcp', p.main, 'darwin', 'arm64'));

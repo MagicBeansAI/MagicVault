@@ -2,7 +2,9 @@
 
 ## Current component versions
 
-**0.9.0 — one-time browser credentials, 2026-09-16 (source candidate).**
+**0.9.1 — one self-contained npm package, 2026-09-16.**
+This packaging-only update bundles every platform in the main npm package.
+The runtime, wire and custody contracts are unchanged from 0.9.0.
 The [one-time input guide](jit-credentials.md) documents native collection without
 saving credentials and the automated validation boundary. Existing native
 [consent](qualification/results-consent-2026-09-08.md),
@@ -14,11 +16,11 @@ binary release, extension store listing or production-safety certification.
 
 | Component | Source version / contract | Compatibility responsibility |
 | --- | --- | --- |
-| `magicvault` CLI, daemon and native-host executable | Package `0.9.0` | Matching wire-5 bundle; CLI-only consent inspection/revocation; native-host forwarding |
-| `magicvault-mcp` | Package `0.9.0` | Matching value-free client; no tool can grant consent |
-| `magicvault-service` | `0.9.0` | One-time native input, exact-use consent, bounded durable grants and revocation; destination, installation and custody checks retained |
+| `magicvault` CLI, daemon and native-host executable | Package `0.9.1` | Matching wire-5 bundle; CLI-only consent inspection/revocation; native-host forwarding |
+| `magicvault-mcp` | Package `0.9.1` | Matching value-free client; no tool can grant consent |
+| `magicvault-service` | `0.9.1` | One-time native input, exact-use consent, bounded durable grants and revocation; destination, installation and custody checks retained |
 | `magicvault-effect` | `0.7.1` | Shared native bridge supports Unix sockets and Windows named pipes; Windows process use fails closed |
-| `magicvault-prompt` | `0.9.0` | Shared desktop renderer and versioned private pipe contract; ship beside daemon |
+| `magicvault-prompt` | `0.9.1` | Shared desktop renderer and versioned private pipe contract; ship beside daemon |
 | `magicvault-protocol` | `0.7.0` | Closed prompt-and-fill request; existing request framing and receipts retained |
 | Chromium extension | Manifest `0.6.1` | Permission-filtered, loaded-tab discovery with exact narrowing; document binding, fixed identity, reconnect/backoff, pause and site controls retained |
 | Local agent protocol | Wire version `5` | Version mismatches fail closed; not the package version |
@@ -28,7 +30,7 @@ binary release, extension store listing or production-safety certification.
 | MagicRun `tool-runtime-core` | Public Git dependency `0.1.74` | Public coordinator unchanged; non-jailed macOS launch uses descriptor-bound native spawn; exact source in Cargo.lock |
 | `magicvault-test-support` | `0.4.0`, `publish = false` | Test-only, not a production surface |
 
-The preceding source version was `0.8.3`, using local agent wire `4`. The new
+Before the 0.9.0 JIT release, the source version was `0.8.3`, using local agent wire `4`. The new
 closed prompt-and-fill request advances wire to `5`; mismatched clients and
 daemons fail closed. Upgrade the standalone bundle together. Protocol/effect
 minor versions mark the public type addition and dependency change. Native
@@ -67,11 +69,11 @@ under [embedded consumers](integrations.md#existing-embedded-consumers).
 
 Use [prebuilt installation and lifecycle](distribution.md), [source build and setup](setup.md) and the
 [extension installation instructions](browser-usage.md#chromium-extension).
-Local npm tarballs are supported; no registry publication, Apple-verified binary
-release or store listing is asserted.
+The npm release and local tarballs are supported; Apple-verified binaries and
+an extension store listing remain separate release work.
 `package-extension` creates unpacked assets; it does not publish or install them.
 
-For managed installations, update matching npm packages and explicitly run
+For managed installations, update the main npm package and explicitly run
 `magicvault upgrade`; npm itself never replaces a daemon. For manual installations,
 stop the daemon, use matching 0.9.x CLI/MCP/native-host/prompt binaries and extension 0.6.x,
 then restart and rediscover fresh handles. Run `magicvault setup` (or source

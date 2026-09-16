@@ -3,7 +3,7 @@
   <p><strong>Let agents use credentials without seeing them</strong></p>
   <p>
     <a href="https://www.npmjs.com/package/@magicbeansai/magicvault"><img src="https://img.shields.io/npm/v/%40magicbeansai%2Fmagicvault.svg" alt="npm version" /></a>
-    <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/source-v0.9.0%20alpha-7C3AED.svg" alt="Source version 0.9.0 alpha" /></a>
+    <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/source-v0.9.1%20alpha-7C3AED.svg" alt="Source version 0.9.1 alpha" /></a>
     <a href="docs/platforms.md"><img src="https://img.shields.io/badge/macOS-alpha-orange.svg" alt="macOS alpha" /></a>
     <a href="docs/platforms.md"><img src="https://img.shields.io/badge/Linux-alpha-orange.svg" alt="Linux alpha" /></a>
     <a href="docs/platforms.md"><img src="https://img.shields.io/badge/Windows-alpha-orange.svg" alt="Windows alpha" /></a>
@@ -33,7 +33,7 @@ This protects MagicVault's own tool calls and replies. Authorized recipients see
 the credential, and separate browser tools can still read it afterward.
 
 > [!WARNING]
-> **Alpha on macOS, Linux and Windows.** Version 0.9.0 is available on npm as
+> **Alpha on macOS, Linux and Windows.** MagicVault is available on npm as
 > [`@magicbeansai/magicvault`](https://www.npmjs.com/package/@magicbeansai/magicvault). Basic installed-browser/keychain/native-consent and
 > selected remembered-use, permission/recovery and cancellation cases passed on
 > one macOS/Chrome setup. Broader recovery, startup/process-delivery reliability
@@ -81,14 +81,14 @@ Use **MCP** with Codex, Claude Code or another local agent. Prefer the
 Requires a logged-in desktop session and **Node.js 22+** for npm launchers.
 Source backends cover macOS, Linux and Windows; see the
 [platform requirements and validation status](docs/platforms.md).
-npm automatically selects the native package for your OS/CPU (macOS, Linux or
-Windows; x64/ARM64). Keep optional dependencies enabled. No Rust toolchain is needed.
+Version 0.9.1 bundles the native binaries for macOS, Linux and Windows
+(x64/ARM64) in one package. The launcher selects your OS/CPU. No Rust toolchain is needed.
 This is local stdio MCP—not a hosted endpoint or unattended credential access.
 
-Install **one package: `@magicbeansai/magicvault`**. Its platform packages are
-internal dependencies; you do not need to select or install them separately.
-The `latest` channel currently provides 0.9.0; platform support remains alpha.
-An unavailable or invalid native package produces a launcher error.
+Install **one package: `@magicbeansai/magicvault`**. From 0.9.1 it has no
+platform-package dependencies or install scripts. All six builds are included
+in the download. Unsupported OS/CPU combinations are refused; an invalid bundle
+produces a launcher error. Platform support remains alpha.
 Maintainers: [npm release procedure](docs/npm-release.md).
 
 ### 1. Install and set up
@@ -100,6 +100,8 @@ magicvault --profile agent doctor
 ```
 
 For your own Node/TypeScript project, use `npm install @magicbeansai/magicvault`.
+Existing 0.9.0 users can update the main package with `@latest`, then run
+`magicvault upgrade`; vault data and pairing stay in their existing locations.
 See the [SDK guide](docs/typescript.md). Local tarballs remain available through
 the [candidate build instructions](docs/distribution.md#build-local-candidates).
 

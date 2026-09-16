@@ -28,7 +28,7 @@ export function standaloneVersion(repo) {
   if (!versions[0] || versions.some(version => version !== versions[0])) throw new Error('standalone package versions must match');
   return versions[0];
 }
-function binaryMatches(bytes, platform) {
+export function binaryMatches(bytes, platform) {
   const [os, arch] = platform.split('-');
   if (os === 'darwin') return bytes.length >= 32 && bytes.readUInt32LE(0) === 0xfeedfacf && bytes.readUInt32LE(4) === (arch === 'arm64' ? 0x0100000c : 0x01000007);
   if (os === 'linux') return bytes.length >= 64 && bytes.subarray(0, 4).equals(Buffer.from([0x7f, 69, 76, 70])) && bytes[4] === 2 && bytes[5] === 1 && bytes.readUInt16LE(18) === (arch === 'arm64' ? 183 : 62);
@@ -67,7 +67,6 @@ export function assemble({ repo, binaryDir, output, scope, platform = 'darwin-ar
   for (const [destination, source] of Object.entries(assets)) content.set(destination, regular(path.join(repo, source), 1024 * 1024));
   fs.mkdirSync(output); // Refuse reuse/overwrite of any existing output.
   const mainName = `${scope}/magicvault`;
-  const nativeName = `${scope}/magicvault-${platform}`;
   const common = {
     version, license: 'MIT OR Apache-2.0',
     repository: { type: 'git', url: 'git+https://github.com/MagicBeansAI/MagicVault.git' },
@@ -79,25 +78,24 @@ export function assemble({ repo, binaryDir, output, scope, platform = 'darwin-ar
   const manifest = { format_version: 1, version, platform, files: {} };
   for (const [relative, bytes] of content) {
     const executable = relative.startsWith('bin/');
-    write(path.join(output, 'native', relative), bytes, executable ? 0o755 : 0o644);
+    write(path.join(output, 'launcher', 'native', platform, relative), bytes, executable ? 0o755 : 0o644);
     manifest.files[relative] = { sha256: crypto.createHash('sha256').update(bytes).digest('hex'), bytes: bytes.length, executable };
   }
-  write(path.join(output, 'native/bundle.json'), `${JSON.stringify(manifest, null, 2)}\n`);
-  write(path.join(output, 'native/package.json'), `${JSON.stringify({ ...common, name: nativeName, description: `Prebuilt MagicVault executables and browser extension for ${platform}`, os: [os], cpu: [arch], files: ['bin', 'extension', 'examples', 'bundle.json', 'LICENSE-MIT', 'LICENSE-APACHE'] }, null, 2)}\n`);
+  write(path.join(output, 'launcher', 'native', platform, 'bundle.json'), `${JSON.stringify(manifest, null, 2)}\n`);
   const launcherFiles = ['cli.cjs', 'mcp.cjs', 'launcher.cjs', 'sdk.cjs', 'sdk.d.cts'];
   for (const name of launcherFiles) write(path.join(output, 'launcher', name), regular(path.join(repo, 'npm', name), 64 * 1024), ['cli.cjs', 'mcp.cjs'].includes(name) ? 0o755 : 0o644);
   for (const name of ['LICENSE-MIT', 'LICENSE-APACHE']) write(path.join(output, 'launcher', name), content.get(name));
   let readme = regular(path.join(repo, 'npm/README.md'), 64 * 1024).toString('utf8');
   if (registryReadme) {
-    const install = `Install the package into your project (Node 22+; npm's **latest** channel):\n\n\x60\x60\x60bash\nnpm install ${mainName}\nnpx magicvault --profile agent setup\n\x60\x60\x60\n\nFor MCP/CLI use outside a project:\n\n\x60\x60\x60bash\nnpm install --global ${mainName}\nmagicvault --profile agent setup\nmagicvault --profile agent doctor\n\x60\x60\x60\n\nnpm selects the matching native package for macOS, Linux or Windows (x64/ARM64).\nPlatform support remains alpha. Keep optional dependencies enabled.\nExplicit setup opens the human approval flow.\n`;
+    const install = `Install the package into your project (Node 22+; npm's **latest** channel):\n\n\x60\x60\x60bash\nnpm install ${mainName}\nnpx magicvault --profile agent setup\n\x60\x60\x60\n\nFor MCP/CLI use outside a project:\n\n\x60\x60\x60bash\nnpm install --global ${mainName}\nmagicvault --profile agent setup\nmagicvault --profile agent doctor\n\x60\x60\x60\n\nThis single package bundles macOS, Linux and Windows binaries (x64/ARM64).\nThe launcher selects your platform automatically. There are no native-package\ndependencies, install scripts or runtime downloads. Platform support remains alpha.\nExplicit setup opens the human approval flow.\n`;
     const section = /<!-- npm-install:start -->[\s\S]*?<!-- npm-install:end -->/;
     if (!section.test(readme)) throw new Error('missing npm README install section');
     readme = readme.replace(section, install);
   }
   readme = readme.replaceAll('@magicvault-local/', `${scope}/`);
   write(path.join(output, 'launcher/README.md'), readme);
-  write(path.join(output, 'launcher/package.json'), `${JSON.stringify({ ...common, name: mainName, description: 'Let agents use credentials without seeing them — reference-only credential delivery', bin: { magicvault: 'cli.cjs', 'magicvault-mcp': 'mcp.cjs' }, main: './sdk.cjs', types: './sdk.d.cts', exports: { '.': { types: './sdk.d.cts', default: './sdk.cjs' }, './package.json': './package.json' }, files: [...launcherFiles, 'LICENSE-MIT', 'LICENSE-APACHE'], optionalDependencies: Object.fromEntries(platforms.map(p => [`${scope}/magicvault-${p}`, version])), magicvault: { platforms: Object.fromEntries(platforms.map(p => [p, `${scope}/magicvault-${p}`])) } }, null, 2)}\n`);
-  return { version, mainName, nativeName };
+  write(path.join(output, 'launcher/package.json'), `${JSON.stringify({ ...common, name: mainName, description: 'Let agents use credentials without seeing them — reference-only credential delivery', bin: { magicvault: 'cli.cjs', 'magicvault-mcp': 'mcp.cjs' }, main: './sdk.cjs', types: './sdk.d.cts', exports: { '.': { types: './sdk.d.cts', default: './sdk.cjs' }, './package.json': './package.json' }, private: true, os: [os], cpu: [arch], files: [...launcherFiles, 'LICENSE-MIT', 'LICENSE-APACHE', 'native'], magicvault: { layout: 'bundled-v1', platforms: { [platform]: `native/${platform}` } } }, null, 2)}\n`);
+  return { version, mainName };
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {

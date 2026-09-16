@@ -34,11 +34,10 @@ It does not expose raw credentials or provide a hosted MCP service.
 
 <!-- npm-install:start -->
 The SDK is included in local candidate tarballs; **this is not a published npm
-install command**. Install both matching trusted tarballs into your project:
+install command**. Install the matching trusted candidate tarball into your project:
 
 ```bash
-npm install --ignore-scripts ./magicvault-local-magicvault-darwin-arm64-0.9.0.tgz \
-  ./magicvault-local-magicvault-0.9.0.tgz
+npm install --ignore-scripts ./magicvault-local-magicvault-0.9.1.tgz
 ./node_modules/.bin/magicvault --profile agent setup
 ```
 <!-- npm-install:end -->
@@ -103,12 +102,16 @@ websites/processes, or another browser tool reading the page afterward.
 
 ## Start with MCP
 
-Requires Node 22+, a logged-in desktop session and the matching native package.
-Source backends and package selection cover macOS, Linux and Windows;
+Requires Node 22+ and a logged-in desktop session. The published package bundles
+all six platform builds; the launcher selects the matching executable.
+Bundled builds cover macOS, Linux and Windows (x64/ARM64);
 [platform prerequisites and validation](https://github.com/MagicBeansAI/MagicVault/blob/main/docs/platforms.md) differ.
 Windows supports browser and HTTP delivery; governed process delivery is unavailable.
 No Rust toolchain is needed for matching prebuilt packages. Package
-installation has no lifecycle hooks and does not start services or create a vault.
+installation has no lifecycle hooks or native-package dependencies and does not
+start services or create a vault. All platform binaries are included in the
+download; there is no setup-time binary download. Unsupported OS/CPU combinations
+are refused by npm platform constraints and by the launcher.
 
 ```bash
 magicvault --version
@@ -132,7 +135,11 @@ For explicit shell calls instead, see [CLI automation](https://github.com/MagicB
 Scripts use the same consent and receipt-only boundary, not unattended CI access.
 For embedding, see [developer integrations](https://github.com/MagicBeansAI/MagicVault#build-on-magicvault).
 
-After explicitly installing matching newer packages, run `magicvault upgrade`.
+To migrate from 0.9.0, update the main package with
+`npm install --global @magicvault-local/magicvault@latest` (or omit `--global` for
+a project), then run `magicvault upgrade`. The new package has no platform
+dependencies; npm removes obsolete transitive dependencies during the update.
+Old platform packages remain deprecated compatibility downloads for 0.9.0.
 `magicvault uninstall` unloads owned integrations and archives app files while
 preserving the vault, keychain and pairing files. npm uninstall is separate.
 

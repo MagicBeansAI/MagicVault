@@ -5,7 +5,21 @@ Entries describe source changes, not publication announcements. See
 [release acceptance checklist](docs/qualification/release.md) and
 [version-specific test evidence](docs/qualification/README.md#evidence-records).
 
-## 0.9.0 — One-time credentials and desktop prompts — 2026-09-16 (source candidate)
+## 0.9.1 — One self-contained npm package — 2026-09-16
+
+- Bundle all six OS/CPU builds inside `@magicbeansai/magicvault`; select and
+  verify the matching executable at runtime. Remove platform-package dependencies
+  while keeping installation free of lifecycle scripts and binary downloads.
+- Keep intermediate platform candidates private. Assemble one allowlisted release
+  tarball and install that exact artifact offline with optional dependencies
+  disabled on all six runners before publication. Verify CLI, MCP and SDK imports.
+- Publish only the main package under `latest`. Retry bounded registry reads for
+  propagation, never uncertain uploads. After verifying 0.9.1, deprecate the old
+  platform packages and main 0.9.0 while preserving downloads for pinned users.
+- Document migration through the main package and explicit `magicvault upgrade`.
+  Custody, wire/storage formats, native consent and shared Rust APIs are unchanged.
+
+## 0.9.0 — One-time credentials and desktop prompts — 2026-09-16
 
 - Fix Windows upgrade and retirement after hosted x64/ARM64 tests caught a
   junction replacement failure. Remove the verified junction's empty directory
@@ -19,7 +33,7 @@ Entries describe source changes, not publication announcements. See
   automatically prepare packages after source checks; manual runs also only
   prepare artifacts. Add main/PR
   source checks, tag/version validation, scope-specific install instructions,
-  rollback prevention and registry readback. No release has been published yet.
+  rollback prevention and registry readback. Version 0.9.0 was published on npm.
 - Add `secure_prompt_fill` to MCP, `secure-prompt-fill` to the CLI and
   `securePromptFill` to the Node SDK. Collect hidden native inputs when needed,
   require a final Use once decision, fill the captured browser document and
@@ -63,7 +77,7 @@ Entries describe source changes, not publication announcements. See
   deliveries. Add SDK contract and native integration checks.
 - Add real Codex MCP setup/login footage and a transcript audit, plus a
   reproducible illustrated workflow GIF and recording guide.
-  Public npm publication, signing and native desktop qualification remain pending.
+  Signing and broader native desktop qualification remain pending.
 
 - Consolidate documentation navigation and remove duplicated investigation
   narratives from public reference pages. Preserve dated qualification evidence

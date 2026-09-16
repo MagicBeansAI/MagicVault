@@ -45,10 +45,9 @@ function pack(directory) {
   assert(!result[0].files.some(f => /(?:Cargo\.lock|\.env|\.p12|\.p8|client-.*\.json|instance\.json)$/.test(f.path)));
   return path.join(work, result[0].filename);
 }
-const nativeTarball = pack(path.join(packages, 'native'));
 const launcherTarball = pack(path.join(packages, 'launcher'));
 const prefix = path.join(work, 'client'); fs.mkdirSync(prefix);
-npmRun(['install', '--prefix', prefix, '--offline', '--ignore-scripts', '--no-audit', '--no-fund', launcherTarball, nativeTarball], prefix);
+npmRun(['install', '--prefix', prefix, '--offline', '--ignore-scripts', '--no-audit', '--no-fund', launcherTarball], prefix);
 assert.deepEqual(fs.readdirSync(home), []); // npm install did not initialize anything.
 const cli = path.join(prefix, 'node_modules/.bin/magicvault');
 const mcp = path.join(prefix, 'node_modules/.bin/magicvault-mcp');
@@ -138,8 +137,7 @@ if (values['with-rust-tests']) {
 // Remove the npm packages using npm itself, then prove the stable native paths
 // continue working. This is the ephemeral-cache/upgrade regression boundary.
 const main = JSON.parse(fs.readFileSync(path.join(packages, 'launcher/package.json')));
-const native = JSON.parse(fs.readFileSync(path.join(packages, 'native/package.json')));
-npmRun(['uninstall', '--prefix', prefix, '--offline', '--ignore-scripts', '--no-audit', '--no-fund', main.name, native.name], prefix);
+npmRun(['uninstall', '--prefix', prefix, '--offline', '--ignore-scripts', '--no-audit', '--no-fund', main.name], prefix);
 const stableCli = path.join(app, 'current/bin/magicvault');
 assert.equal(run(stableCli, ['--version']).trim(), `magicvault ${version}`);
 const retired = JSON.parse(run(stableCli, ['--root', vault, '--app-dir', app, 'uninstall']));

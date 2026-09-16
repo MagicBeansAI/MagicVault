@@ -96,13 +96,13 @@ jobs:
           node --test scripts/tests/platform-packages.test.mjs
       - name: Build all four native executables
         run: cargo build --locked --release --target "$RUST_TARGET" -p magicvault -p magicvault-mcp -p magicvault-prompt --features magicvault-prompt/desktop
-      - name: Assemble release packages and scope-specific README
+      - name: Assemble private platform candidate and scope-specific README
         run: |
           mkdir -p dist
           node scripts/package-npm.mjs --binary-dir "target/$RUST_TARGET/release" --output dist/packages --scope "$NPM_SCOPE" --platform "$PLATFORM" --registry-readme
       - name: Execute the actual packaged CLI and MCP
         run: |
-          node --input-type=module -e 'import {execFileSync} from "node:child_process"; import fs from "node:fs"; import path from "node:path"; const v=JSON.parse(fs.readFileSync("dist/packages/native/package.json")).version; for(const n of ["magicvault","magicvault-mcp"]) { const f=path.resolve("dist/packages/native/bin",n+(process.platform==="win32"?".exe":"")); if(execFileSync(f,["--version"],{encoding:"utf8",timeout:10000}).trim()!==n+" "+v) process.exit(1); }'
+          node --input-type=module -e 'import {execFileSync} from "node:child_process"; import fs from "node:fs"; import path from "node:path"; const m=JSON.parse(fs.readFileSync("dist/packages/launcher/package.json")); for(const [n,f] of Object.entries(m.bin)) { if(execFileSync(process.execPath,[path.resolve("dist/packages/launcher",f),"--version"],{encoding:"utf8",timeout:15000}).trim()!==n+" "+m.version) process.exit(1); }'
       - name: Pack exact release tarballs without lifecycle scripts
         run: node scripts/release-npm.mjs --mode pack --packages dist/packages --output dist/tarballs --scope "$NPM_SCOPE" --platform "$PLATFORM"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -114,7 +114,7 @@ jobs:
   verify:
     needs: [prepare, checks, build]
     runs-on: ubuntu-22.04
-    timeout-minutes: 10
+    timeout-minutes: 15
     env:
       NPM_SCOPE: ${{ needs.prepare.outputs.scope }}
       VERSION: ${{ needs.prepare.outputs.version }}
@@ -129,20 +129,53 @@ jobs:
         with:
           pattern: MagicVault-npm-*
           path: dist/release
-      - name: Verify the complete seven-package release set
+      - name: Assemble and verify the single universal package
         shell: bash
         run: |
-          node scripts/release-npm.mjs --root dist/release --scope "$NPM_SCOPE" --version "$VERSION" > release-plan.json
-      - name: Test release ordering, integrity and failure handling
+          node scripts/release-npm.mjs --mode assemble --root dist/release --output dist/universal --scope "$NPM_SCOPE" --version "$VERSION"
+          node scripts/release-npm.mjs --root dist/universal/tarballs --scope "$NPM_SCOPE" --version "$VERSION" > dist/universal/tarballs/release-plan.json
+      - name: Test release integrity, migration and failure handling
         run: node --test scripts/tests/npm-release.test.mjs
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: MagicVault-release-plan
-          path: release-plan.json
+          name: MagicVault-npm-universal
+          path: dist/universal/tarballs/
           if-no-files-found: error
+  smoke:
+    needs: [prepare, verify]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-15, arch: arm64 }
+          - { os: macos-15-intel, arch: x64 }
+          - { os: ubuntu-22.04, arch: x64 }
+          - { os: ubuntu-22.04-arm, arch: arm64 }
+          - { os: windows-2022, arch: x64 }
+          - { os: windows-11-arm, arch: arm64 }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    env:
+      NPM_SCOPE: ${{ needs.prepare.outputs.scope }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+          architecture: ${{ matrix.arch }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: MagicVault-npm-universal
+          path: dist/universal
+      - name: Install one package offline without optional dependencies and run CLI, MCP and SDK
+        shell: bash
+        run: node scripts/smoke-npm.mjs --root dist/universal --scope "$NPM_SCOPE" --version "$VERSION" --work dist/smoke
   publish:
     if: needs.prepare.outputs.publish == 'true'
-    needs: [prepare, checks, build, verify]
+    needs: [prepare, checks, build, verify, smoke]
     runs-on: ubuntu-22.04
     timeout-minutes: 15
     permissions:
@@ -161,11 +194,17 @@ jobs:
           registry-url: 'https://registry.npmjs.org/'
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          pattern: MagicVault-npm-*
+          name: MagicVault-npm-universal
           path: dist/release
-      - name: Publish native packages first, common launcher last; verify latest
+      - name: Publish the single main package and verify latest
         shell: bash
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           node scripts/release-npm.mjs --mode publish --root dist/release --scope "$NPM_SCOPE" --version "$VERSION"
+      - name: Retire legacy 0.9.0 packages after verified migration
+        if: needs.prepare.outputs.version == '0.9.1' && needs.prepare.outputs.scope == '@magicbeansai'
+        shell: bash
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: node scripts/release-npm.mjs --mode retire-legacy --scope "$NPM_SCOPE" --version "$VERSION"

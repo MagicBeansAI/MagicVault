@@ -1,10 +1,10 @@
 # Installation and distribution
 
 MagicVault has a native Rust application, an npm launcher and a typed Node client. macOS,
-Linux and Windows are alpha. Version 0.9.0 is published on npm as
+Linux and Windows are alpha. The main npm package is
 **`@magicbeansai/magicvault`** through the [release workflow](npm-release.md). MCP is a stdio
 protocol, not a requirement to implement custody in JavaScript. The npm package
-exposes `magicvault` and `magicvault-mcp`; its exact-version optional dependency
+exposes `magicvault` and `magicvault-mcp`; from 0.9.1 the same package
 contains the four compiled executables (CLI/daemon, MCP, native host and prompt window), unpacked extension, reference-only
 examples and licenses. There are no installation scripts, runtime downloads,
 Rust compilation, shell-command construction or raw credential handling in Node.
@@ -16,19 +16,39 @@ native CLI with reference-only requests and validates its closed replies. npm
 
 | Surface | Implemented distribution | Current limit |
 | --- | --- | --- |
-| CLI, MCP and Node/TypeScript SDK | One npm install: `@magicbeansai/magicvault`; native dependency selected automatically | Node 22+; keep optional dependencies enabled; see [platform validation](platforms.md) |
+| CLI, MCP and Node/TypeScript SDK | One self-contained npm package: `@magicbeansai/magicvault` | Node 22+; all six platforms included; see [platform validation](platforms.md) |
 | Daemon | Explicit native `setup`, private stable install and user-session service | macOS Keychain / Linux Secret Service / Windows Credential Manager; interactive desktop required |
 | Chromium extension and native host | Assets bundled; normal `setup` registers the fixed ID; independent automatic profile connections | Load unpacked manually; Chrome/Chromium only; no Web Store listing |
 | Rust embedders | Existing core/primitives and standalone crate sources | Core API/format unchanged; no dependency on npm or managed setup |
 | macOS, Linux, Windows packages | Published for x64 and ARM64; all six build and package checks passed | Per-platform build and desktop acceptance are separate; all platforms remain alpha |
-| Publisher verification | npm provenance published for all seven packages | Executables are not Apple-signed/notarized or Windows code-signed |
+| Publisher verification | npm provenance attached by the release workflow | Executables are not Apple-signed/notarized or Windows code-signed |
 
-Users only install **`@magicbeansai/magicvault`**. The six native packages are
-internal optional dependencies constrained by OS/CPU and pinned to the same version.
-npm installs the matching dependency; the launcher fails clearly if it is missing,
-unsupported or invalid. The candidate scope `@magicvault-local` remains for
-**local tarballs only**. Setup's stable MCP path avoids relying on npx's cache or
-fetching code at client startup.
+Users only install **`@magicbeansai/magicvault`**. Version 0.9.1 bundles all six
+platform builds inside `native/<os>-<cpu>` and selects the matching executable.
+The download is larger than a single-platform package, but installation needs
+no optional dependencies, install hooks or subsequent binary download. npm
+rejects unsupported OS/CPU combinations; the launcher also refuses unsupported
+or invalid bundles. Local platform candidates are private and cannot be published.
+Setup's stable MCP path avoids relying on npx's cache at client startup.
+
+### Migrate from 0.9.0
+
+Update the main package, then explicitly upgrade the managed application:
+
+```bash
+npm install --global @magicbeansai/magicvault@latest
+magicvault upgrade
+```
+
+For project installs, omit `--global` and run `npx magicvault upgrade`.
+Use the same custom root/app/profile arguments as your original installation.
+npm removes obsolete transitive platform dependencies as it updates the package.
+If you explicitly installed a platform package yourself, remove that direct
+project dependency after updating the main package. Existing vaults, OS keychain
+entries and pairings retain their locations; npm installation never changes them.
+The old six packages and main 0.9.0 are deprecated only after 0.9.1 passes its
+publication checks. Their bytes remain available for pinned 0.9.0 installs;
+[deprecating entire packages removes them from npm search](https://docs.npmjs.com/policies/unpublish/).
 
 ## Setup and lifecycle
 
@@ -159,8 +179,8 @@ Use `--platform` to select `darwin-arm64`, `darwin-x64`, `linux-arm64`,
 headers/architecture and includes `magicvault-prompt` (with `.exe` on Windows).
 Build all four executables with `make build-standalone`, or the equivalent Cargo
 command with `-p magicvault-prompt --features magicvault-prompt/desktop`. The
-launcher package metadata is identical across platform builds and names exact
-optional dependencies for each target. No assembly command publishes to npm.
+local candidate is one private package containing its selected platform. The
+release workflow combines all six reviewed candidates into the public package. No assembly command publishes to npm.
 
 
 The existing packaged-install qualification lane below runs on macOS arm64 and
@@ -178,10 +198,10 @@ make test-package-install PACKAGE_OUTPUT="$candidate_dir/packages" \
   PACKAGE_TEST_OUTPUT="$candidate_dir/qualification"
 ```
 
-The tarballs are in the qualification directory. Use an SSD1 directory instead
+The candidate tarball is in the qualification directory. Use an SSD1 directory instead
 of `/tmp` when desired; Rust output continues to follow `CARGO_TARGET_DIR`.
 The manual **Unsigned distribution candidate** workflow runs compilation, tests,
-assembly and packaged-install qualification, then uploads only the two tarballs.
+assembly and packaged-install qualification, then uploads only the candidate tarball.
 It has read-only repository permissions and no publication/signing credentials.
 Workflow execution is distinct from adding the workflow to the source tree.
 

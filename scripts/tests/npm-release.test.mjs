@@ -3,12 +3,13 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { createRequire } from 'node:module';
 import { assemble, binaries, platforms, standaloneVersion } from '../package-npm.mjs';
-import { packRelease, releasePlan, publishPlan, releaseContext } from '../release-npm.mjs';
+import { packRelease, assembleRelease, releasePlan, publishPlan, releaseContext, retireLegacy, npm } from '../release-npm.mjs';
 
 const repo = path.resolve(import.meta.dirname, '../..');
 const scope = '@magicvault-release-fixture';
-const publishFixture = (plan, invoke) => publishPlan(plan, invoke, () => {});
+const publishFixture = (plan, invoke) => publishPlan(plan, invoke, () => {}, () => {});
 function executable(platform) {
   const bytes = Buffer.alloc(256), [system, arch] = platform.split('-');
   if (system === 'darwin') {
@@ -40,23 +41,45 @@ test('real offline packs form a complete release; README matches scope and tampe
     assert.doesNotMatch(readme, /@magicvault-local|not a published npm|\.tgz/);
     for (const osName of ['macOS', 'Linux', 'Windows']) assert(readme.includes(`${osName}-alpha-orange`));
     const entries = packRelease({ packages: output, output: path.join(root, `MagicVault-npm-${platform}`), scope, platform });
-    assert.equal(entries.length, platform === 'darwin-arm64' ? 2 : 1);
+    assert.equal(entries.length, 1);
   }
-  const plan = releasePlan({ root, scope, version });
-  assert.equal(plan.length, 7);
+  const output = path.join(root, 'universal');
+  assembleRelease({root, output, scope, version});
+  const finalRoot = path.join(output, 'tarballs');
+  const plan = releasePlan({ root: finalRoot, scope, version });
+  assert.equal(plan.length, 1);
+  const metadata = JSON.parse(fs.readFileSync(path.join(output, 'package/package.json')));
+  assert.equal(metadata.optionalDependencies, undefined);
+  assert.equal(metadata.private, undefined);
+  assert.equal(metadata.scripts, undefined);
+  assert.deepEqual(Object.keys(metadata.magicvault.platforms), platforms);
+  for (const platform of platforms) assert(fs.existsSync(path.join(output, 'package/native', platform, 'bundle.json')));
   assert.equal(plan.at(-1).name, `${scope}/magicvault`);
-  assert(plan.slice(0, 6).every(p => p.kind === 'native'));
+  assert.equal(plan[0].kind, 'universal');
+  const install = path.join(root, 'installed');
+  npm(['install', '--prefix', install, '--offline', '--ignore-scripts', '--omit=optional', '--no-audit', '--no-fund', plan[0].file]);
+  assert.deepEqual(fs.readdirSync(path.join(install, 'node_modules', scope)), ['magicvault']);
+  const require = createRequire(import.meta.url);
+  const {resolveBinary} = require('../../npm/launcher.cjs');
+  const packageFile = path.join(install, 'node_modules', scope, 'magicvault/package.json');
+  for (const platform of platforms) {
+    const [system, arch] = platform.split('-');
+    assert.match(resolveBinary('magicvault', packageFile, system, arch), /native/);
+  }
+  assert.throws(() => resolveBinary('magicvault', packageFile, 'freebsd', 'x64'));
+  assert.throws(() => resolveBinary('magicvault', packageFile, 'linux', 'ia32'));
+
   assert.throws(() => releasePlan({ root, scope: '@magicvault-local', version }));
   assert.throws(() => releasePlan({ root, scope, version: '999.0.0' }));
   const original = fs.readFileSync(plan[0].file);
   fs.appendFileSync(plan[0].file, 'changed bytes');
-  assert.throws(() => releasePlan({ root, scope, version }), /changed/);
+  assert.throws(() => releasePlan({ root: finalRoot, scope, version }), /changed/);
   fs.writeFileSync(plan[0].file, original);
   fs.renameSync(path.join(root, 'MagicVault-npm-win32-arm64'), path.join(root, 'missing-platform'));
-  assert.throws(() => releasePlan({ root, scope, version }));
+  assert.throws(() => assembleRelease({root, output: path.join(root, 'incomplete'), scope, version}));
 });
 
-const records = [...platforms.map(p => `${scope}/magicvault-${p}`), `${scope}/magicvault`]
+const records = [`${scope}/magicvault`]
   .map((name, i) => ({ name, version: '0.9.0', file: `/synthetic/${i}.tgz`, integrity: `sha512-synthetic-${i}` }));
 function missing() { const e = new Error('synthetic'); e.stdout = JSON.stringify({ error: { code: 'E404' } }); throw e; }
 function registry() {
@@ -123,7 +146,7 @@ test('only matching tag pushes publish; main pushes and manual preparation canno
   }
 });
 
-test('registry preflight completes before publication; native packages precede launcher and verify latest', () => {
+test('registry preflight completes before publishing the single package and verifying latest', () => {
   const r = registry();
   publishFixture(records, r.invoke);
   const firstWrite = r.calls.findIndex(args => args[0] !== 'view');
@@ -167,10 +190,10 @@ test('uncertain upload stops immediately; completed runs are idempotent', () => 
   const r = registry(); let uploads = 0;
   assert.throws(() => publishFixture(records, args => {
     const result = r.invoke(args);
-    if (args[0] === 'publish' && ++uploads === 2) throw new Error('lost reply after upload');
+    if (args[0] === 'publish' && ++uploads === 1) throw new Error('lost reply after upload');
     return result;
   }));
-  assert.equal(uploads, 2);
+  assert.equal(uploads, 1);
   publishFixture(records, r.invoke);
   const writes = r.calls.filter(a => a[0] !== 'view').length;
   publishFixture(records, r.invoke);
@@ -199,6 +222,69 @@ test('tag publication is gated by preparation, source checks, all builds and art
   assert.doesNotMatch(beforePublish, /secrets\.|NODE_AUTH_TOKEN/);
   assert.match(workflow, /if: needs\.prepare\.outputs\.publish == 'true'/);
   assert.match(workflow, /NODE_AUTH_TOKEN: \$\{\{ secrets\.NPM_TOKEN \}\}/);
-  assert.match(workflow, /needs: \[prepare, checks, build, verify\]/);
+  assert.match(workflow, /needs: \[prepare, checks, build, verify, smoke\]/);
   for (const platform of platforms) assert(beforePublish.includes(`platform: ${platform},`));
+});
+
+test('registry visibility delays retry reads without repeating an upload', () => {
+  const r = registry(); let afterUpload = false, staleReads = 0;
+  publishFixture(records, args => {
+    if (args[0] === 'publish') afterUpload = true;
+    if (afterUpload && args[0] === 'view' && staleReads++ < 2) missing();
+    return r.invoke(args);
+  });
+  assert.equal(r.calls.filter(a => a[0] === 'publish').length, 1);
+});
+
+function migrationRegistry() {
+  const scope = '@magicbeansai', version = '0.9.1';
+  const calls = [], deprecated = new Map();
+  const metadata = { name: `${scope}/magicvault`, version,
+    publishConfig: {access: 'public', tag: 'latest', registry: 'https://registry.npmjs.org/'},
+    repository: {url: 'git+https://github.com/MagicBeansAI/MagicVault.git'},
+    magicvault: {layout: 'bundled-v1', platforms: Object.fromEntries([...platforms].reverse().map(p => [p, `native/${p}`]))},
+    os: [...new Set(platforms.map(p => p.split('-')[0]))], cpu: [...new Set(platforms.map(p => p.split('-')[1]))],
+    bin: {magicvault: 'cli.cjs', 'magicvault-mcp': 'mcp.cjs'}, main: './sdk.cjs', types: './sdk.d.cts' };
+  const invoke = args => {
+    calls.push(args);
+    const [command, name, field] = args;
+    if (command === 'view') {
+      if (field === '--json') return JSON.stringify(metadata);
+      if (field === 'dist-tags.latest') return JSON.stringify(version);
+      if (field === 'versions') return JSON.stringify(['0.9.0']);
+      if (field === 'version') return JSON.stringify('0.9.0');
+      assert.equal(field, 'deprecated');
+      return deprecated.has(name) ? JSON.stringify(deprecated.get(name)) : '';
+    }
+    assert.equal(command, 'deprecate');
+    deprecated.set(name.endsWith('@0.9.0') ? name : `${name}@0.9.0`, field);
+    return '';
+  };
+  return {scope, version, calls, metadata, deprecated, invoke};
+}
+
+test('legacy migration requires the bundled replacement and preserves all old downloads', () => {
+  const r = migrationRegistry();
+  retireLegacy(r, r.invoke, () => {}, () => {});
+  assert.equal(r.deprecated.size, 7);
+  assert(r.calls.every(a => ['view', 'deprecate'].includes(a[0])));
+  assert(r.calls.findIndex(a => a[0] === 'deprecate') >= 9);
+  const writes = r.calls.filter(a => a[0] === 'deprecate').length;
+  retireLegacy(r, r.invoke, () => {}, () => {});
+  assert.equal(r.calls.filter(a => a[0] === 'deprecate').length, writes);
+});
+
+test('migration refuses the wrong scope, a dependent replacement, non-latest release or unexpected legacy versions before writing', () => {
+  for (const failure of ['scope', 'version', 'dependencies', 'latest', 'legacy']) {
+    const r = migrationRegistry();
+    if (failure === 'scope') r.scope = '@other-owner';
+    if (failure === 'version') r.version = '0.9.2';
+    if (failure === 'dependencies') r.metadata.optionalDependencies = {};
+    assert.throws(() => retireLegacy(r, args => {
+      if (args[0] === 'view' && args[2] === 'dist-tags.latest' && failure === 'latest') return '"0.9.0"';
+      if (args[0] === 'view' && args[2] === 'versions' && failure === 'legacy') return '["0.9.0","0.9.1"]';
+      return r.invoke(args);
+    }, () => {}, () => {}));
+    assert(r.calls.every(a => a[0] === 'view'));
+  }
 });

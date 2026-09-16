@@ -1,7 +1,7 @@
 'use strict';
 
 // No downloads, shell, lifecycle hooks, credentials, daemon startup or stdout
-// diagnostics here. npm selects a prebuilt package; Rust owns the application.
+// diagnostics here. All platforms ship in one package; Rust owns the application.
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
@@ -23,15 +23,13 @@ function resolveBinary(command, packageFile = path.join(__dirname, 'package.json
   const target = `${platform}-${arch}`;
   if (!['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64', 'win32-x64', 'win32-arm64'].includes(target)) throw new Error('unsupported_platform');
   const metadata = jsonFile(packageFile);
-  const nativeName = metadata.magicvault?.platforms?.[`${platform}-${arch}`];
-  if (typeof nativeName !== 'string' || !/^@[a-z0-9][a-z0-9-]{0,63}\/magicvault-(?:darwin|linux|win32)-(?:arm64|x64)$/.test(nativeName)
-      || !nativeName.endsWith(`-${target}`)
-      || metadata.name !== nativeName.slice(0, -(target.length + 1))
-      || metadata.optionalDependencies?.[nativeName] !== metadata.version) throw new Error('invalid_package');
-  const nativeFile = require.resolve(`${nativeName}/package.json`, { paths: [path.dirname(packageFile)] });
-  const native = jsonFile(nativeFile);
-  if (native.name !== nativeName || native.version !== metadata.version) throw new Error('version_mismatch');
-  const root = fs.realpathSync(path.dirname(nativeFile));
+  if (!/^@[a-z0-9][a-z0-9-]{0,63}\/magicvault$/.test(metadata.name)
+      || metadata.magicvault?.layout !== 'bundled-v1'
+      || metadata.magicvault.platforms?.[target] !== `native/${target}`
+      || metadata.optionalDependencies !== undefined) throw new Error('invalid_package');
+  const packageRoot = fs.realpathSync(path.dirname(packageFile));
+  const root = path.join(packageRoot, 'native', target);
+  if (fs.realpathSync(root) !== root || !fs.lstatSync(root).isDirectory()) throw new Error('invalid_bundle');
   const manifest = jsonFile(path.join(root, 'bundle.json'));
   if (manifest.format_version !== 1 || manifest.version !== metadata.version || manifest.platform !== `${platform}-${arch}`) throw new Error('invalid_bundle');
   const relative = `bin/${command}${platform === 'win32' ? '.exe' : ''}`;
@@ -51,7 +49,7 @@ function launch(command) {
   try { executable = resolveBinary(command); }
   catch {
     // Paths and arguments may contain sensitive user input: never echo them.
-    process.stderr.write('MagicVault: compatible prebuilt package unavailable or invalid; reinstall with optional dependencies enabled. Install the matching macOS, Linux or Windows native package.\n');
+    process.stderr.write('MagicVault: bundled executable unavailable or invalid. Supported platforms: macOS, Linux (glibc), Windows; x64 or ARM64. Reinstall the main MagicVault package.\n');
     process.exitCode = 1;
     return;
   }

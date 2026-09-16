@@ -33,14 +33,12 @@ for (const platform of platforms) {
     assert.equal(fs.existsSync(wrongOutput), false);
     const output = path.join(root, 'packages');
     const result = assemble({repo, binaryDir:bin, output, scope:'@magicvault-local', platform});
-    const modules = path.join(output, 'launcher/node_modules/@magicvault-local');
-    fs.mkdirSync(modules, {recursive:true});
-    const native = path.join(modules, `magicvault-${platform}`);
-    fs.renameSync(path.join(output, 'native'), native);
+    const native = path.join(output, 'launcher/native', platform);
     const packageFile = path.join(output, 'launcher/package.json');
     const metadata = JSON.parse(fs.readFileSync(packageFile));
-    assert.equal(Object.keys(metadata.magicvault.platforms).length, platforms.length);
-    assert.equal(metadata.optionalDependencies[result.nativeName], result.version);
+    assert.deepEqual(metadata.magicvault.platforms, {[platform]: `native/${platform}`});
+    assert.equal(metadata.optionalDependencies, undefined);
+    assert.equal(metadata.private, true);
     for (const command of ['magicvault', 'magicvault-mcp']) {
       assert.equal(resolveBinary(command, packageFile, system, arch), fs.realpathSync(path.join(native, `bin/${command}${suffix}`)));
     }

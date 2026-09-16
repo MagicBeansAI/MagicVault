@@ -3,13 +3,14 @@
 Use saved credentials through references, or request one-time browser credentials
 through native hidden prompts while your application is running. The npm
 package includes a small client, TypeScript declarations, CLI/MCP launchers and
-an exact-version optional package containing prebuilt Rust binaries. Users of
+prebuilt Rust binaries for every supported platform in the same package. Users of
 these packages do not need Cargo. The SDK uses Node built-ins only.
 
 Install **`@magicbeansai/magicvault`** from npm. Runtime support remains
 Node 22+ and an interactive desktop for native consent. See
 [platform prerequisites and validation](platforms.md) for macOS, Linux and Windows.
-npm selects the matching OS/CPU dependency automatically; keep optional dependencies enabled.
+From 0.9.1 the launcher selects a bundled OS/CPU binary. There are no optional
+platform dependencies, install scripts or binary downloads.
 This is a Node API, not a browser bundle or an unattended CI credential store.
 
 ## Install and prepare

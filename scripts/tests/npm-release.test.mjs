@@ -304,13 +304,15 @@ test('publication tolerates a full five-minute registry cache lifetime without u
 function removalRegistry() {
   const old = migrationRegistry(), version = '0.9.2', calls = [];
   const metadata = {...old.metadata, version, dist: {integrity: 'sha512-replacement'}};
-  const remaining = new Set(platforms.map(p => `@magicbeansai/magicvault-${p}`));
+  const legacy = {name: '@magicbeansai/magicvault', version: '0.9.0', deprecated: 'Retired',
+    optionalDependencies: Object.fromEntries(platforms.map(p => [`@magicbeansai/magicvault-${p}`, '0.9.0']))};
+  const remaining = new Set([legacy.name, ...Object.keys(legacy.optionalDependencies)]);
   const invoke = args => {
     calls.push(args);
     const [command, spec, field] = args;
     if (command === 'unpublish') {
       assert(spec.endsWith('@0.9.0'));
-      assert(remaining.delete(spec.slice(0, -6)), 'only known native packages can be removed');
+      assert(remaining.delete(spec.slice(0, -6)), 'only the known obsolete 0.9.0 graph can be removed');
       assert(args.includes('--force') && args.includes('--ignore-scripts'));
       return '';
     }
@@ -321,36 +323,40 @@ function removalRegistry() {
     if (spec === `@magicbeansai/magicvault@${version}`) {
       return JSON.stringify(field === '--json' ? metadata : metadata.dist.integrity);
     }
+    if (spec === '@magicbeansai/magicvault@0.9.1') return '"sha512-previous"';
     const name = spec.endsWith('@0.9.0') ? spec.slice(0, -6) : spec;
     if (!remaining.has(name)) missing();
+    if (spec === '@magicbeansai/magicvault@0.9.0' && field === '--json') return JSON.stringify(legacy);
     if (field === 'versions') return '["0.9.0"]';
     if (field === 'deprecated') return '"Retired compatibility package"';
     assert.equal(field, 'version'); return '"0.9.0"';
   };
-  return {scope: old.scope, version, metadata, remaining, calls, invoke};
+  return {scope: old.scope, version, metadata, legacy, remaining, calls, invoke};
 }
 
-test('removal deletes exactly six native versions, preserves main and skips completed removals', () => {
+test('removal deletes obsolete main 0.9.0 before its six dependencies, preserves newer versions and skips completed removals', () => {
   const r = removalRegistry();
   removeLegacy(r, r.invoke, () => {}, () => {});
   const writes = r.calls.filter(a => a[0] === 'unpublish');
-  assert.deepEqual(writes.map(a => a[1]), platforms.map(p => `@magicbeansai/magicvault-${p}@0.9.0`));
+  assert.deepEqual(writes.map(a => a[1]), ['@magicbeansai/magicvault@0.9.0', ...platforms.map(p => `@magicbeansai/magicvault-${p}@0.9.0`)]);
   assert.equal(r.remaining.size, 0);
   assert(r.calls.findIndex(a => a[0] === 'unpublish') >= 14);
   removeLegacy(r, r.invoke, () => {}, () => {});
-  assert.equal(r.calls.filter(a => a[0] === 'unpublish').length, 6);
+  assert.equal(r.calls.filter(a => a[0] === 'unpublish').length, 7);
 });
 
 test('removal preflights all targets and refuses unsafe replacement or unexpected registry state before deleting', () => {
-  for (const failure of ['scope', 'version', 'dependencies', 'integrity', 'latest', 'legacy', 'deprecated', 'network']) {
+  for (const failure of ['scope', 'version', 'dependencies', 'integrity', 'latest', 'legacy', 'deprecated', 'network', 'old-main', 'previous']) {
     const r = removalRegistry();
     if (failure === 'scope') r.scope = '@other-owner';
     if (failure === 'version') r.version = '0.9.3';
     if (failure === 'dependencies') r.metadata.optionalDependencies = {};
     if (failure === 'integrity') delete r.metadata.dist;
+    if (failure === 'old-main') r.legacy.optionalDependencies['@unrelated/package'] = '0.9.0';
     assert.throws(() => removeLegacy(r, args => {
       if (args[0] === 'view') {
         if (failure === 'latest' && args[2] === 'dist-tags.latest') return '"0.9.1"';
+        if (failure === 'previous' && args[1] === '@magicbeansai/magicvault@0.9.1') missing();
         if (args[1].includes('win32-arm64')) {
           if (failure === 'legacy' && args[2] === 'versions') return '["0.9.0","0.9.1"]';
           if (failure === 'deprecated' && args[2] === 'deprecated') return '';
@@ -371,9 +377,9 @@ test('uncertain removal stops without retry and a later rerun resumes remaining 
     return result;
   }, () => {}, () => {}), /removal failed/);
   assert.equal(writes, 1);
-  assert.equal(r.remaining.size, 5);
+  assert.equal(r.remaining.size, 6);
   removeLegacy(r, r.invoke, () => {}, () => {});
-  assert.equal(r.calls.filter(a => a[0] === 'unpublish').length, 6);
+  assert.equal(r.calls.filter(a => a[0] === 'unpublish').length, 7);
 });
 
 test('npm policy refusal is reported without deleting more packages or echoing diagnostics', () => {
@@ -388,7 +394,7 @@ test('npm policy refusal is reported without deleting more packages or echoing d
     return r.invoke(args);
   }, line => reports.push(line), () => {}));
   assert.equal(writes, 1);
-  assert.equal(r.remaining.size, 6);
+  assert.equal(r.remaining.size, 7);
   assert.match(reports.join('\n'), /E400 \(npm reports dependent packages\)/);
   assert.doesNotMatch(reports.join('\n'), /private data|sensitive diagnostic/);
 });
@@ -399,4 +405,15 @@ test('unpublish cleanup can run only after successful tagged 0.9.2 publication',
   assert.match(cleanup, /needs: \[prepare, publish\]/);
   assert.match(cleanup, /if: needs\.prepare\.outputs\.publish == 'true' && needs\.prepare\.outputs\.version == '0.9.2' && needs\.prepare\.outputs\.scope == '@magicbeansai'/);
   assert.match(cleanup, /--mode remove-legacy --scope @magicbeansai --version 0.9.2/);
+});
+
+test('cleanup recovery requires explicit main dispatch and checks before receiving its token', () => {
+  const workflow = fs.readFileSync(path.join(repo, '.github/workflows/npm-legacy-cleanup.yml'), 'utf8');
+  assert.match(workflow, /workflow_dispatch:/);
+  assert.doesNotMatch(workflow, /push:|pull_request:|--mode publish/);
+  assert.equal((workflow.match(/if: github.ref == 'refs\/heads\/main'/g) || []).length, 2);
+  assert.match(workflow, /needs: checks/);
+  assert.match(workflow, /group: magicvault-npm-release/);
+  assert.doesNotMatch(workflow.split('\n  cleanup:\n')[0], /secrets\.|NODE_AUTH_TOKEN/);
+  assert.match(workflow, /--mode remove-legacy --scope @magicbeansai --version 0.9.2/);
 });

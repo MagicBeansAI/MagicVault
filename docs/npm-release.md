@@ -109,9 +109,11 @@ URLs remained accessible. No future version publishes native packages.
 The 0.9.2 tag additionally runs a separate `remove-legacy` job after publication.
 It checks the replacement's bundled metadata, integrity and `latest` tag, then
 preflights all six known native package names. Each must already be missing or
-contain only deprecated 0.9.0. It unpublishes that exact version, verifies removal
-with bounded reads, and verifies the main package is unchanged. Reruns skip
-packages already removed. Main package versions are never deletion targets.
+contain only deprecated 0.9.0. npm refused the original cleanup because main
+0.9.0 still depended on those packages. Recovery also verifies that exact old
+dependency graph and unpublishes **only main 0.9.0** before its six dependencies.
+It never unpublishes the main package name; 0.9.1 and latest 0.9.2 are preserved
+with unchanged integrity. Reruns skip versions already removed.
 
 Unpublishing is irreversible and fresh pinned 0.9.0 installs may no longer work;
 upgrade to the self-contained main package first. npm's
@@ -120,6 +122,9 @@ with dependents, including the old main 0.9.0 dependency graph, or require
 additional authentication. The job stops on refusal or an uncertain write and
 reports failure; deprecation is not reported as removal. Inspect registry state
 before rerunning only the cleanup job. It never retries a deletion automatically.
+The separate **Actions → npm legacy cleanup → Run workflow** on `main` runs source
+checks and this fixed 0.9.0 cleanup using `NPM_TOKEN`. It cannot publish a package,
+select arbitrary targets or run from another branch. It shares release concurrency.
 
 ## Recover a failed release
 

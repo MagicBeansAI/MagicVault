@@ -227,8 +227,11 @@ latest before deprecating the six allowlisted legacy packages and main 0.9.0.
 Unexpected legacy versions stop migration. That initial migration retains bytes.
 The 0.9.2 release adds a separate, token-authorized cleanup after successful
 publication. It preflights all six deprecated native packages and unpublishes
-only their exact 0.9.0 versions, then verifies the main package's integrity/tag
-remain unchanged. Main versions are never deletion targets. Already missing
+only their exact 0.9.0 versions. npm refused deletion while main 0.9.0 depended
+on them, so recovery validates and removes that exact obsolete main version
+first. It preserves 0.9.1 and latest 0.9.2 with unchanged integrity; the bare main
+package name is never a deletion target. A main-only manual cleanup workflow
+runs source checks first and shares release concurrency. Already missing
 packages are skipped; unknown versions, policy/authentication errors and uncertain
 writes stop cleanup. Deletions are not retried automatically. npm's dependent
 package policy may prevent removal. Old pinned installs must migrate first.

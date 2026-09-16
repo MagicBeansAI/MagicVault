@@ -13,7 +13,9 @@ Entries describe source changes, not publication announcements. See
 - After verified publication, attempt to unpublish only the six deprecated
   native packages at 0.9.0. Preflight the entire fixed set and replacement before
   removal, stop on npm policy/authentication errors or uncertain writes, and
-  verify the main package remains intact. Main 0.9.0 is not a removal target.
+  verify self-contained main versions remain intact. npm's dependent-package
+  policy requires removing obsolete main 0.9.0 before the six native packages;
+  preserve 0.9.1 and 0.9.2. Provide a manual, source-checked recovery workflow.
 - Runtime behavior, credential custody, wire/storage formats and shared Rust
   APIs are unchanged. Legacy 0.9.0 installs must migrate to the main package.
 

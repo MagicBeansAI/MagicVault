@@ -3,7 +3,7 @@
   "project": "MagicVault",
   "architecture_version": "0.9.2",
   "document": "docs/architecture.md",
-  "document_sha256": "42016ad337af05e1b4ba6efa480d3c40ef3edf4225b6cc25f24f6f1a95983313",
+  "document_sha256": "7a2a1c85f2505894af68365c3cb099e5e3b85db4482b8fd29dcc90744f356e23",
   "component_versions": {
     "extension": "0.6.1",
     "magicvault": "0.9.2",
@@ -20,7 +20,8 @@
     ".github/workflows/ci.yml": "72a08a54d6400d8a11c4dc5ab8cf7daec3386ccfe9ed0389cfab099d63feb1b2",
     ".github/workflows/desktop-platforms.yml": "06f1264b999e214cfab9c188978b5c767eed103d9548d570145962b1c85b2b64",
     ".github/workflows/distribution.yml": "145b6a9f6a7c97f857f3c031ab8ce6f9e03e34a4f522489d0eec7bd16e0b02b7",
-    ".github/workflows/npm-release.yml": "4affca596741273e6ca2ec62d4a090fa7ee2101304d38a2489d59b2617d93b3c",
+    ".github/workflows/npm-legacy-cleanup.yml": "96a9333c330de436522eb38cc515fd7dbd4fdf29ebe743c8117ac55f0ced70a7",
+    ".github/workflows/npm-release.yml": "04231a3ce61a8338b53990e7edc3b612d4fcd3be1dde36d617b4596ea80a5c92",
     ".github/workflows/process-investigation.yml": "cf0fa5b99d58a3393b6371a449dedbe6bac2707c1c3ee261ed44e41330ce7730",
     ".github/workflows/qualification.yml": "30c7320e100240fd08c7be430ffb7f09bcb220b4511858bbd16bcdc266bb9942",
     "Cargo.lock": "dcfd499b9b2e162a81dbb309b4143444b7498fbed5888cc614deb13fa299e87a",
@@ -106,7 +107,7 @@
     "scripts/package-npm.mjs": "f4e1f80079accb7a116bd726ce81de7119109988298fdefb1584cb713e0c5667",
     "scripts/process-investigation.mjs": "4940d6f089c3ad67744978c4e7c65ae363bfecf77ac45aded5d3af0ac717f4da",
     "scripts/qualify-package.mjs": "1913f86cc44fc2da34e3082d525cfa16daaa8b504f4a6f42e704093d9b5f2faa",
-    "scripts/release-npm.mjs": "e6f6227d5a61c7758db38dfb456b5dcab50ded7b26fa6ab43d42a0df4a0b076d",
+    "scripts/release-npm.mjs": "c1b6682db86e5d96d49acbdcd2c40ef535417bce1f89118bdf44e7ee4cb7ca1e",
     "scripts/sign-release.sh": "ce9def2bd1e61a19dc408cd3782984fb8919820b1d5e0e7bafdafccd389f3a92",
     "scripts/smoke-npm.mjs": "8ab427fff51aaacef0190780f627ecdca17c0c170ef5408cb42505de381642d9"
   }

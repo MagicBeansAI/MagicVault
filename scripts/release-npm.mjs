@@ -229,8 +229,18 @@ export function removeLegacy({ scope, version }, invoke = npm, report = console.
   ensure(lookup(invoke, name, 'dist-tags.latest').value === version, 'replacement must be latest before removal');
   ensure(typeof replacement.dist?.integrity === 'string' && replacement.dist.integrity.startsWith('sha512-'), 'replacement integrity missing');
   const legacy = platforms.map(p => `${name}-${p}`);
+  const oldMain = lookup(invoke, `${name}@0.9.0`, '');
+  if (!oldMain.missing) {
+    const meta = oldMain.value;
+    ensure(meta?.name === name && meta.version === '0.9.0' && Boolean(meta.deprecated)
+      && JSON.stringify(Object.entries(meta.optionalDependencies || {}).sort())
+        === JSON.stringify(legacy.map(p => [p, '0.9.0']).sort()), 'unexpected legacy main dependency graph');
+  }
+  const previous = lookup(invoke, `${name}@0.9.1`, 'dist.integrity');
+  ensure(typeof previous.value === 'string' && previous.value.startsWith('sha512-'), 'previous self-contained version must remain available');
   // Preflight the entire fixed set. An exact version spec prevents deleting any
-  // concurrently added version. The main package is never an unpublish target.
+  // concurrently added version. Only the obsolete main 0.9.0 can be removed;
+  // npm otherwise refuses its six dependencies. Never unpublish the main name.
   const remaining = legacy.filter(target => {
     const versions = lookup(invoke, target, 'versions');
     if (versions.missing) return false;
@@ -238,7 +248,7 @@ export function removeLegacy({ scope, version }, invoke = npm, report = console.
     ensure(Boolean(lookup(invoke, `${target}@0.9.0`, 'deprecated').value), 'legacy package must already be deprecated');
     return true;
   });
-  for (const target of remaining) {
+  for (const target of [...(oldMain.missing ? [] : [name]), ...remaining]) {
     report(`Removing ${target}@0.9.0`);
     try {
       invoke(['unpublish', `${target}@0.9.0`, '--force', '--ignore-scripts', '--json', '--registry', registry]);
@@ -258,6 +268,7 @@ export function removeLegacy({ scope, version }, invoke = npm, report = console.
   }
   ensure(lookup(invoke, `${name}@${version}`, 'dist.integrity').value === replacement.dist.integrity
     && lookup(invoke, name, 'dist-tags.latest').value === version, 'replacement changed during removal');
+  ensure(lookup(invoke, `${name}@0.9.1`, 'dist.integrity').value === previous.value, 'previous self-contained version changed during removal');
   report(`Verified ${name}@${version} remains latest with unchanged bytes`);
 }
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {

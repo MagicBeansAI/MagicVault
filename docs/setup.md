@@ -1,4 +1,8 @@
-# Standalone setup (macOS alpha)
+# Standalone setup (desktop source alpha)
+
+Check [platform requirements](platforms.md) for macOS, Linux and Windows.
+The shell examples below use Unix syntax; Windows uses the same CLI arguments
+and setup prints the platform-specific executable paths.
 
 For prebuilt CLI/MCP packages without a Rust toolchain, start with
 [installation and lifecycle](distribution.md) or the [quick start](../README.md#quick-start).
@@ -56,7 +60,8 @@ The Makefile exports `CARGO_TARGET_DIR`; binaries are under its `release/`.
 Use `make -s print-target-dir` to locate them. Builds prefer an available SSD1
 volume and otherwise use `target/`; see [build location and overrides](testing.md#build-and-test-artifact-location).
 Put `magicvault`, `magicvault-mcp`, and (for the extension)
-`magicvault-native-host` in a stable, trusted executable location.
+`magicvault-native-host` and `magicvault-prompt` in a stable, trusted executable location.
+The prompt executable must sit beside the daemon; Windows binaries end in `.exe`.
 The examples assume that location is already on PATH.
 
 ```sh
@@ -70,6 +75,23 @@ creates a fresh/recognized root; it refuses an unrelated nonempty directory.
 Never use Magician's root. Existing keys are never silently regenerated.
 The foreground process exits cleanly on SIGINT/SIGTERM. Use another terminal for
 the following commands; stdout/status never carries enrolled values.
+
+## Choose whether to save
+
+For a one-off browser login, skip enrollment and request
+[`secure_prompt_fill`](jit-credentials.md). Setup, pairing and browser access
+still apply. The native **Use once** decision authorizes that single fill.
+
+For repeat use, enroll named fields. A login uses `username` and `password`;
+a generic card record can use `cardholder`, `number` and `expiry`:
+
+```sh
+magicvault --profile owner enroll --label 'Test card' --field cardholder --field number --field expiry
+```
+
+Enter only synthetic card details for a demo. There is no dedicated card manager
+or automatic payment authorization. Saved records still need destination policy
+and delivery consent. [Prompt wording and UI](prompts.md).
 
 ## Pair and enroll through human prompts
 
@@ -198,14 +220,14 @@ access through that capability and does not erase material or revoke providers.
 
 ## Upgrade and recovery
 
-CLI/MCP/service packages use source version `0.9.0`; protocol/effect crates use
-`0.7.0`, with agent wire version `5`. Extension `0.6.1` uses native connection handshake `2`: rebuild/update
+CLI/MCP/service/prompt packages use source version `0.9.0`; protocol is `0.7.0`
+and effect is `0.7.1`, with agent wire version `5`. Extension `0.6.1` uses native connection handshake `2`: rebuild/update
 host and daemon together. Effect schemas and host config remain `1`. Normal
 packaged setup now installs the exact bundled native-host identity after pairing;
 install-only does not. See [one-time unpacked migration](browser-usage.md#upgrading-older-unpacked-extensions).
 This is a source alpha with local prebuilt npm packaging, not an announcement of
 published registry packages or Apple-verified releases. See the [component version matrix](versioning.md).
-Upgrade `magicvault`, `magicvault-mcp` and `magicvault-native-host` together and
+Upgrade `magicvault`, `magicvault-mcp`, `magicvault-native-host` and `magicvault-prompt` together and
 restart the standalone daemon. Older/newer mismatched wire versions fail closed;
 there is no automatic downgrade or transport fallback. Existing vault framing,
 instance/key identity and core/primitives versions are unchanged.

@@ -1,9 +1,13 @@
 # MagicVault
 
+[![macOS alpha](https://img.shields.io/badge/macOS-alpha-orange.svg)](https://github.com/MagicBeansAI/MagicVault/blob/main/docs/platforms.md)
+[![Linux alpha](https://img.shields.io/badge/Linux-alpha-orange.svg)](https://github.com/MagicBeansAI/MagicVault/blob/main/docs/platforms.md)
+[![Windows alpha](https://img.shields.io/badge/Windows-alpha-orange.svg)](https://github.com/MagicBeansAI/MagicVault/blob/main/docs/platforms.md)
+
 **Let agents use credentials without seeing them**
 
-Reference-only credential delivery for browser automation, new processes and
-HTTP requests. A native daemon holds credentials, requests human approval and
+Use saved credentials for repeat tasks or enter one-time browser credentials
+when automation reaches an unfamiliar login. Enrollment is optional. A native daemon holds credentials, requests human approval and
 delivers them to an authorized recipient; MCP/CLI clients receive closed status,
 not credential values or raw recipient output.
 
@@ -20,6 +24,7 @@ It does not expose raw credentials or provide a hosted MCP service.
 
 ## Use in a Node or TypeScript project
 
+<!-- npm-install:start -->
 The SDK is included in local candidate tarballs; **this is not a published npm
 install command**. Install both matching trusted tarballs into your project:
 
@@ -28,10 +33,40 @@ npm install --ignore-scripts ./magicvault-local-magicvault-darwin-arm64-0.9.0.tg
   ./magicvault-local-magicvault-0.9.0.tgz
 ./node_modules/.bin/magicvault --profile agent setup
 ```
+<!-- npm-install:end -->
 
-For one-time browser use, `vault.securePromptFill` requests native hidden input
-and a **Use once** decision without saving values. See the
-[one-time credential guide](https://github.com/MagicBeansAI/MagicVault/blob/main/docs/jit-credentials.md).
+For a connected browser, discover the intended page/frame and request one-time
+input. The selectors and field names below are metadata, not credential values:
+
+```ts
+import { MagicVault, createOperationId } from '@magicvault-local/magicvault';
+
+const vault = new MagicVault({ profile: 'agent' });
+// Select browser and target from listBrowsers()/browserTargets().
+const operation_id = createOperationId();
+await vault.securePromptFill({
+  operation_id,
+  browser_handle: browser.browser_handle,
+  target_handle: target.target_handle,
+  fields: [
+    { field_name: 'username', css: '#username' },
+    { field_name: 'password', css: '#password' },
+  ],
+});
+const receipt = await vault.waitForFill(operation_id, { timeoutMs: 210_000 });
+console.log(receipt.state);
+```
+
+MagicVault opens its own desktop window with masked input, a short destination
+summary and expandable request details. Enter the values there, then approve
+**Use once**. Values are not saved, and no remembered permission is created.
+Your browser tool submits the form after you inspect the receipt.
+[One-time input](https://github.com/MagicBeansAI/MagicVault/blob/main/docs/jit-credentials.md) ·
+[Prompt UI and trust boundary](https://github.com/MagicBeansAI/MagicVault/blob/main/docs/prompts.md).
+
+For recurring use, human enrollment can store login fields or a generic record
+of cardholder/number/expiry fields. Card storage does not authorize a payment.
+The SDK and MCP expose no enrollment or raw-secret getter.
 
 For saved HTTP credentials, after human enrollment and destination setup:
 
@@ -60,8 +95,11 @@ websites/processes, or another browser tool reading the page afterward.
 
 ## Start with MCP
 
-Requires macOS Apple Silicon, Node 22+, a logged-in desktop session and the
-matching optional native package. No Rust toolchain is needed. Package
+Requires Node 22+, a logged-in desktop session and the matching native package.
+Source backends and package selection cover macOS, Linux and Windows;
+[platform prerequisites and validation](https://github.com/MagicBeansAI/MagicVault/blob/main/docs/platforms.md) differ.
+Windows supports browser and HTTP delivery; governed process delivery is unavailable.
+No Rust toolchain is needed for matching prebuilt packages. Package
 installation has no lifecycle hooks and does not start services or create a vault.
 
 ```bash
@@ -94,5 +132,6 @@ See the [quick start](https://github.com/MagicBeansAI/MagicVault#quick-start),
 [installation and signing details](https://github.com/MagicBeansAI/MagicVault/blob/main/docs/distribution.md),
 [destination coverage](https://github.com/MagicBeansAI/MagicVault#what-works-today)
 and [security boundary](https://github.com/MagicBeansAI/MagicVault/blob/main/SECURITY.md).
-Local candidate packages are not a claim of npm publication, Apple signing or
-notarization; verify the publisher and release evidence before trusting a download.
+All three desktop platforms are alpha. See the linked platform-specific evidence
+and remaining acceptance work. Packages do not imply Apple signing/notarization
+or Windows code signing; verify the publisher and release evidence.

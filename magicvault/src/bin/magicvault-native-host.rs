@@ -12,8 +12,10 @@ use zeroize::Zeroizing;
 #[derive(Parser)]
 struct Args {
     #[arg(long)]
-    config: PathBuf,
+    config: Option<PathBuf>,
     origin: String,
+    #[arg(long)]
+    parent_window: Option<u64>,
 }
 
 fn main() -> std::process::ExitCode {
@@ -30,7 +32,6 @@ fn main() -> std::process::ExitCode {
     };
     let result = runtime.block_on(async {
         let result = run(args).await;
-        #[cfg(unix)]
         if let Err(code) = result {
             // Closed codes only, including denial/revocation. Chrome's generic
             // host-exited diagnostic cannot distinguish safe retry from refusal.
@@ -57,9 +58,26 @@ fn main() -> std::process::ExitCode {
     }
 }
 
-#[cfg(unix)]
 async fn run(args: Args) -> Result<(), ErrorCode> {
-    let config = native::load_config(&args.config, &args.origin)?;
+    let config_path = match args.config {
+        Some(path) => path,
+        None => {
+            #[cfg(windows)]
+            {
+                let executable = std::env::current_exe().map_err(|_| ErrorCode::Unavailable)?;
+                if executable.file_name().and_then(|s| s.to_str()) != Some("native-host-launch.exe")
+                {
+                    return Err(ErrorCode::Unauthorized);
+                }
+                native::config_path(executable.parent().ok_or(ErrorCode::Unavailable)?)
+            }
+            #[cfg(not(windows))]
+            {
+                return Err(ErrorCode::InvalidRequest);
+            }
+        }
+    };
+    let config = native::load_config(&config_path, &args.origin)?;
     let mut input = tokio::io::stdin();
     let mut output = tokio::io::stdout();
     let bytes = tokio::time::timeout(Duration::from_secs(5), bridge::read_frame(&mut input))
@@ -75,15 +93,12 @@ async fn run(args: Args) -> Result<(), ErrorCode> {
     hello.browser = Some(browser);
     let mut socket = tokio::time::timeout(
         Duration::from_secs(3),
-        tokio::net::UnixStream::connect(config.root.join("bridge.sock")),
+        magicvault_service::ipc::connect_local(&config.root.join("bridge.sock")),
     )
     .await
     .map_err(|_| ErrorCode::TransportUnavailable)?
     .map_err(|_| ErrorCode::TransportUnavailable)?;
-    if !socket
-        .peer_cred()
-        .is_ok_and(|peer| peer.uid() == unsafe { libc::geteuid() })
-    {
+    if !magicvault_service::ipc::local_same_user(&socket) {
         return Err(ErrorCode::Unauthorized);
     }
     let bytes = Zeroizing::new(serde_json::to_vec(&hello).map_err(|_| ErrorCode::Unavailable)?);
@@ -158,9 +173,4 @@ async fn run(args: Args) -> Result<(), ErrorCode> {
             .await
             .map_err(|_| ErrorCode::TransportUncertain)??;
     }
-}
-
-#[cfg(not(unix))]
-async fn run(_: Args) -> Result<(), ErrorCode> {
-    Err(ErrorCode::Unavailable)
 }

@@ -6,6 +6,11 @@ The [release acceptance checklist](qualification/release.md) is the current
 readiness reference. The [evidence index](qualification/README.md#evidence-records)
 links version-specific results without treating old runs as current qualification.
 
+- **0.9.0 desktop/platform source:** Linux builds and 98 library tests passed;
+  the real X11 prompt rendered and returned masked synthetic input privately.
+  Windows source/test targets passed cross-compilation checks. Native Windows,
+  Linux login-session/keyring and broader desktop acceptance remain open.
+  [Current record](qualification/results-desktop-platforms-2026-09-16.md).
 - **0.8.3 candidate:** full macOS/Linux and unsigned distribution CI passed on
   `81fe8c6`; downloaded package hashes, installed CLI/MCP/CDP and bounded
   load/shutdown cases were checked. [Candidate record](qualification/results-broad-candidate-2026-09-08.md).

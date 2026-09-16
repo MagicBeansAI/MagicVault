@@ -41,7 +41,8 @@ impl InstanceLock {
 }
 
 pub fn default_root() -> Result<PathBuf, ErrorCode> {
-    let user_root = std::env::var_os("HOME").ok_or(ErrorCode::Unavailable)?;
+    let user_root = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
+        .ok_or(ErrorCode::Unavailable)?;
     let user_root = PathBuf::from(user_root);
     if !user_root.is_absolute() {
         return Err(ErrorCode::InvalidRequest);
@@ -63,13 +64,14 @@ pub fn private_path(path: &Path, directory: bool) -> Result<(), ErrorCode> {
     }
     Ok(())
 }
-#[cfg(not(unix))]
-pub fn private_path(_: &Path, _: bool) -> Result<(), ErrorCode> {
-    Err(ErrorCode::Unavailable)
+#[cfg(windows)]
+pub fn private_path(path: &Path, directory: bool) -> Result<(), ErrorCode> {
+    magicvault_primitives::private_fs::check(path, directory).map_err(|_| ErrorCode::Unavailable)
 }
 
 fn validate_root(root: &Path) -> Result<(), ErrorCode> {
-    if !root.is_absolute() || root.parent().is_none() || root.as_os_str().len() > 85 {
+    if !root.is_absolute() || root.parent().is_none() || (cfg!(unix) && root.as_os_str().len() > 85)
+    {
         return Err(ErrorCode::InvalidRequest);
     }
     private_path(root, true)
@@ -84,7 +86,11 @@ pub fn read_private(path: &Path, limit: u64) -> Result<Zeroizing<Vec<u8>>, Error
         use std::os::unix::fs::OpenOptionsExt;
         options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
     }
+    #[cfg(unix)]
     let file = options.open(path).map_err(|_| ErrorCode::Unavailable)?;
+    #[cfg(windows)]
+    let file =
+        magicvault_primitives::private_fs::read_only(path).map_err(|_| ErrorCode::Unavailable)?;
     if file.metadata().map_err(|_| ErrorCode::Unavailable)?.len() > limit {
         return Err(ErrorCode::Unavailable);
     }
@@ -132,13 +138,7 @@ fn initialize_with_key(
         return Err(ErrorCode::InvalidRequest);
     }
     if !root.exists() {
-        let mut builder = fs::DirBuilder::new();
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::DirBuilderExt;
-            builder.mode(0o700);
-        }
-        builder.create(root).map_err(|_| ErrorCode::Unavailable)?;
+        magicvault_primitives::private_fs::create_dir(root).map_err(|_| ErrorCode::Unavailable)?;
     }
     validate_root(root)?;
     if root.join("instance.json").exists() {
@@ -240,17 +240,21 @@ impl MasterKeyProvider for CachedKey {
         ))
     }
     fn provider_name(&self) -> &str {
-        "magicvault_macos_keychain"
+        if cfg!(target_os = "macos") {
+            "magicvault_macos_keychain"
+        } else if cfg!(windows) {
+            "magicvault_windows_credential_manager"
+        } else {
+            "magicvault_linux_secret_service"
+        }
     }
 }
 
-#[cfg(target_os = "macos")]
 fn key_entry(instance: &Instance) -> Result<keyring::Entry, ErrorCode> {
     keyring::Entry::new(KEYCHAIN_SERVICE, &format!("instance-{}", instance.id))
         .map_err(|_| ErrorCode::Unavailable)
 }
 
-#[cfg(target_os = "macos")]
 fn create_key(instance: &Instance) -> Result<(), ErrorCode> {
     use rand::RngCore;
     let entry = key_entry(instance)?;
@@ -269,12 +273,7 @@ fn create_key(instance: &Instance) -> Result<(), ErrorCode> {
         .set_password(&encoded)
         .map_err(|_| ErrorCode::Unavailable)
 }
-#[cfg(not(target_os = "macos"))]
-fn create_key(_: &Instance) -> Result<(), ErrorCode> {
-    Err(ErrorCode::Unavailable)
-}
 
-#[cfg(target_os = "macos")]
 pub fn load_key(instance: &Instance) -> Result<CachedKey, ErrorCode> {
     // Missing entry is an outage, never permission to generate a replacement.
     let encoded = Zeroizing::new(
@@ -288,10 +287,6 @@ pub fn load_key(instance: &Instance) -> Result<CachedKey, ErrorCode> {
         .try_into()
         .map_err(|_| ErrorCode::Unavailable)?;
     Ok(CachedKey(Zeroizing::new(key)))
-}
-#[cfg(not(target_os = "macos"))]
-pub fn load_key(_: &Instance) -> Result<CachedKey, ErrorCode> {
-    Err(ErrorCode::Unavailable)
 }
 
 #[cfg(all(test, unix))]

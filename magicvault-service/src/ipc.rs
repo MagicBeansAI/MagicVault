@@ -4,15 +4,16 @@ use magicvault_protocol::*;
 use std::sync::Arc;
 use zeroize::Zeroizing;
 
-#[cfg(unix)]
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    net::{UnixListener, UnixStream},
+use magicvault_primitives::local_ipc::{self, Stream};
+pub use magicvault_primitives::local_ipc::{
+    connect as connect_local, same_user as local_same_user,
 };
-
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 #[cfg(unix)]
+use tokio::net::UnixListener;
+
 pub async fn read_frame(
-    stream: &mut UnixStream,
+    stream: &mut Stream,
     maximum: usize,
 ) -> Result<Zeroizing<Vec<u8>>, ErrorCode> {
     let length = stream
@@ -30,9 +31,8 @@ pub async fn read_frame(
     Ok(bytes)
 }
 
-#[cfg(unix)]
 pub async fn write_frame(
-    stream: &mut UnixStream,
+    stream: &mut Stream,
     bytes: &[u8],
     maximum: usize,
 ) -> Result<(), ErrorCode> {
@@ -53,17 +53,9 @@ pub async fn write_frame(
         .map_err(|_| ErrorCode::TransportUncertain)
 }
 
-#[cfg(unix)]
-fn same_user(stream: &UnixStream) -> bool {
-    stream
-        .peer_cred()
-        .is_ok_and(|peer| peer.uid() == unsafe { libc::geteuid() })
-}
-
-#[cfg(unix)]
-async fn connection(mut stream: UnixStream, broker: Arc<Broker>) {
+async fn connection(mut stream: Stream, broker: Arc<Broker>) {
     use std::time::Duration;
-    if !same_user(&stream) {
+    if !local_ipc::same_user(&stream) {
         return;
     }
     let request = tokio::time::timeout(Duration::from_secs(5), async {
@@ -180,19 +172,55 @@ pub async fn serve(broker: Arc<Broker>) -> Result<(), ErrorCode> {
     outcome
 }
 
-#[cfg(not(unix))]
-pub async fn serve(_: Arc<Broker>) -> Result<(), ErrorCode> {
-    Err(ErrorCode::Unavailable)
+#[cfg(windows)]
+pub async fn serve(broker: Arc<Broker>) -> Result<(), ErrorCode> {
+    use std::time::Duration;
+    use tokio::{sync::Semaphore, task::JoinSet};
+    let socket = broker.socket();
+    let mut rpc = local_ipc::Listener::bind(&socket).map_err(|_| ErrorCode::Unavailable)?;
+    let mut bridge = local_ipc::Listener::bind(&socket.with_file_name("bridge.sock"))
+        .map_err(|_| ErrorCode::Unavailable)?;
+    let slots = Arc::new(Semaphore::new(16));
+    let mut tasks = JoinSet::new();
+    let mut outcome = Ok(());
+    loop {
+        tokio::select! {
+            _ = broker.shutdown.cancelled() => break,
+            _ = tasks.join_next(), if !tasks.is_empty() => {},
+            incoming = rpc.accept() => {
+                let stream = match incoming { Ok(s) => s, Err(_) => { outcome = Err(ErrorCode::Unavailable); broker.shutdown.cancel(); break; } };
+                let Ok(permit) = Arc::clone(&slots).try_acquire_owned() else { continue; };
+                let broker = Arc::clone(&broker);
+                tasks.spawn(async move { let _permit = permit; connection(stream, broker).await; });
+            },
+            incoming = bridge.accept() => {
+                let stream = match incoming { Ok(s) => s, Err(_) => { outcome = Err(ErrorCode::Unavailable); broker.shutdown.cancel(); break; } };
+                let Ok(permit) = Arc::clone(&slots).try_acquire_owned() else { continue; };
+                let broker = Arc::clone(&broker);
+                tasks.spawn(async move { let _permit = permit; let _ = broker.accept_native(stream).await; });
+            },
+        }
+    }
+    drop((rpc, bridge));
+    let drain = async { while tasks.join_next().await.is_some() {} };
+    if tokio::time::timeout(Duration::from_secs(10), drain)
+        .await
+        .is_err()
+    {
+        tasks.abort_all();
+        while tasks.join_next().await.is_some() {}
+    }
+    broker.quiesce().await;
+    outcome
 }
 
-#[cfg(unix)]
 pub async fn exchange(socket: &std::path::Path, envelope: &Envelope) -> Result<Reply, ErrorCode> {
     use std::time::Duration;
-    let mut stream = tokio::time::timeout(Duration::from_secs(3), UnixStream::connect(socket))
+    let mut stream = tokio::time::timeout(Duration::from_secs(3), local_ipc::connect(socket))
         .await
         .map_err(|_| ErrorCode::TransportUnavailable)?
         .map_err(|_| ErrorCode::TransportUnavailable)?;
-    if !same_user(&stream) {
+    if !local_ipc::same_user(&stream) {
         return Err(ErrorCode::Unauthorized);
     }
     let bytes =
@@ -208,8 +236,4 @@ pub async fn exchange(socket: &std::path::Path, envelope: &Envelope) -> Result<R
     tokio::time::timeout(Duration::from_secs(CONSENT_TTL_SECS + 10), work)
         .await
         .unwrap_or(Err(ErrorCode::TransportUncertain))
-}
-#[cfg(not(unix))]
-pub async fn exchange(_: &std::path::Path, _: &Envelope) -> Result<Reply, ErrorCode> {
-    Err(ErrorCode::Unavailable)
 }

@@ -8,14 +8,18 @@
 compile_error!("magicvault_test_diagnostics is forbidden in release builds");
 #[cfg(all(magicvault_test_diagnostics, not(magicrun_test_diagnostics)))]
 compile_error!("magicvault_test_diagnostics requires magicrun_test_diagnostics");
-#[cfg(magicvault_test_diagnostics)]
-#[doc(hidden)]
-pub mod test_diagnostics;
 pub mod bridge;
 pub mod cdp;
 pub mod delivery;
 pub mod http;
+#[cfg(unix)]
 pub mod process;
+#[cfg(windows)]
+#[path = "process_windows.rs"]
+pub mod process;
+#[cfg(magicvault_test_diagnostics)]
+#[doc(hidden)]
+pub mod test_diagnostics;
 use async_trait::async_trait;
 pub use magicvault_protocol::TargetFilter;
 use magicvault_protocol::{ErrorCode, FieldState, MAX_FIELDS};

@@ -5,16 +5,40 @@ use super::*;
 pub(super) fn prompt_context(
     label: &str,
     browser: &str,
-    request: &SecurePromptFill,
+    _request: &SecurePromptFill,
     target: &Target,
 ) -> String {
-    let selections = request
+    format!(
+        "Client: {label:?}\nBrowser: {browser:?}\nWebsite: {}\nFrame: {} ({})",
+        target.top_origin,
+        target.origin,
+        if target.is_main_frame {
+            "main page"
+        } else {
+            "iframe"
+        }
+    )
+}
+
+pub(super) fn input_message(context: &str, request: &SecurePromptFill, index: usize) -> String {
+    let field = &request.fields[index];
+    format!("Field {} of {}: {:?}\n{context}\n\nEnter the value here, never in chat. Nothing is filled yet.{}Browser handle: {}\nSelector: {:?}", index + 1, request.fields.len(), field.field_name, magicvault_prompt::DETAILS_SEPARATOR, request.browser_handle, field.css)
+}
+
+pub(super) fn confirmation_message(context: &str, request: &SecurePromptFill) -> String {
+    let names = request
         .fields
         .iter()
-        .map(|f| format!("{:?} -> {:?}", f.field_name, f.css))
+        .map(|f| format!("{:?}", f.field_name))
         .collect::<Vec<_>>()
-        .join("; ");
-    format!("One-time browser fill for client {label}. Browser: {browser} ({}). Page: {}. Selected frame: {}. Requested fields (untrusted names and selectors): {selections}. Values are held temporarily for this operation and are not saved in MagicVault. The website receives them; other browser tools may read them. No form submission or future-use permission is requested.", request.browser_handle, target.top_origin, target.origin)
+        .join(", ");
+    let mappings = request
+        .fields
+        .iter()
+        .map(|f| format!("{:?} → {:?}", f.field_name, f.css))
+        .collect::<Vec<_>>()
+        .join("\n");
+    format!("{context}\nFields: {names}\n\nUse once never saves these values.\nThe website receives them; other browser tools may read them.\nNo form submission. Cancel discards the inputs.{}Browser handle: {}\n{}", magicvault_prompt::DETAILS_SEPARATOR, request.browser_handle, mappings)
 }
 
 // Native providers must finish cancellation/child cleanup before returning.
@@ -199,7 +223,7 @@ impl Broker {
     ) -> Result<Vec<MaterialField>, ErrorCode> {
         let mut fields = Vec::with_capacity(request.fields.len());
         for (index, field) in request.fields.iter().enumerate() {
-            let message = format!("{context}\nEnter field {} of {}: {:?} for selector {:?}. Continue collects the next field; a final Use once decision is required before any delivery. Enter the value only here, never in chat.", index + 1, request.fields.len(), field.field_name, field.css);
+            let message = input_message(context, request, index);
             let mut value = prompt_until(
                 self.human.secret_once(&message, cancel.clone()),
                 deadline,
@@ -214,7 +238,7 @@ impl Broker {
                 value: std::mem::take(&mut *value),
             });
         }
-        let message = format!("{context}\nUse the entered values for this one fill? Cancel discards them without filling. Use once never saves them in MagicVault.");
+        let message = confirmation_message(context, request);
         if !prompt_until(
             self.human.confirm_once(&message, cancel.clone()),
             deadline,

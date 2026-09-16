@@ -99,7 +99,34 @@ The audit is specific to this public practice-account recording and its
 renderer uses the macOS supplemental Arial fonts and this take's source times;
 update those paths and times for another recording.
 
-## Record another MCP take
+## Record the saved + one-time MCP demo
+
+The checked-in footage is the older saved-credential flow. Record a new real
+website/Codex take after the new desktop UI passes acceptance; do not relabel
+existing footage as a demonstration of one-time input.
+
+1. Briefly show enabling MCP, pairing, then enrolling a sample login and a
+   synthetic card record in masked MagicVault windows. Show only their labels,
+   field names and references afterward. No payment or real card data is needed.
+2. Ask the actual Codex session to log in to a real test website using the saved
+   reference. Record the native destination summary, approval, `filled` receipt,
+   browser submission and successful website result.
+3. Open a second test login with no saved credential. Show its absence from the
+   permitted metadata list, then let Codex call `secure_prompt_fill`. The human
+   enters values privately and approves **Use once**. Record the receipt and
+   successful website result; show that no credential record was added.
+4. Inspect the actual MCP calls/replies and the login agent's transcript for
+   both flows. Run positive-control checks with synthetic canaries outside the
+   recorded agent session. Publish only a value-free audit report.
+
+Keep the short card-storage glimpse separate from the login demonstrations.
+Show real native windows and actual tool results. Record only intended windows;
+never load screenshots of unmasked values into the login agent's context. State
+that the website receives values and other browser tools can observe them. A
+literal transcript audit is evidence for that recording, not proof against every
+observation or encoding. Keep any separate Magician/agent demo in its own file.
+
+## Recording setup
 
 Use an isolated vault/client profile and a trusted test account. Start the local
 service, enable recording, then add the MCP server. For default installed paths:

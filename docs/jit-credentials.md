@@ -1,13 +1,26 @@
 # One-time credentials during browser automation
 
 Use `secure_prompt_fill` when an automation reaches a login page and no saved
-credential is appropriate. MagicVault asks you for the values in native hidden
+credential is appropriate. MagicVault opens a desktop window with a short summary and masked
 inputs, then asks **Use once** for the exact browser, page/frame origins and field
 mapping. It fills those fields and returns status. Nothing is enrolled in the
 vault, and no future-use permission is created or reused.
 
 This flow is available in the `0.9.0` source candidate. The existing recorded demo
 shows saved credentials with `0.8.3`; it does not demonstrate this new flow.
+
+## Saved and one-time credentials
+
+Save frequent logins with `enroll`; it supports named fields for usernames,
+passwords and generic card records. Enrollment authorizes storage, not a browser
+fill or payment. A one-off login needs no saved record, credential reference or
+prior credential-origin rule. The same browser target checks still apply.
+
+MagicVault formats the prompt itself. Client labels, field names and selectors
+come from the request; page/frame origins come from browser discovery. Exact
+selector mappings remain available under **Request details**. Each input window
+shows only the current field, and the final window reviews the complete fill.
+See [prompts](prompts.md) and [platform requirements](platforms.md).
 
 ## Before the first use
 

@@ -1,0 +1,5 @@
+# Keep source fingerprints and packaged JavaScript identical across desktop OSes.
+* text=auto eol=lf
+*.gif binary
+*.mp4 binary
+*.png binary

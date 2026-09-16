@@ -9,6 +9,7 @@ const { spawn } = require('node:child_process');
 const { constants } = require('node:os');
 
 function jsonFile(file) {
+  if (!fs.lstatSync(file).isFile()) throw new Error('invalid_metadata');
   const fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
   try {
     const stat = fs.fstatSync(fd);
@@ -19,11 +20,13 @@ function jsonFile(file) {
 
 function resolveBinary(command, packageFile = path.join(__dirname, 'package.json'), platform = process.platform, arch = process.arch) {
   if (!['magicvault', 'magicvault-mcp'].includes(command)) throw new Error('invalid_command');
-  if (`${platform}-${arch}` !== 'darwin-arm64') throw new Error('unsupported_platform');
+  const target = `${platform}-${arch}`;
+  if (!['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64', 'win32-x64', 'win32-arm64'].includes(target)) throw new Error('unsupported_platform');
   const metadata = jsonFile(packageFile);
   const nativeName = metadata.magicvault?.platforms?.[`${platform}-${arch}`];
-  if (typeof nativeName !== 'string' || !/^@[a-z0-9][a-z0-9-]{0,63}\/magicvault-darwin-arm64$/.test(nativeName)
-      || metadata.name !== nativeName.replace(/-darwin-arm64$/, '')
+  if (typeof nativeName !== 'string' || !/^@[a-z0-9][a-z0-9-]{0,63}\/magicvault-(?:darwin|linux|win32)-(?:arm64|x64)$/.test(nativeName)
+      || !nativeName.endsWith(`-${target}`)
+      || metadata.name !== nativeName.slice(0, -(target.length + 1))
       || metadata.optionalDependencies?.[nativeName] !== metadata.version) throw new Error('invalid_package');
   const nativeFile = require.resolve(`${nativeName}/package.json`, { paths: [path.dirname(packageFile)] });
   const native = jsonFile(nativeFile);
@@ -31,7 +34,7 @@ function resolveBinary(command, packageFile = path.join(__dirname, 'package.json
   const root = fs.realpathSync(path.dirname(nativeFile));
   const manifest = jsonFile(path.join(root, 'bundle.json'));
   if (manifest.format_version !== 1 || manifest.version !== metadata.version || manifest.platform !== `${platform}-${arch}`) throw new Error('invalid_bundle');
-  const relative = `bin/${command}`;
+  const relative = `bin/${command}${platform === 'win32' ? '.exe' : ''}`;
   const expected = manifest.files?.[relative];
   const file = path.join(root, relative);
   const stat = fs.lstatSync(file);
@@ -48,7 +51,7 @@ function launch(command) {
   try { executable = resolveBinary(command); }
   catch {
     // Paths and arguments may contain sensitive user input: never echo them.
-    process.stderr.write('MagicVault: compatible prebuilt package unavailable or invalid; reinstall with optional dependencies enabled. macOS Apple Silicon is currently supported.\n');
+    process.stderr.write('MagicVault: compatible prebuilt package unavailable or invalid; reinstall with optional dependencies enabled. Install the matching macOS, Linux or Windows native package.\n');
     process.exitCode = 1;
     return;
   }

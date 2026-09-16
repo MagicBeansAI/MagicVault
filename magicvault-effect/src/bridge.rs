@@ -64,7 +64,6 @@ pub fn valid_extension_id(id: &str) -> bool {
     id.len() == 32 && id.bytes().all(|b| (b'a'..=b'p').contains(&b))
 }
 
-#[cfg(unix)]
 pub async fn read_frame<R: tokio::io::AsyncRead + Unpin>(
     input: &mut R,
 ) -> Result<Zeroizing<Vec<u8>>, ErrorCode> {
@@ -84,7 +83,6 @@ pub async fn read_frame<R: tokio::io::AsyncRead + Unpin>(
     Ok(bytes)
 }
 
-#[cfg(unix)]
 pub async fn write_frame<W: tokio::io::AsyncWrite + Unpin>(
     output: &mut W,
     bytes: &[u8],
@@ -107,23 +105,20 @@ pub async fn write_frame<W: tokio::io::AsyncWrite + Unpin>(
         .map_err(|_| ErrorCode::TransportUncertain)
 }
 
-#[cfg(unix)]
 pub struct NativeBridge {
-    socket: Mutex<Option<tokio::net::UnixStream>>,
+    socket: Mutex<Option<magicvault_primitives::local_ipc::Stream>>,
     // Separate descriptor: health checks must never contend with effect I/O's
     // try-lock, otherwise status polling can spuriously refuse an approved fill.
-    monitor: Option<std::os::fd::OwnedFd>,
+    monitor: Option<magicvault_primitives::local_ipc::Monitor>,
     stop: CancellationToken,
     initialized: std::sync::atomic::AtomicBool,
 }
 
-#[cfg(unix)]
 impl NativeBridge {
     /// Must only be called after peer UID, capability, extension identity and
     /// daemon-owned registration consent have all been authenticated.
-    pub fn authenticated(socket: tokio::net::UnixStream) -> Arc<Self> {
-        use std::os::fd::AsFd;
-        let monitor = socket.as_fd().try_clone_to_owned().ok();
+    pub fn authenticated(socket: magicvault_primitives::local_ipc::Stream) -> Arc<Self> {
+        let monitor = magicvault_primitives::local_ipc::Monitor::new(&socket).ok();
         let stop = CancellationToken::new();
         if monitor.is_none() {
             stop.cancel();
@@ -199,7 +194,6 @@ impl NativeBridge {
     }
 }
 
-#[cfg(unix)]
 #[async_trait]
 impl BrowserAdapter for NativeBridge {
     async fn targets(&self, cancel: CancellationToken) -> Result<Vec<Target>, ErrorCode> {
@@ -281,10 +275,7 @@ impl BrowserAdapter for NativeBridge {
         self.stop.cancel();
         // A cloned descriptor must not keep the peer connected after shutdown.
         if let Some(monitor) = &self.monitor {
-            use std::os::fd::AsRawFd;
-            unsafe {
-                libc::shutdown(monitor.as_raw_fd(), libc::SHUT_RDWR);
-            }
+            monitor.disconnect();
         }
         if let Ok(mut guard) = self.socket.try_lock() {
             guard.take();
@@ -297,23 +288,6 @@ impl BrowserAdapter for NativeBridge {
         let Some(monitor) = &self.monitor else {
             return false;
         };
-        // A quiet native host may exit without another effect exchange. Peek
-        // nonblocking, without consuming a reply or acquiring any async lock.
-        use std::os::fd::AsRawFd;
-        let mut byte = 0u8;
-        let result = unsafe {
-            libc::recv(
-                monitor.as_raw_fd(),
-                (&mut byte as *mut u8).cast(),
-                1,
-                libc::MSG_PEEK | libc::MSG_DONTWAIT,
-            )
-        };
-        result > 0
-            || (result < 0
-                && matches!(
-                    std::io::Error::last_os_error().kind(),
-                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted
-                ))
+        monitor.connected()
     }
 }

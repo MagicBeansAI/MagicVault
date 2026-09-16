@@ -38,6 +38,7 @@ earlier failures. They are technical evidence, not a task queue or roadmap.
 
 ### Current candidate and browser reliability
 
+- [0.9.0 desktop prompt and Linux/Windows source checks](results-desktop-platforms-2026-09-16.md)
 - [0.8.3 downloaded candidate, CI and installed tests](results-broad-candidate-2026-09-08.md)
 - [Browser evaluation, discovery and settlement failures; later passes](results-browser-command-2026-09-08.md)
 - [Native macOS launch correction and 200 concurrent trials](results-native-spawn-2026-09-08.md)

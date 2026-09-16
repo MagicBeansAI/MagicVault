@@ -2,7 +2,8 @@
 
 Start with the [quick start](../README.md#quick-start) to use MagicVault, or
 [coverage and limits](coverage.md) to check whether it supports your destination.
-The standalone application is a macOS Apple Silicon source alpha; see
+The standalone application is a desktop source alpha; see
+[platform support and verification](platforms.md),
 [installation availability](distribution.md#availability) and the
 [release acceptance checklist](qualification/release.md) before using a candidate.
 
@@ -12,6 +13,7 @@ The standalone application is a macOS Apple Silicon source alpha; see
 | --- | --- |
 | Install a candidate, upgrade, diagnose or uninstall | [Installation and distribution](distribution.md) |
 | Build from source or configure local MCP | [Setup](setup.md) |
+| Understand the native prompt text, UI and private input | [Prompts](prompts.md) |
 | Request one-time browser credentials during automation | [Just-in-time input](jit-credentials.md) |
 | Fill credentials through CDP or a Chromium extension | [Browser usage](browser-usage.md) |
 | Deliver credentials to a new process or HTTP request | [Process and HTTP usage](delivery-usage.md) |
@@ -34,6 +36,7 @@ The standalone application is a macOS Apple Silicon source alpha; see
 - [Test lanes, isolation, build paths and coverage](testing.md)
 - [Acceptance runbooks and version-specific evidence](qualification/README.md)
 - [Current release gates](qualification/release.md)
+- [Prepare and publish an npm alpha](npm-release.md)
 
 ## Documentation scope
 

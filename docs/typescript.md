@@ -7,7 +7,9 @@ an exact-version optional package containing prebuilt Rust binaries. Users of
 these candidates do not need Cargo. The SDK uses Node built-ins only.
 
 This is a **local candidate**, not a public npm release. Runtime support remains
-macOS Apple Silicon, Node 22+ and an interactive desktop for native consent.
+Node 22+ and an interactive desktop for native consent. See
+[platform prerequisites and validation](platforms.md) for macOS, Linux and Windows.
+The install example selects macOS Apple Silicon.
 This is a Node API, not a browser bundle or an unattended CI credential store.
 
 ## Install and prepare

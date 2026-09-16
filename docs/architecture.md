@@ -17,7 +17,8 @@ and [security](../SECURITY.md) define the product's supported boundary.
 flowchart TB
     agent["Agent / model"] -->|"References or one-time field metadata"| client["CLI or MCP client"]
     client -->|"Authenticated local IPC"| broker["Standalone service broker"]
-    human["Human via native UI"] -->|"Pairing, policy, native input and consent"| broker
+    human["Human"] --> prompt["Shared native prompt window"]
+    prompt -->|"Private pipe: input / closed decision"| broker
     broker -->|"Exact-use grants: persist / revoke"| grants["Private standalone registry"]
     broker -->|"Resolve approved fields"| core["Shared custody core"]
     keychain["OS keychain / host key provider"] --> core
@@ -72,11 +73,12 @@ that an immediate restart can acquire the old instance lock.
 | `magicvault`, `magicvault-mcp` | `0.9.0` | Human administration, value-free requests including one-time prompt-and-fill; CLI builds daemon/native host |
 | `magicvault-service` | `0.9.0` | Native one-time input, consent/grants and cancellation, bounded discovery, one store writer and private application-bundle installer |
 | `magicvault-protocol` | `0.7.0` | Closed prompt-and-fill request plus existing authentication, policy, consent, profiles, jobs and bounded IPC |
-| `magicvault-effect` | `0.7.0` | Public protocol dependency advances; existing CDP/native fills, HTTP and MagicRun integration unchanged |
+| `magicvault-effect` | `0.7.1` | Shared Unix/Windows native bridge; existing CDP/HTTP adapters and Unix MagicRun execution; Windows process use refused |
+| `magicvault-prompt` | `0.9.0` | Shared desktop window; bounded private metadata/input pipe; no vault or agent API |
 | Chromium extension | `0.6.1` | Permission-aware exact discovery narrowing, site grants/blocks and document-targeted fill; no navigation or submission API |
 | MagicRun `tool-runtime-core` | `0.1.74`, public Git dependency locked to `af348ab5` | Governed process preparation, descriptor-bound native macOS spawn for non-jailed batches, digest-bound dispatch, cancellation, output bounds and owned-child cleanup |
 | `magicvault-core` | `0.1.3` | Encryption, credential references, existing policies, scoped stores and typed audit |
-| `magicvault-primitives` | `0.1.1` | Durable filesystem and stack-safe JSON utilities |
+| `magicvault-primitives` | `0.1.2` | Filesystem/JSON helpers plus private Windows ACL and shared local-stream primitives |
 
 The local agent wire is version **5**; matching standalone clients/daemon are required. The profile-authenticated native
 handshake is version **2**; bridge framing and host configuration remain version **1**.
@@ -92,9 +94,69 @@ Its runtime/UI rollout and live acceptance remain separate. See
 [embedded consumers](integrations.md#existing-embedded-consumers).
 Native bridge effect schemas remain unchanged.
 
+## Desktop prompt and platform boundary
+
+The daemon owns prompt wording and the complete authorization scope. Browser
+summaries show client, browser/destination and storage/use semantics; expandable
+request details retain every exact field/selector/reference and browser ID.
+Metadata remains literal untrusted data. No model produces the summary. Per-field
+one-time input avoids repeating unrelated fields, and final consent retains the
+complete mapping. No field value is ever part of a prompt request.
+
+`NativeHuman` resolves the regular `magicvault-prompt` sibling of the running
+daemon, never PATH or a provider override. A length-prefixed, versioned JSON
+request travels through private stdin, capped before allocation. A closed reply
+tag permits only the expected decision kind; only input requests accept bounded
+UTF-8 values. Secret buffers and reply bytes are owned/zeroizing. The GUI uses
+egui/eframe with native OpenGL windows for macOS, Linux X11/Wayland and Windows;
+no web UI, local listener, telemetry or persistence feature is enabled. GUI/OS
+internal text copies are outside the owned-buffer zeroization guarantee.
+
+The parent keeps stdin open through child exit. EOF/extra bytes, Escape, window
+close and the UI deadline deny; daemon cancellation kills/reaps the helper and
+wins over a late successful reply. The original broker target/enrollment deadline
+still applies across all windows. GUI failure has no terminal/chat fallback.
+The crate's default build exposes only pipe types; the desktop feature builds
+its helper binary. Packaging/installation/signing include that fourth executable.
+
+Platform key providers are Keychain, Linux Secret Service (no volatile-keyutils
+fallback) and Windows Credential Manager. Linux installs an exact systemd user
+unit; Windows installs a least-privilege interactive logon task and records its
+exported definition for ownership checks. A private Windows named event requests
+graceful broker shutdown; no process is selected or killed by an unverified PID.
+Unix continues to use its existing signal/drain path.
+
+`local_ipc` retains same-UID Unix sockets and adds Windows named pipes. Names bind
+the canonical root, endpoint and user SID; server DACLs allow only that user and
+SYSTEM, reject remote clients and reserve the first pipe instance. Both peers
+check the opposite process's user SID. Request limits, admission, timeouts,
+capabilities and no-retry effect semantics remain. A duplicated descriptor/handle
+allows non-consuming liveness checks without contending with an in-flight fill.
+
+Windows private paths reject reparse points, foreign owners and permissive or
+unknown ACEs. Root/staging creation applies an owner/SYSTEM-only inheritable DACL
+before any data write. File publication flushes content and uses write-through
+replacement; there is no claim of Unix directory-fsync equivalence. Linux/macOS
+file modes and directory sync behavior are retained. Windows installation uses a
+verified version-directory junction with a recoverable non-atomic replacement
+interval; Unix retains atomic symlink activation. Complete versions and ambiguous
+staging paths remain available for explicit recovery.
+Windows retirement retargets the owned absolute junction into the archive;
+failure remains explicit persistence uncertainty with the version bytes retained.
+
+Linux registers user Chrome/Chromium/Edge native manifests. Windows uses only
+HKCU native-messaging registrations, a private hash-checked host executable copy
+and a metadata manifest; no shell wrapper carries protocol material. Setup and
+removal refuse foreign definitions. Windows native invocation accepts Chrome's
+parent-window metadata but derives its config only from the fixed private host
+location. [Platform requirements and qualification](platforms.md).
+
 ## Process launch boundary
 
-Standalone `secure_new_process` uses MagicRun's non-jailed batch path. On macOS,
+On Unix, standalone `secure_new_process` uses MagicRun's non-jailed batch path.
+Windows rejects profile inspection and dispatch as `unsupported_target`; it has
+no unrestricted subprocess fallback. Browser and HTTP delivery do not require
+the Unix-only MagicRun dependency. On macOS,
 `0.8.3` selects native `posix_spawn` without userspace fork/at-fork callbacks.
 The exact authorized cwd remains descriptor-bound through a spawn file action;
 argv/environment are validated from original bytes, copied into zeroizing C
@@ -117,8 +179,8 @@ flowchart LR
     release["Reviewed build / optional explicit Apple signing"] --> bundle["Allowlisted platform package + SHA-256 manifest"]
     npm["Exact-version npm launcher"] --> bundle
     npm -->|"stdio / arguments unchanged; no custody"| cli["Native CLI / MCP"]
-    bundle -->|"Explicit setup; bounded streaming copy"| app["Private immutable versions + atomic current symlink"]
-    app --> daemon["Stable LaunchAgent executable"]
+    bundle -->|"Explicit setup; bounded streaming copy"| app["Private immutable versions + platform activation"]
+    app --> daemon["Stable user-session service executable"]
     app --> mcp["Stable MCP configuration"]
     app --> host["Stable native host / unpacked extension"]
 ```
@@ -127,6 +189,17 @@ Distribution does not move credential custody into JavaScript. npm has no lifecy
 hooks, runtime downloads, daemon initialization or native enrollment. The launcher
 checks the selected platform/version and binary hash before an argv-preserving,
 shell-free spawn; stdout belongs exclusively to the native protocol.
+
+The manual npm alpha workflow builds six OS/CPU-native bundles from one workflow
+revision, runs platform tests and executable version checks, and packs seven
+allowlisted tarballs. A separate secret-free job checks scope/version, SHA-512,
+archive members, metadata and all six exact optional dependencies. Publication
+requires explicit dispatch on main; only that job receives `NPM_TOKEN` through
+`NODE_AUTH_TOKEN` and OIDC provenance authority. All registry preflights complete
+before publishing native dependencies first and the launcher last, always under
+`alpha`. Exact already-published artifacts may be resumed; conflicting bytes or
+tags and uncertain errors stop without retry. Preparation is not proof of
+publication, OS signing or native desktop acceptance. [Release procedure](npm-release.md).
 
 The npm package also exports a Node client with TypeScript declarations. It uses
 only built-in Node modules, bounds and validates closed requests/results, and
@@ -141,8 +214,9 @@ adds no raw-secret getter, enrollment or grant API.
 `~/.magicvault-app` is separate from `~/.magicvault`, with a root-bound ownership
 marker and installer lock. Fixed-path, bounded, no-follow reads stream into private
 version directories; a durable bundle marker follows all file/directory syncs.
-Activation atomically publishes only a relative `current` symlink after complete
-reverification. Existing versions and ambiguous staging artifacts are retained.
+Unix activation atomically publishes only a relative `current` symlink after
+complete reverification; Windows uses the verified junction/recovery procedure
+described above. Existing versions and ambiguous staging artifacts are retained.
 Same-user unrestricted software and a compromised publisher remain outside this
 isolation boundary; integrity manifests do not replace publisher authentication.
 
@@ -169,9 +243,11 @@ requires a coordinated upgrade. Core, primitives, MagicRun and Magician need no 
 migration. [Installation/recovery](distribution.md) covers partial-state behavior.
 
 The architecture gate includes npm launchers, package assembly/qualification,
-signing script and both qualification/distribution workflows as executable trust inputs. Release
-credentials/publication remain separate authorized operator actions; the checked-in
-workflow produces explicitly unsigned local-tarball candidates only.
+signing scripts, line-ending rules and desktop/distribution/qualification/release
+workflows as executable trust inputs. Release credentials and publication remain
+separate authorized operator actions. The distribution and qualification
+workflows produce unsigned local-tarball candidates; the npm alpha workflow
+publishes only through its explicit main-branch publication job described above.
 Qualification can run 1–20 independent installed-client trials, failing on the
 first error, plus explicit bounded load/capacity/shutdown probes. These use only
 synthetic custody in test executables, not a production bypass or daemon flag.

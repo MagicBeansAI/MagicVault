@@ -11,14 +11,14 @@ case "$1" in /*) ;; *) echo 'Require an absolute binary directory.' >&2; exit 1 
 : "${MAGICVAULT_SIGNING_IDENTITY:?Set an explicitly authorized Developer ID Application identity}"
 : "${MAGICVAULT_NOTARY_PROFILE:?Set a previously configured notarytool keychain profile}"
 release_bin=$1
-for name in magicvault magicvault-mcp magicvault-native-host; do
+for name in magicvault magicvault-mcp magicvault-native-host magicvault-prompt; do
   if [ ! -f "$release_bin/$name" ] || [ -L "$release_bin/$name" ]; then
     echo 'Missing regular release executable.' >&2
     exit 1
   fi
 done
 # The binaries are modified in place. Sign BEFORE package-npm hashes/copies them.
-for name in magicvault magicvault-mcp magicvault-native-host; do
+for name in magicvault magicvault-mcp magicvault-native-host magicvault-prompt; do
   /usr/bin/codesign --force --options runtime --timestamp --sign "$MAGICVAULT_SIGNING_IDENTITY" "$release_bin/$name"
   /usr/bin/codesign --verify --strict "$release_bin/$name"
   signature=$(/usr/bin/codesign --display --verbose=4 "$release_bin/$name" 2>&1)
@@ -29,7 +29,7 @@ for name in magicvault magicvault-mcp magicvault-native-host; do
 done
 release_staging=$(mktemp -d "${TMPDIR:-/tmp}/magicvault-notarize.XXXXXXXX")
 mkdir "$release_staging/binaries"
-for name in magicvault magicvault-mcp magicvault-native-host; do
+for name in magicvault magicvault-mcp magicvault-native-host magicvault-prompt; do
   cp "$release_bin/$name" "$release_staging/binaries/$name"
 done
 /usr/bin/ditto -c -k --keepParent "$release_staging/binaries" "$release_staging/MagicVault.zip"

@@ -54,84 +54,80 @@ pub trait HumanInteraction: Send + Sync {
 
 pub struct NativeHuman;
 
-// Fits bounded browser rules and eight maximally escaped selectors without
-// silently truncating the exact-use consent text. Secret answers stay at 4096.
-pub(crate) const MAX_PROMPT_BYTES: usize = 16 * 1024;
+// Summary and exact details share one bound; the renderer never truncates them.
+pub(crate) const MAX_PROMPT_BYTES: usize = magicvault_prompt::MAX_MESSAGE_BYTES;
+use magicvault_prompt::{Kind, Prompt, Reply};
 
-#[cfg(target_os = "macos")]
-enum DialogKind {
-    Confirm,
-    Secret,
-    Use,
-    SecretOnce,
-    ConfirmOnce,
+async fn dialog(message: &str, kind: Kind, cancel: CancellationToken) -> Result<Reply, ErrorCode> {
+    let executable = std::env::current_exe().map_err(|_| ErrorCode::Unavailable)?;
+    // Resolve only a sibling shipped with this daemon. Never search PATH or
+    // accept an agent/environment-selected input provider.
+    let helper = executable
+        .parent()
+        .ok_or(ErrorCode::Unavailable)?
+        .join(format!("magicvault-prompt{}", std::env::consts::EXE_SUFFIX));
+    dialog_at(&helper, message, kind, cancel).await
 }
 
-#[cfg(target_os = "macos")]
-async fn dialog(
+async fn dialog_at(
+    helper: &std::path::Path,
     message: &str,
-    kind: DialogKind,
+    kind: Kind,
     cancel: CancellationToken,
-) -> Result<Zeroizing<String>, ErrorCode> {
+) -> Result<Reply, ErrorCode> {
     use std::{process::Stdio, time::Duration};
-    use tokio::io::AsyncReadExt;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
     if message.len() > MAX_PROMPT_BYTES {
         return Err(ErrorCode::Capacity);
     }
     if cancel.is_cancelled() {
         return Err(ErrorCode::Cancelled);
     }
-    // The script is fixed; untrusted metadata is argv, not interpolated code.
-    // Only metadata enters argv. The hidden answer travels in a private pipe.
-    const CONFIRM: &str = "on run argv\nset r to display dialog (item 1 of argv) with title \"MagicVault — human decision\" buttons {\"Deny\", \"Allow\"} default button \"Deny\" cancel button \"Deny\" giving up after 120\nif gave up of r then error number -128\nreturn button returned of r\nend run";
-    const SECRET: &str = "on run argv\nset r to display dialog (item 1 of argv) with title \"MagicVault — enroll credential\" default answer \"\" with hidden answer buttons {\"Cancel\", \"Save\"} default button \"Cancel\" cancel button \"Cancel\" giving up after 120\nif gave up of r then error number -128\nreturn text returned of r\nend run";
-    const USE: &str = "on run argv\nset r to display dialog (item 1 of argv) with title \"MagicVault — credential use\" buttons {\"Deny\", \"Allow once\", \"Always allow\"} default button \"Deny\" cancel button \"Deny\" giving up after 120\nif gave up of r then error number -128\nreturn button returned of r\nend run";
-    const SECRET_ONCE: &str = "on run argv\nset r to display dialog (item 1 of argv) with title \"MagicVault — one-time input\" default answer \"\" with hidden answer buttons {\"Cancel\", \"Continue\"} default button \"Cancel\" cancel button \"Cancel\" giving up after 120\nif gave up of r then error number -128\nreturn text returned of r\nend run";
-    const CONFIRM_ONCE: &str = "on run argv\nset r to display dialog (item 1 of argv) with title \"MagicVault — use once\" buttons {\"Cancel\", \"Use once\"} default button \"Cancel\" cancel button \"Cancel\" giving up after 120\nif gave up of r then error number -128\nreturn button returned of r\nend run";
-    let mut child = tokio::process::Command::new("/usr/bin/osascript")
-        .arg("-e")
-        .arg(match kind {
-            DialogKind::Secret => SECRET,
-            DialogKind::Use => USE,
-            DialogKind::Confirm => CONFIRM,
-            DialogKind::SecretOnce => SECRET_ONCE,
-            DialogKind::ConfirmOnce => CONFIRM_ONCE,
-        })
-        .arg("--")
-        .arg(message)
-        .stdin(Stdio::null())
+    let prompt = Prompt::new(kind, message.to_owned()).map_err(|_| ErrorCode::InvalidRequest)?;
+    let mut request = Vec::new();
+    prompt
+        .write(&mut request)
+        .map_err(|_| ErrorCode::InvalidRequest)?;
+    let metadata = std::fs::symlink_metadata(helper).map_err(|_| ErrorCode::Unavailable)?;
+    if !metadata.is_file() || metadata.file_type().is_symlink() {
+        return Err(ErrorCode::Unavailable);
+    }
+    let mut command = tokio::process::Command::new(helper);
+    command
+        .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
-        .kill_on_drop(true)
-        .spawn()
-        .map_err(|_| ErrorCode::Unavailable)?;
-    let stdout = child.stdout.take().ok_or(ErrorCode::Unavailable)?;
+        .kill_on_drop(true);
+    #[cfg(windows)]
+    command.creation_flags(0x08000000); // CREATE_NO_WINDOW; the helper creates its own GUI.
+    let mut child = command.spawn().map_err(|_| ErrorCode::Unavailable)?;
     let work = async {
+        let mut stdin = child.stdin.take().ok_or(ErrorCode::Unavailable)?;
+        let stdout = child.stdout.take().ok_or(ErrorCode::Unavailable)?;
+        stdin
+            .write_all(&request)
+            .await
+            .map_err(|_| ErrorCode::Unavailable)?;
+        stdin.flush().await.map_err(|_| ErrorCode::Unavailable)?;
         let mut bytes = Zeroizing::new(Vec::new());
         stdout
-            .take(4098)
+            .take((magicvault_prompt::MAX_SECRET_BYTES + 2) as u64)
             .read_to_end(&mut bytes)
             .await
             .map_err(|_| ErrorCode::Unavailable)?;
-        if bytes.len() > 4097 {
+        if bytes.len() > magicvault_prompt::MAX_SECRET_BYTES + 1 {
             return Err(ErrorCode::Capacity);
         }
         let status = child.wait().await.map_err(|_| ErrorCode::Unavailable)?;
+        // Keep stdin open until exit; dropping it signals cancellation to the UI.
+        drop(stdin);
         if !status.success() {
-            return Err(ErrorCode::Denied);
+            return Err(ErrorCode::Unavailable);
         }
-        // osascript adds exactly one output newline. Preserve other whitespace.
-        if bytes.last() == Some(&b'\n') {
-            bytes.pop();
-        }
-        if bytes.is_empty() || bytes.len() > 4096 {
-            return Err(ErrorCode::InvalidRequest);
-        }
-        let text = std::str::from_utf8(&bytes).map_err(|_| ErrorCode::InvalidRequest)?;
-        Ok(Zeroizing::new(text.to_owned()))
+        Reply::decode(kind, &bytes).map_err(|_| ErrorCode::InvalidRequest)
     };
     let result = tokio::select! {
-        _ = cancel.cancelled() => Err(ErrorCode::Denied),
+        _ = cancel.cancelled() => Err(ErrorCode::Cancelled),
         result = tokio::time::timeout(Duration::from_secs(CONSENT_TTL_SECS), work) => {
             result.unwrap_or(Err(ErrorCode::Expired))
         },
@@ -140,44 +136,30 @@ async fn dialog(
         let _ = child.kill().await;
         let _ = child.wait().await;
     }
+    // Cancellation wins even if a late button click races child completion.
+    if cancel.is_cancelled() {
+        return Err(ErrorCode::Cancelled);
+    }
     result
 }
 
 #[async_trait]
 impl HumanInteraction for NativeHuman {
     async fn confirm(&self, message: &str, cancel: CancellationToken) -> Result<bool, ErrorCode> {
-        #[cfg(target_os = "macos")]
-        {
-            return dialog(message, DialogKind::Confirm, cancel)
-                .await
-                .map(|v| &*v == "Allow");
-        }
-        #[cfg(not(target_os = "macos"))]
-        {
-            let _ = (message, cancel);
-            Err(ErrorCode::Unavailable)
-        }
+        Ok(matches!(
+            dialog(message, Kind::Confirm, cancel).await?,
+            Reply::Allow
+        ))
     }
     async fn confirm_use(
         &self,
         message: &str,
         cancel: CancellationToken,
     ) -> Result<UseDecision, ErrorCode> {
-        #[cfg(target_os = "macos")]
-        {
-            return dialog(message, DialogKind::Use, cancel)
-                .await
-                .and_then(|v| match v.as_str() {
-                    "Allow once" => Ok(UseDecision::AllowOnce),
-                    "Always allow" => Ok(UseDecision::AlwaysAllow),
-                    "Deny" => Ok(UseDecision::Deny),
-                    _ => Err(ErrorCode::Denied),
-                });
-        }
-        #[cfg(not(target_os = "macos"))]
-        {
-            let _ = (message, cancel);
-            Err(ErrorCode::Unavailable)
+        match dialog(message, Kind::Use, cancel).await? {
+            Reply::Allow => Ok(UseDecision::AllowOnce),
+            Reply::Always => Ok(UseDecision::AlwaysAllow),
+            _ => Ok(UseDecision::Deny),
         }
     }
     async fn secret(
@@ -185,48 +167,128 @@ impl HumanInteraction for NativeHuman {
         message: &str,
         cancel: CancellationToken,
     ) -> Result<Zeroizing<String>, ErrorCode> {
-        #[cfg(target_os = "macos")]
-        {
-            return dialog(message, DialogKind::Secret, cancel).await;
-        }
-        #[cfg(not(target_os = "macos"))]
-        {
-            let _ = (message, cancel);
-            Err(ErrorCode::Unavailable)
+        match dialog(message, Kind::Secret, cancel).await? {
+            Reply::Secret(value) => Ok(value),
+            _ => Err(ErrorCode::Denied),
         }
     }
-
     async fn secret_once(
         &self,
         message: &str,
         cancel: CancellationToken,
     ) -> Result<Zeroizing<String>, ErrorCode> {
-        #[cfg(target_os = "macos")]
-        {
-            return dialog(message, DialogKind::SecretOnce, cancel).await;
-        }
-        #[cfg(not(target_os = "macos"))]
-        {
-            let _ = (message, cancel);
-            Err(ErrorCode::Unavailable)
+        match dialog(message, Kind::SecretOnce, cancel).await? {
+            Reply::Secret(value) => Ok(value),
+            _ => Err(ErrorCode::Denied),
         }
     }
-
     async fn confirm_once(
         &self,
         message: &str,
         cancel: CancellationToken,
     ) -> Result<bool, ErrorCode> {
-        #[cfg(target_os = "macos")]
-        {
-            return dialog(message, DialogKind::ConfirmOnce, cancel)
-                .await
-                .map(|v| &*v == "Use once");
-        }
-        #[cfg(not(target_os = "macos"))]
-        {
-            let _ = (message, cancel);
+        Ok(matches!(
+            dialog(message, Kind::ConfirmOnce, cancel).await?,
+            Reply::Allow
+        ))
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use std::{os::unix::fs::PermissionsExt, path::PathBuf, time::Duration};
+
+    fn helper(directory: &tempfile::TempDir, body: &str) -> PathBuf {
+        let path = directory.path().join("prompt-fixture");
+        std::fs::write(
+            &path,
+            format!("#!/bin/sh\ndd bs=1 count=4 of=/dev/null 2>/dev/null\n{body}\n"),
+        )
+        .unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
+        path
+    }
+
+    #[tokio::test]
+    async fn helper_answers_are_typed_and_unsuccessful_processes_cannot_approve() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = helper(&directory, "printf '\\002'");
+        assert!(matches!(
+            dialog_at(&path, "synthetic", Kind::Use, CancellationToken::new()).await,
+            Ok(Reply::Always)
+        ));
+        assert!(matches!(
+            dialog_at(
+                &path,
+                "synthetic",
+                Kind::ConfirmOnce,
+                CancellationToken::new()
+            )
+            .await,
+            Err(ErrorCode::InvalidRequest)
+        ));
+        helper(&directory, "printf '\\001'; exit 1");
+        assert!(matches!(
+            dialog_at(&path, "synthetic", Kind::Confirm, CancellationToken::new()).await,
             Err(ErrorCode::Unavailable)
+        ));
+        helper(&directory, "printf '\\003synthetic value'");
+        match dialog_at(
+            &path,
+            "synthetic",
+            Kind::SecretOnce,
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap()
+        {
+            Reply::Secret(value) => assert_eq!(value.as_str(), "synthetic value"),
+            _ => panic!("wrong reply kind"),
         }
+    }
+
+    #[tokio::test]
+    async fn cancellation_reaps_the_helper_and_precancel_never_starts_it() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = helper(&directory, "printf '%s' \"$$\" > \"$0.pid\"\nexec sleep 30");
+        let marker = path.with_extension("pid");
+        let cancelled = CancellationToken::new();
+        cancelled.cancel();
+        assert!(matches!(
+            dialog_at(&path, "synthetic", Kind::Confirm, cancelled).await,
+            Err(ErrorCode::Cancelled)
+        ));
+        assert!(!marker.exists());
+        let cancel = CancellationToken::new();
+        let worker_cancel = cancel.clone();
+        let worker = tokio::spawn(async move {
+            dialog_at(&path, "synthetic", Kind::Confirm, worker_cancel).await
+        });
+        let pid = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if let Ok(pid) = std::fs::read_to_string(&marker) {
+                    if let Ok(pid) = pid.parse::<i32>() {
+                        break pid;
+                    }
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        cancel.cancel();
+        assert!(matches!(
+            tokio::time::timeout(Duration::from_secs(5), worker)
+                .await
+                .unwrap()
+                .unwrap(),
+            Err(ErrorCode::Cancelled)
+        ));
+        assert_eq!(unsafe { libc::kill(pid, 0) }, -1);
+        assert_eq!(
+            std::io::Error::last_os_error().raw_os_error(),
+            Some(libc::ESRCH)
+        );
     }
 }

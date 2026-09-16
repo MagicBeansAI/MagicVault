@@ -41,7 +41,7 @@ where
                     && attempt + 1 < TRANSIENT_IO_RETRY_ATTEMPTS =>
             {
                 tokio::time::sleep(retry_delay(attempt)).await;
-            },
+            }
             Err(error) => return Err(error),
         }
     }
@@ -60,7 +60,7 @@ where
                     && attempt + 1 < TRANSIENT_IO_RETRY_ATTEMPTS =>
             {
                 std::thread::sleep(retry_delay(attempt));
-            },
+            }
             Err(error) => return Err(error),
         }
     }
@@ -71,8 +71,10 @@ fn retry_delay(attempt: usize) -> Duration {
     let multiplier = 1_u64 << attempt.min(6);
     Duration::from_millis(TRANSIENT_IO_RETRY_BASE_DELAY_MS.saturating_mul(multiplier))
 }
-/// Write `value` to `path` durably: unique temp, `sync_all`, rename, then a
-/// parent-directory sync so the rename itself survives power loss.
+/// Write `value` using the platform publication policy: unique temp, synced
+/// contents, then replacement. Unix also syncs the parent directory. Windows
+/// uses write-through replacement; it does not provide Unix directory-fsync
+/// equivalence. Power-loss behavior must be qualified on the target filesystem.
 ///
 /// **The error is `std::io::Error` on purpose.** This is the primitive every
 /// filesystem-backed store in the crate needs, and the ones that do not already
@@ -94,6 +96,10 @@ pub fn write_bytes_durably_sync(path: &Path, value: &[u8]) -> std::io::Result<()
 }
 
 fn create_staging(path: &Path, mode: Option<u32>) -> std::io::Result<std::fs::File> {
+    #[cfg(windows)]
+    if mode.is_some() {
+        return crate::private_fs::create_file(path, 0o600);
+    }
     let mut options = std::fs::OpenOptions::new();
     options.write(true).create_new(true);
     #[cfg(unix)]
@@ -106,17 +112,21 @@ fn create_staging(path: &Path, mode: Option<u32>) -> std::io::Result<std::fs::Fi
     retry_transient_io_blocking(|| options.open(path))
 }
 
-/// Synchronous durable publication with an optional Unix file mode. The staging
+/// Synchronous publication with an optional Unix file mode. On Windows, any
+/// supplied mode requests a protected owner/SYSTEM DACL instead. On Unix the staging
 /// file is created with `mode` (subject to umask), then receives the exact mode
 /// on its owned descriptor before any bytes are written. Data and permissions
-/// are synced before rename, then the destination directory is synced.
+/// are synced before rename, then the Unix destination directory is synced.
 /// Async admission remains the host's concern.
 pub fn write_bytes_durably_with_mode_sync(
     path: &Path,
     value: &[u8],
     mode: Option<u32>,
 ) -> std::io::Result<()> {
-    if let Some(parent) = path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
+    if let Some(parent) = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
         retry_transient_io_blocking(|| std::fs::create_dir_all(parent))?;
     }
     let tmp_path = path.with_file_name(format!(".artifact-write-{}.tmp", Uuid::new_v4().simple()));
@@ -136,7 +146,7 @@ pub fn write_bytes_durably_with_mode_sync(
         file.flush()?;
         file.sync_all()?;
         drop(file);
-        retry_transient_io_blocking(|| std::fs::rename(&tmp_path, path))?;
+        retry_transient_io_blocking(|| replace_file(&tmp_path, path))?;
         sync_parent_dir_blocking(path)
     })();
     if written.is_err() && owns_staging {
@@ -159,7 +169,7 @@ pub fn publish_staged_file_durably_sync(
     destination_path: &Path,
 ) -> std::io::Result<()> {
     retry_transient_io_blocking(|| std::fs::File::open(staged_path)?.sync_all())?;
-    retry_transient_io_blocking(|| std::fs::rename(staged_path, destination_path))?;
+    retry_transient_io_blocking(|| replace_file(staged_path, destination_path))?;
     sync_parent_dir_blocking(destination_path)
 }
 /// `fsync` the directory holding `path`, so a rename into it is durable.
@@ -168,17 +178,49 @@ pub fn publish_staged_file_durably_sync(
 /// the rename can survive a power cut while the contents do not. Exposed with
 /// an `io::Error` for the same reason as [`write_bytes_durably_sync`] — the
 /// append-only writers need it on its own, without a temp-and-rename.
+#[cfg(unix)]
 pub fn sync_parent_dir_blocking(path: &Path) -> std::io::Result<()> {
     let Some(parent) = path.parent() else {
         return Ok(());
     };
     // Path::new("record").parent() is "", not ".". Opening "" after
     // rename reports a false failure despite having already replaced the file.
-    let parent = if parent.as_os_str().is_empty() { Path::new(".") } else { parent };
+    let parent = if parent.as_os_str().is_empty() {
+        Path::new(".")
+    } else {
+        parent
+    };
     retry_transient_io_blocking(|| {
         let dir = std::fs::File::open(parent)?;
         dir.sync_all()
     })
+}
+
+// Windows has no unprivileged Unix-style directory fsync. Publication uses
+// MoveFileExW(REPLACE_EXISTING | WRITE_THROUGH), with flushed file contents.
+// For file callers, flush again through the published name. This is a separate
+// platform durability contract, not a claim of Unix directory-fsync equivalence.
+#[cfg(windows)]
+pub fn sync_parent_dir_blocking(path: &Path) -> std::io::Result<()> {
+    if path.is_file() {
+        use std::os::windows::fs::OpenOptionsExt;
+        std::fs::OpenOptions::new()
+            .write(true)
+            .custom_flags(windows_sys::Win32::Storage::FileSystem::FILE_FLAG_WRITE_THROUGH)
+            .open(path)?
+            .sync_all()?;
+    }
+    Ok(())
+}
+fn replace_file(source: &Path, destination: &Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        std::fs::rename(source, destination)
+    }
+    #[cfg(windows)]
+    {
+        crate::windows::replace(source, destination)
+    }
 }
 
 #[cfg(all(test, unix))]

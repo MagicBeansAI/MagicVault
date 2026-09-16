@@ -222,7 +222,7 @@ fn allowed(state: &State, auth: &Auth, target: &Target, field: &FillField) -> bo
 }
 
 fn rule_prompt(label: &str, credential: &str, rule: &BrowserRule) -> String {
-    format!("Configure browser use for client {label}: credential {credential} ({}), fields {}. Exact permitted origins for BOTH page and selected frame: {}. An empty origin list removes permission. This resets remembered fills using this credential; future fills need a native decision unless you explicitly remember their exact use. Websites receive the filled values; other browser tools can observe them. Allow?",rule.credential_ref,rule.field_names.join(", "),rule.origins.join(", "))
+    format!("Configure saved browser use\nClient: {label:?}\nCredential: {credential:?}\nFields: {}\n\nResets remembered fills for this credential.\nFuture use needs approval or an exact-use grant.\nWebsites receive the values; other browser tools may read them.{}Credential reference: {}\nExact permitted origins for BOTH page and frame (empty removes access):\n{}", rule.field_names.join(", "), magicvault_prompt::DETAILS_SEPARATOR, rule.credential_ref, rule.origins.join("\n"))
 }
 
 fn fill_prompt(label: &str, request: &SecureFill, target: &Target) -> String {
@@ -233,22 +233,18 @@ fn fill_prompt(label: &str, request: &SecureFill, target: &Target) -> String {
         .iter()
         .map(|f| format!("{}:{} -> {:?}", f.credential_ref, f.credential_field, f.css))
         .collect::<Vec<_>>()
-        .join("; ");
-    format!("Allow ONE credential fill for client {label}? Browser handle: {}. Page: {}. Selected frame: {}. Requested fields (untrusted selectors): {selections}. No form submission is requested. The website receives these values and other browser tools may read them.",request.browser_handle,target.top_origin,target.origin)
+        .join("\n");
+    format!("Fill saved credentials\nClient: {label:?}\nWebsite: {}\nFrame: {} ({})\nFields: {}\n\nThe website receives the values; other browser tools may read them.\nNo form submission.{}Browser handle: {}\n{}", target.top_origin, target.origin, if target.is_main_frame { "main page" } else { "iframe" }, request.fields.iter().map(|f| f.credential_field.as_str()).collect::<Vec<_>>().join(", "), magicvault_prompt::DETAILS_SEPARATOR, request.browser_handle, selections)
 }
 
 impl Broker {
-    #[cfg(unix)]
     pub(crate) async fn accept_native(
         self: &Arc<Self>,
-        mut stream: tokio::net::UnixStream,
+        mut stream: magicvault_primitives::local_ipc::Stream,
     ) -> Result<(), ErrorCode> {
         use crate::native::{NativeGreeting, NativeHello, NATIVE_VERSION};
         use magicvault_effect::bridge::{self, NativeBridge};
-        if !stream
-            .peer_cred()
-            .is_ok_and(|p| p.uid() == unsafe { libc::geteuid() })
-        {
+        if !magicvault_primitives::local_ipc::same_user(&stream) {
             return Err(ErrorCode::Unauthorized);
         }
         let cancel = self.shutdown.child_token();
@@ -911,7 +907,11 @@ impl Broker {
         } else {
             "this exact extension profile, including after reconnect/restart"
         };
-        let message = format!("{}\nAllow once asks again next time. Always allow remembers this paired client, {lifetime}, exact page/frame origins, main-frame versus iframe, and the full credential/selector mapping (not a single tab or document). Revoke with list-consents/revoke-consent. Site permission and document checks still apply.", fill_prompt(&label, &request, &bound.target));
+        let base = fill_prompt(&label, &request, &bound.target);
+        let (summary, details) = base
+            .split_once(magicvault_prompt::DETAILS_SEPARATOR)
+            .expect("trusted prompt separator");
+        let message = format!("{summary}\n\nAllow once asks again next time.\nAlways allow lasts for {lifetime}.{}{}\nRemembered scope: this client, browser identity, exact page/frame origins, frame kind and full field mapping; not a single tab/document.\nRevoke with list-consents/revoke-consent. Site permission and document checks still apply.", magicvault_prompt::DETAILS_SEPARATOR, details);
         let decision = consent.decide(self.human.as_ref(), &message, cancel.clone());
         tokio::pin!(decision);
         let confirmed = tokio::select! {

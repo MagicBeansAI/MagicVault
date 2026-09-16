@@ -78,9 +78,11 @@ def snapshot(root):
         if (root / "npm/README.md").exists():
             distribution.append(root / "npm/README.md")
         distribution += [root / name for name in (
-            "scripts/package-npm.mjs", "scripts/qualify-package.mjs", "scripts/process-investigation.mjs",
+            ".gitattributes", "scripts/package-npm.mjs", "scripts/release-npm.mjs", "scripts/qualify-package.mjs", "scripts/process-investigation.mjs",
             "scripts/sign-release.sh", ".github/workflows/distribution.yml",
             ".github/workflows/qualification.yml", ".github/workflows/process-investigation.yml",
+            ".github/workflows/desktop-platforms.yml",
+            ".github/workflows/npm-alpha.yml",
         ) if (root / name).exists()]
         for source in sorted(distribution):
             files[source.relative_to(root).as_posix()] = digest(source)

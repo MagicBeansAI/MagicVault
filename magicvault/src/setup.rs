@@ -32,7 +32,7 @@ fn paths(root: PathBuf, app: Option<PathBuf>) -> Result<(PathBuf, PathBuf), Erro
     ))
 }
 fn supported() -> Result<(), ErrorCode> {
-    if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+    if installation::platform() != "unsupported" {
         Ok(())
     } else {
         Err(ErrorCode::Unavailable)
@@ -258,7 +258,7 @@ async fn drained_with_timeout(
     .map_err(|_| ErrorCode::TransportUncertain)?
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
     use std::{fs, os::unix::fs::PermissionsExt};

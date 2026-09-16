@@ -1,5 +1,6 @@
 # Capability coverage
 
+See [desktop platforms and validation](platforms.md) for host requirements.
 The destination matters as much as the interface. Browser fills attach to an
 existing session; process and HTTP operations create a **new, fixed-profile**
 invocation. They do not offer arbitrary secret-bearing commands or URLs.
@@ -12,7 +13,7 @@ invocation. They do not offer arbitrary secret-bearing commands or URLs.
 | **Browser accessible only through a driver's private pipe, or a remote CDP endpoint** | **Not directly** | Configure an accessible local browser websocket, or use the headed extension path where installation is possible. An arbitrary browser/driver cannot be attached automatically. |
 | **Embedded browser frames** | **Conditional** | CDP supports frames addressable through the attached page session. The extension uses explicit document/frame targeting and site permissions. Both top-page and frame origins must be allowed; opaque origins are refused. Broader cross-process frame compatibility is not claimed. |
 | **New HTTP(S) requests** — `GET`, `HEAD`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`, `TRACE` and supported custom methods | **Yes — `secure_new_http`** | Human-registered exact URL/method and header/query/text/form/flat-JSON credential placements. Public HTTPS; plain HTTP only to explicit loopback IPs. No CONNECT, redirects, ambient proxy, retries, custom CA or insecure TLS switch. Responses, headers and raw status codes are withheld. |
-| **New processes / command-line programs** | **Yes — `secure_new_process`** | Human-registered executable/arguments/cwd, environment and/or stdin slots; native per-use consent or a human-created exact-profile Always allow grant. MagicRun owns bounded batch execution and cleanup. Executable bytes are checked against the registered digest. No credential arguments, interactive terminal or raw stdout/stderr/exit-code return. |
+| **New processes / command-line programs** | **macOS/Linux — `secure_new_process`; Windows refused** | Human-registered executable/arguments/cwd, environment and/or stdin slots; native per-use consent or a human-created exact-profile Always allow grant. MagicRun owns bounded batch execution and cleanup. Executable bytes are checked against the registered digest. No credential arguments, interactive terminal or raw stdout/stderr/exit-code return. |
 | **Already-running processes / interactive terminals** | **Not implemented** | Requires a cooperating input, IPC or credential-provider integration. There is no generic “inject into this PID” or live environment-rewrite capability. |
 | **Stateful services / long-lived API clients** | **Not implemented** | Credential refresh, connection pools and existing sessions need an explicit service/provider adapter. Synthetic service-rotation fixtures are preparation, not a working product integration. |
 | **Native application password fields / non-Chromium browsers** | **Not implemented** | No accessibility, OS-level secure typing, Firefox or Safari adapter is provided. |

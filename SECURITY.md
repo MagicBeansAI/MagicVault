@@ -39,6 +39,15 @@ records contain them. Cancellation or expiry before dispatch discards the inputs
 The same document validation, status-only results and no-replay rules apply.
 See [one-time input](docs/jit-credentials.md).
 
+Standalone prompts use the same shipped desktop helper on macOS, Linux and
+Windows. The daemon sends bounded metadata through private stdin and accepts
+only the expected reply kind through private stdout. Missing desktop/keyring,
+helper failure, cancellation and disconnect fail closed. Windows uses protected
+local named pipes and private filesystem DACLs; Linux uses a session keyring and
+systemd user service. Native execution/acceptance status and filesystem durability
+differences are recorded in [desktop platforms](docs/platforms.md). Windows
+governed process delivery remains explicitly unsupported.
+
 ## What this does not protect against
 
 - The destination website receives its credentials and can copy or transmit them.

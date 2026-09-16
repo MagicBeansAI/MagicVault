@@ -3,7 +3,9 @@
   <p><strong>Let agents use credentials without seeing them</strong></p>
   <p>
     <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/source-v0.9.0%20alpha-7C3AED.svg" alt="Source version 0.9.0 alpha" /></a>
-    <a href="#quick-start"><img src="https://img.shields.io/badge/standalone-macOS-lightgrey.svg" alt="Standalone host: macOS" /></a>
+    <a href="docs/platforms.md"><img src="https://img.shields.io/badge/macOS-alpha-orange.svg" alt="macOS alpha" /></a>
+    <a href="docs/platforms.md"><img src="https://img.shields.io/badge/Linux-alpha-orange.svg" alt="Linux alpha" /></a>
+    <a href="docs/platforms.md"><img src="https://img.shields.io/badge/Windows-alpha-orange.svg" alt="Windows alpha" /></a>
     <a href="#license"><img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg" alt="MIT or Apache-2.0 license" /></a>
   </p>
   <p>
@@ -21,19 +23,21 @@ in a native prompt when needed. The agent gets a status receipt without the valu
 
 ![Real MagicVault MCP setup, native credential entry, Codex website login and transcript audit](docs/assets/magicvault-mcp-full-demo.gif)
 
-*Full 1:47 demo: enable MCP, enroll credentials, approve a real Codex login,
-then inspect the transcript for credential values. Actual screens, edited for readability.
+*Saved-credential demo (0.8.3), 1:47: enable MCP, enroll credentials, approve a real Codex login,
+then inspect the transcript for credential values. Actual screens, edited for readability. The new one-time flow is not in this recording.
 [Watch the MP4](docs/assets/magicvault-mcp-full-demo.mp4) · [Recording and audit details](docs/demo.md).*
 
 This protects MagicVault's own tool calls and replies. Authorized recipients see
 the credential, and separate browser tools can still read it afterward.
 
 > [!WARNING]
-> **Source alpha.** No public release or npm registry installation yet; local
-> candidate packages only. Basic installed-browser/keychain/native-consent and
+> **Alpha on macOS, Linux and Windows.** npm launch preparation is in place;
+> packages have not been published yet. Basic installed-browser/keychain/native-consent and
 > selected remembered-use, permission/recovery and cancellation cases passed on
 > one macOS/Chrome setup. Broader recovery, startup/process-delivery reliability
 > and signed-release qualification remain open.
+> Linux source/UI checks and Windows compilation checks are recorded separately;
+> the badges do not imply completed desktop acceptance on every OS.
 > Start with synthetic credentials. [Evidence and limits](docs/testing.md).
 
 ## How it works
@@ -47,6 +51,23 @@ the credential, and separate browser tools can still read it afterward.
 3. **MagicVault checks and delivers.** The agent receives only a receipt. Your
    browser tool still owns navigation and submission.
 
+### Save for later, or enter only when needed
+
+| Your task | What you do | What the agent receives |
+| --- | --- | --- |
+| A frequent login | Enroll username/password once; approve its destination | Credential reference and fill status |
+| A one-off login with nothing saved | Enter the values when MagicVault asks; choose **Use once** | Field names and fill status |
+| Reusable card details | Enroll named fields such as cardholder, number and expiry | Record metadata; values still require approved delivery |
+
+Cards are generic field records, not a payment manager or permission to pay.
+For the demo, use synthetic card data. Enrollment is optional for one-time browser
+use; the vault can be empty. [Saved records and one-time use](docs/jit-credentials.md).
+
+The desktop prompt shows a short summary, masked input and expandable **Request
+details**. MagicVault writes the text from validated request metadata; the agent
+supplies field names/selectors, never your answer or an approval.
+[Who writes the prompts and how the window works](docs/prompts.md).
+
 <a id="choose-your-interface"></a>
 
 Use **MCP** with Codex, Claude Code or another local agent. Prefer the
@@ -55,9 +76,14 @@ Use **MCP** with Codex, Claude Code or another local agent. Prefer the
 
 ## Quick start
 
-Requires **macOS Apple Silicon**, a logged-in desktop session and **Node.js 22+**
-for npm launchers. No Rust toolchain is needed to use prebuilt candidates.
+Requires a logged-in desktop session and **Node.js 22+** for npm launchers.
+Source backends cover macOS, Linux and Windows; see the
+[platform requirements and validation status](docs/platforms.md).
+The commands below use the macOS Apple Silicon candidate; select matching tarballs for your OS/CPU. No Rust toolchain is needed to use prebuilt candidates.
 This is local stdio MCP—not a hosted endpoint or unattended credential access.
+
+The upcoming npm release will use the explicit `alpha` channel. Until it is
+published, use the local candidates below. Maintainers: [npm launch procedure](docs/npm-release.md).
 
 ### 1. Install and set up a local candidate
 

@@ -4,8 +4,10 @@ The daemon owns one `SecretStore` and a process-held exclusive instance lease.
 Magician independently embeds the same core in its own root with its existing
 identity; it does not adopt this service or its policy/profile files.
 
-The Unix socket is `ROOT/rpc.sock`, mode 0600 under a private owned directory.
-Both sides verify peer effective UID. A random 256-bit paired capability further
+On macOS/Linux, the Unix socket is `ROOT/rpc.sock`, mode 0600 under a private
+owned directory; both sides verify peer effective UID. Windows uses local named
+pipes bound to the canonical root, endpoint and user SID, with an owner/SYSTEM
+DACL, remote clients refused and same-user peer verification. A random 256-bit paired capability further
 selects the client; the registry stores only its SHA-256 digest. Bootstrap pairing
 is same-user plus a real daemon-owned native decision. MCP cannot invoke it.
 
@@ -79,8 +81,11 @@ MCP translates `request_approval` to `request_access`, and `vault_status` to
 `status`. Its catalog is a fixed subset, not automatic exposure of every request.
 Use the [official SDK](https://github.com/modelcontextprotocol/rust-sdk) for MCP
 protocol/lifecycle; no custom MCP wire protocol is implemented here. Native hidden
-input uses [Apple's documented dialog facility](https://developer.apple.com/library/archive/documentation/LanguagesUtilities/Conceptual/MacAutomationScriptingGuide/PromptforText.html)
-with a fixed script, metadata argv, private bounded answer pipe and discarded stderr.
+input uses the sibling `magicvault-prompt` desktop executable on all three OSes.
+Its separate private pipe uses a four-byte big-endian length followed by versioned
+JSON metadata, and a typed bounded answer. No metadata or values travel in argv.
+The daemon owns the wording; expandable details preserve exact request scope.
+See [prompt behavior and ownership](prompts.md).
 
 ## Persistence and cancellation
 
@@ -94,7 +99,10 @@ replacement, migration, automatic data cleanup or ambient credential discovery.
 Initialization syncs the parent entry naming the private root before creating
 its key/identity. Shared durable byte writers create staging files exclusively
 with the requested mode before any payload, sync data and permissions, rename,
-then sync the destination parent. Bare relative filenames use `.` as that parent.
+then sync the destination parent on Unix. Bare relative filenames use `.` as that
+parent. Windows applies a private DACL at creation, flushes file contents and
+uses write-through replacement; it does not claim Unix directory-fsync durability.
+See [platform differences](platforms.md#installation-and-recovery-differences).
 
 Standalone decisions use the opt-in `try_audit_event_durably` core method: append,
 sync the journal, sync its directory, then sync the parent naming that directory,

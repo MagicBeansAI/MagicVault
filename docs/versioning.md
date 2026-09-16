@@ -17,13 +17,14 @@ binary release, extension store listing or production-safety certification.
 | `magicvault` CLI, daemon and native-host executable | Package `0.9.0` | Matching wire-5 bundle; CLI-only consent inspection/revocation; native-host forwarding |
 | `magicvault-mcp` | Package `0.9.0` | Matching value-free client; no tool can grant consent |
 | `magicvault-service` | `0.9.0` | One-time native input, exact-use consent, bounded durable grants and revocation; destination, installation and custody checks retained |
-| `magicvault-effect` | `0.7.0` | Public protocol dependency advances; runtime adapters retained |
+| `magicvault-effect` | `0.7.1` | Shared native bridge supports Unix sockets and Windows named pipes; Windows process use fails closed |
+| `magicvault-prompt` | `0.9.0` | Shared desktop renderer and versioned private pipe contract; ship beside daemon |
 | `magicvault-protocol` | `0.7.0` | Closed prompt-and-fill request; existing request framing and receipts retained |
 | Chromium extension | Manifest `0.6.1` | Permission-filtered, loaded-tab discovery with exact narrowing; document binding, fixed identity, reconnect/backoff, pause and site controls retained |
 | Local agent protocol | Wire version `5` | Version mismatches fail closed; not the package version |
 | Native connection | Handshake `2`; effect/config schemas `1` | Matching extension/host/daemon required; no silent downgrade |
 | `magicvault-core` | `0.1.3`, unchanged | Existing embedded custody/API/vault format/key identity retained |
-| `magicvault-primitives` | `0.1.1`, unchanged | Existing utility contract retained |
+| `magicvault-primitives` | `0.1.2` | Add owner-only Windows filesystem and shared local-stream helpers; existing Unix durability retained |
 | MagicRun `tool-runtime-core` | Public Git dependency `0.1.74` | Public coordinator unchanged; non-jailed macOS launch uses descriptor-bound native spawn; exact source in Cargo.lock |
 | `magicvault-test-support` | `0.4.0`, `publish = false` | Test-only, not a production surface |
 
@@ -31,8 +32,11 @@ The preceding source version was `0.8.3`, using local agent wire `4`. The new
 closed prompt-and-fill request advances wire to `5`; mismatched clients and
 daemons fail closed. Upgrade the standalone bundle together. Protocol/effect
 minor versions mark the public type addition and dependency change. Native
-bridge schemas, registry/vault formats, key identity, extension, core, primitives
-and the pinned MagicRun source are unchanged. Custom `HumanInteraction` hosts
+bridge schemas, registry/vault formats, key identity, extension, core and the
+pinned MagicRun source are unchanged. Platform backends and the standalone
+prompt executable are new; [requirements and validation](platforms.md) differ
+by OS. Primitives adds Windows operations with a documented platform-specific
+durability contract. Custom `HumanInteraction` hosts
 compile with the new default method but must explicitly implement `secret_once`
 to support one-time collection; the default returns `unavailable`.
 
@@ -69,7 +73,7 @@ release or store listing is asserted.
 
 For managed installations, update matching npm packages and explicitly run
 `magicvault upgrade`; npm itself never replaces a daemon. For manual installations,
-stop the daemon, use matching 0.9.x CLI/MCP/native-host binaries and extension 0.6.x,
+stop the daemon, use matching 0.9.x CLI/MCP/native-host/prompt binaries and extension 0.6.x,
 then restart and rediscover fresh handles. Run `magicvault setup` (or source
 `extension install`) to select the fixed bundled identity. The old path-derived
 extension may need removal/reloading and explicit restoration of grants/blocks;

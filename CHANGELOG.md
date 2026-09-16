@@ -5,8 +5,12 @@ Entries describe source changes, not publication announcements. See
 [release acceptance checklist](docs/qualification/release.md) and
 [version-specific test evidence](docs/qualification/README.md#evidence-records).
 
-## 0.9.0 — One-time browser credentials — 2026-09-16 (source candidate)
+## 0.9.0 — One-time credentials and desktop prompts — 2026-09-16 (source candidate)
 
+- Mark macOS, Linux and Windows as alpha in project/npm README badges. Prepare a
+  manual six-platform npm build and publication workflow using `NPM_TOKEN`,
+  complete tarball verification, native-first publication, the `alpha` channel
+  and scope-specific install instructions. Nothing is published automatically.
 - Add `secure_prompt_fill` to MCP, `secure-prompt-fill` to the CLI and
   `securePromptFill` to the Node SDK. Collect hidden native inputs when needed,
   require a final Use once decision, fill the captured browser document and
@@ -15,9 +19,22 @@ Entries describe source changes, not publication announcements. See
   revocation, audit and partial/uncertain outcome handling. Add empty-vault,
   value-free persistence, CLI/MCP and SDK integration coverage with synthetic
   human/browser peers. New native UI acceptance remains pending.
-- CLI/MCP/service advance to `0.9.0`, protocol/effect to `0.7.0`, local agent wire
-  to `5`; update the matching standalone bundle together. Core/primitives, vault
-  formats, extension and MagicRun remain unchanged. A separate Magician source
+- Replace AppleScript dialogs with a shared Rust desktop prompt for macOS,
+  Linux and Windows: masked entry, a readable summary, expandable exact request
+  details and explicit one-time/remembered choices. The daemon controls wording;
+  credential answers stay on private pipes. No web page or agent HITL reply
+  carries standalone credential values.
+- Add Linux Secret Service and systemd user-service backends; Windows Credential
+  Manager, private DACLs, same-user named pipes, an interactive scheduled task,
+  graceful stop event and Chromium native registration. Extend npm package
+  assembly and selection to OS/CPU-specific native bundles. Qualification is
+  reported separately; Windows governed process delivery remains unsupported.
+- Document optional login/card-field enrollment, one-time input with an empty
+  vault, prompt ownership and the next real saved-plus-one-time MCP demo.
+- CLI/MCP/service advance to `0.9.0`, protocol to `0.7.0`, effect to `0.7.1`, primitives to `0.1.2`, and local agent wire
+  to `5`; update the matching standalone bundle together. Core, vault formats,
+  extension and MagicRun remain unchanged. New primitives add Windows filesystem
+  and local-stream support; existing Unix custody behavior is retained. A separate Magician source
   integration adds private HITL through the shared browser adapter; its rollout
   is independent of this standalone upgrade.
 

@@ -1,9 +1,11 @@
 # Installation and distribution
 
-MagicVault has a native Rust application, an npm launcher and a typed Node client. MCP is a stdio
+MagicVault has a native Rust application, an npm launcher and a typed Node client. macOS,
+Linux and Windows are alpha. The [npm alpha launch workflow](npm-release.md) is
+prepared; adding it does not publish packages. MCP is a stdio
 protocol, not a requirement to implement custody in JavaScript. The npm package
 exposes `magicvault` and `magicvault-mcp`; its exact-version optional dependency
-contains the three compiled executables, unpacked extension, reference-only
+contains the four compiled executables (CLI/daemon, MCP, native host and prompt window), unpacked extension, reference-only
 examples and licenses. There are no installation scripts, runtime downloads,
 Rust compilation, shell-command construction or raw credential handling in Node.
 The package also exports a [Node/TypeScript SDK](typescript.md) that invokes the
@@ -14,11 +16,11 @@ native CLI with reference-only requests and validates its closed replies. npm
 
 | Surface | Implemented distribution | Current limit |
 | --- | --- | --- |
-| CLI, MCP and Node/TypeScript SDK | Local npm tarballs with prebuilt native executables | macOS Apple Silicon; Node 22+; not published to npm yet |
-| Daemon | Explicit native `setup`, private stable install and user LaunchAgent | Interactive macOS desktop for consent/keychain; not started by npm/MCP |
+| CLI, MCP and Node/TypeScript SDK | OS/CPU-specific local npm tarballs | Node 22+; not published to npm yet; see [platform validation](platforms.md) |
+| Daemon | Explicit native `setup`, private stable install and user-session service | macOS Keychain / Linux Secret Service / Windows Credential Manager; interactive desktop required |
 | Chromium extension and native host | Assets bundled; normal `setup` registers the fixed ID; independent automatic profile connections | Load unpacked manually; Chrome/Chromium only; no Web Store listing |
 | Rust embedders | Existing core/primitives and standalone crate sources | Core API/format unchanged; no dependency on npm or managed setup |
-| Intel macOS, Linux, Windows prebuilt packages | Not shipped | Additional native custody/UI/service backends and qualification required |
+| Intel macOS, Linux, Windows packages | Assembly and source backends implemented | Per-platform build and desktop acceptance are separate; no public binaries announced |
 | Apple-verified release, registry provenance | Release procedure provided | No signing, notarization or publication performed by this change |
 
 The candidate scope `@magicvault-local` is for **local tarballs only**. A maintainer
@@ -41,8 +43,8 @@ magicvault setup --install-only
 ```
 
 Defaults are `~/.magicvault-app` for application files and `~/.magicvault` for
-custody. Custom parents must already exist; roots must not overlap. Vault paths
-remain private, absolute and at most 85 bytes for the Unix socket. Do not run as
+custody. Custom parents must already exist; roots must not overlap. Vault paths remain private and absolute. Unix roots are at most 85 bytes for
+the socket; Windows uses named pipes and `USERPROFILE` for the default home. Do not run as
 root/sudo, point at Magician's data, or put credentials in paths, labels or profile
 names. No setup operation grants browser/process/HTTP delivery authority.
 
@@ -90,9 +92,10 @@ magicvault --profile agent doctor
 ```
 
 The npm update alone leaves the daemon untouched. Explicit upgrade verifies and
-stages a complete immutable bundle, checks the exact owned LaunchAgent, unloads
-it when loaded, waits for the daemon's single-writer lease, then atomically switches
-the private `current` symlink. The same stable daemon/MCP/native-host paths select
+stages a complete immutable bundle, checks the exact owned user service, stops
+it when loaded and waits for the daemon's single-writer lease. Unix atomically
+switches the private `current` symlink. Windows replaces a directory junction
+with an explicit recovery boundary; see [platform differences](platforms.md#installation-and-recovery-differences). The same stable daemon/MCP/native-host paths select
 the new version. A previously loaded service is restarted and readiness checked.
 An application-only installation can upgrade without creating custody. Downgrades
 are refused. Old complete bundles are retained, not automatically pruned.
@@ -133,7 +136,7 @@ magicvault uninstall
 ```
 
 Uninstall unloads an exact owned service, waits for its lease, removes only matching
-native/LaunchAgent definitions, and renames the private app directory to a unique
+native/service definitions, and renames the private app directory to a unique
 `.uninstalled-UUID` sibling. It **preserves vaults, keychain identities and pairing
 files**. The app archive remains recoverable. Remove the extension in Chrome,
 the MCP configuration and the npm launcher separately. This is not credential
@@ -150,8 +153,20 @@ can leave some integrations removed; they do not claim a successful rollback.
 
 ## Build local candidates
 
-Maintainers need the [Rust toolchain](setup.md#rust-toolchain), Node 22+ and
-macOS arm64. The scope is explicit; assembly never publishes:
+Use `--platform` to select `darwin-arm64`, `darwin-x64`, `linux-arm64`,
+`linux-x64`, `win32-x64` or `win32-arm64`. The packager verifies native binary
+headers/architecture and includes `magicvault-prompt` (with `.exe` on Windows).
+Build all four executables with `make build-standalone`, or the equivalent Cargo
+command with `-p magicvault-prompt --features magicvault-prompt/desktop`. The
+launcher package metadata is identical across platform builds and names exact
+optional dependencies for each target. No assembly command publishes to npm.
+
+
+The existing packaged-install qualification lane below runs on macOS arm64 and
+needs the [Rust toolchain](setup.md#rust-toolchain) and Node 22+. Other platform
+builds use the same assembler with their matching binaries; this historical
+qualification lane is not a Windows/Linux desktop acceptance claim.
+The scope is explicit; assembly never publishes:
 
 ```bash
 export CARGO_TARGET_DIR="$(make -s print-target-dir)"
@@ -171,7 +186,7 @@ Workflow execution is distinct from adding the workflow to the source tree.
 
 ## What gets signed?
 
-Sign **`magicvault`, `magicvault-mcp` and `magicvault-native-host`**, the compiled
+Sign **`magicvault`, `magicvault-mcp`, `magicvault-native-host` and `magicvault-prompt`**, the compiled
 Mach-O executables. The CLI binary also runs the daemon. Do not sign Rust source
 or a Cargo crate as if that established executable identity. MagicRun is linked
 into the native application; users do not install or sign it separately.
@@ -195,7 +210,7 @@ sh scripts/sign-release.sh "$CARGO_TARGET_DIR/release"
 # Only after Accepted: assemble fresh packages from those exact signed bytes.
 ```
 
-The script signs all three executables with hardened runtime and a timestamp,
+The script signs all four executables with hardened runtime and a timestamp,
 verifies their signatures, and notarizes an archive. It modifies the supplied
 release binaries and retains the private notarization result outside the repo.
 Do not commit certificates, private keys, passwords or signing logs. Never sign

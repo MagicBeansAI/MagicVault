@@ -171,6 +171,26 @@ fn manifests() -> Result<Vec<PathBuf>, ErrorCode> {
         .collect())
 }
 
+#[cfg(target_os = "linux")]
+fn manifests() -> Result<Vec<PathBuf>, ErrorCode> {
+    let home = PathBuf::from(std::env::var_os("HOME").ok_or(ErrorCode::Unavailable)?);
+    let config = std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home.join(".config"));
+    if !config.is_absolute() {
+        return Err(ErrorCode::InvalidRequest);
+    }
+    Ok(["google-chrome", "chromium", "microsoft-edge"]
+        .iter()
+        .map(|browser| {
+            config
+                .join(browser)
+                .join("NativeMessagingHosts")
+                .join(format!("{HOST_NAME}.json"))
+        })
+        .collect())
+}
+
 /// A read-only snapshot of this root's native registration, not an inventory of
 /// installed browser extensions. Missing files are reported; foreign/unsafe
 /// definitions fail closed. No lock, registration or pairing is created.
@@ -181,7 +201,7 @@ pub struct RegistrationInspection {
     pub missing_files: Vec<PathBuf>,
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(unix)]
 pub fn inspect_registration(root: &Path) -> Result<Option<RegistrationInspection>, ErrorCode> {
     if !exists(&config_path(root))? {
         return Ok(None);
@@ -189,7 +209,7 @@ pub fn inspect_registration(root: &Path) -> Result<Option<RegistrationInspection
     inspect_definitions(root, &manifests()?)
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(unix, windows)))]
 pub fn inspect_registration(_: &Path) -> Result<Option<RegistrationInspection>, ErrorCode> {
     Err(ErrorCode::Unavailable)
 }
@@ -267,7 +287,7 @@ fn validate_executable(executable: &Path) -> Result<(), ErrorCode> {
     Ok(())
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(unix)]
 pub fn install(
     root: &Path,
     profile: &str,
@@ -434,7 +454,7 @@ fn exclusive_write(path: &Path, bytes: &[u8], mode: u32) -> Result<(), ErrorCode
         .map_err(|_| ErrorCode::PersistenceUncertain)
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(unix)]
 pub fn remove(root: &Path) -> Result<(), ErrorCode> {
     let _lock = definition_lock(root)?;
     let config_file = config_path(root);
@@ -480,11 +500,11 @@ pub fn remove(root: &Path) -> Result<(), ErrorCode> {
         .map_err(|_| ErrorCode::PersistenceUncertain)
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(unix, windows)))]
 pub fn install(_: &Path, _: &str, _: &str, _: &Path) -> Result<(), ErrorCode> {
     Err(ErrorCode::Unavailable)
 }
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(unix, windows)))]
 pub fn remove(_: &Path) -> Result<(), ErrorCode> {
     Err(ErrorCode::Unavailable)
 }
@@ -746,3 +766,9 @@ mod tests {
         assert!(load_config(&file, &origin).is_err());
     }
 }
+
+#[cfg(windows)]
+#[path = "native_windows.rs"]
+mod windows;
+#[cfg(windows)]
+pub use windows::{inspect_registration, install, remove};

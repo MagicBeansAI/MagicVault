@@ -121,7 +121,7 @@ fixture-site:
 	node scripts/serve-browser-fixtures.mjs
 
 build-standalone:
-	cargo build --locked --release -p magicvault -p magicvault-mcp
+	cargo build --locked --release -p magicvault -p magicvault-mcp -p magicvault-prompt --features magicvault-prompt/desktop
 
 # Source packaging only, no browser launch or extension/host installation.
 package-extension:

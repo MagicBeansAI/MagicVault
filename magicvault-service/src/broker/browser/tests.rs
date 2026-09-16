@@ -204,7 +204,7 @@ impl HumanInteraction for Human {
             self.native_prompts.fetch_add(1, Ordering::SeqCst);
             return Ok(!self.deny_native.load(Ordering::SeqCst));
         }
-        if message.starts_with("Allow ONE") {
+        if message.starts_with("Fill saved credentials") {
             self.prompts.fetch_add(1, Ordering::SeqCst);
             if self.block_fill.load(Ordering::SeqCst) {
                 cancel.cancelled().await;

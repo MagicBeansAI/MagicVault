@@ -356,5 +356,18 @@ fn maximal_one_time_prompt_stays_within_native_display_bound() {
     };
     let context =
         super::super::prompt::prompt_context(&"l".repeat(80), &"b".repeat(80), &request, &target);
-    assert!(context.len() + 1500 < crate::human::MAX_PROMPT_BYTES);
+    use super::super::prompt::{confirmation_message, input_message};
+    let confirmation = confirmation_message(&context, &request);
+    assert!(confirmation.len() <= crate::human::MAX_PROMPT_BYTES);
+    for (i, field) in request.fields.iter().enumerate() {
+        let input = input_message(&context, &request, i);
+        assert!(input.len() <= crate::human::MAX_PROMPT_BYTES);
+        for text in [&input, &confirmation] {
+            assert!(text.contains(&target.origin));
+            assert!(text.contains(&target.top_origin));
+            assert!(text.contains(&request.browser_handle.to_string()));
+            assert!(text.contains(&format!("{:?}", field.css)));
+            assert!(text.contains(&field.field_name));
+        }
+    }
 }

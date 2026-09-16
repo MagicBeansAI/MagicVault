@@ -567,7 +567,7 @@ impl Broker {
             Ok(())
         })
         .await?;
-        if !self.human.confirm(&format!("Pair local client {label} with MagicVault? It can request enrollment and metadata access, but cannot approve itself or read credential values. Only allow the client you just started."), self.shutdown.clone()).await? { return Err(ErrorCode::Denied); }
+        if !self.human.confirm(&format!("Pair this client?\nClient: {label:?}\n\nIt may request storage and credential metadata.\nValues and delivery still need separate approval.\nOnly allow the client you just started."), self.shutdown.clone()).await? { return Err(ErrorCode::Denied); }
         let mut random = Zeroizing::new([0u8; 32]);
         rand::rngs::OsRng.fill_bytes(&mut *random);
         let token = Zeroizing::new(hex::encode(*random));
@@ -623,7 +623,7 @@ impl Broker {
             })
             .await?;
         let deadline = Instant::now() + Duration::from_secs(CONSENT_TTL_SECS);
-        if !self.human.confirm(&format!("Client {peer_label} requests enrolling {} with fields {}. Names/label are non-secret metadata. Values are collected next in hidden prompts. This does not permit browser, HTTP or process delivery. Allow?", params.label, params.field_names.join(", ")), self.shutdown.clone()).await? { return Err(ErrorCode::Denied); }
+        if !self.human.confirm(&format!("Save a credential?\nClient: {peer_label:?}\nRecord: {}\nFields: {}\n\nEnter values privately in the next windows.\nThis permits storage only; delivery needs separate approval.", params.label, params.field_names.join(", ")), self.shutdown.clone()).await? { return Err(ErrorCode::Denied); }
         let mut fields = SecretInput(HashMap::new());
         for field in &params.field_names {
             let remaining = deadline.saturating_duration_since(Instant::now());
@@ -631,7 +631,7 @@ impl Broker {
                 return Err(ErrorCode::Expired);
             }
             let cancel = self.shutdown.child_token();
-            let message = format!("Enroll {} for {peer_label}: enter {field}. Do not put credentials in names, terminal commands or chat.", params.label);
+            let message = format!("Record: {}\nClient: {peer_label:?}\nField: {field:?}\n\nEnter the value here, never in chat or commands.", params.label);
             let input = self.human.secret(&message, cancel.clone());
             tokio::pin!(input);
             let mut value = tokio::select! {

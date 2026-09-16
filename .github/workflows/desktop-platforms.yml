@@ -1,0 +1,38 @@
+name: Desktop platform checks
+on:
+  workflow_dispatch:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    env:
+      CARGO_BUILD_JOBS: '2'
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - name: Rust toolchain
+        run: |
+          rustup toolchain install 1.92.0 --profile minimal
+          rustup override set 1.92.0
+      - name: Linux desktop libraries
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libxkbcommon-x11-0 libwayland-dev libx11-dev libxrandr-dev libxi-dev libxcursor-dev libgl1-mesa-dev
+      - name: Native compile including the real desktop renderer
+        run: cargo check --locked -p magicvault -p magicvault-mcp -p magicvault-prompt --features magicvault-prompt/desktop
+      - name: Private IPC, filesystem, prompt and service tests
+        run: cargo test --locked -p magicvault-primitives -p magicvault-prompt -p magicvault-service --lib
+      - name: Package platform selection and integrity
+        run: node --test scripts/tests/platform-packages.test.mjs
+      - name: Architecture drift
+        run: python scripts/check_architecture.py

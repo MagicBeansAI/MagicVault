@@ -198,7 +198,7 @@ test('assembly includes only explicit assets and exact platform dependency, with
   assert.equal(main.scripts, undefined); assert.equal(native.scripts, undefined);
   assert.deepEqual(native.os, ['darwin']); assert.deepEqual(native.cpu, ['arm64']);
   const manifest = JSON.parse(fs.readFileSync(path.join(f.output, 'native/bundle.json')));
-  assert.equal(Object.keys(manifest.files).length, 14);
+  assert.equal(Object.keys(manifest.files).length, 15);
   assert.equal(fs.existsSync(path.join(f.output, 'native/Cargo.lock')), false);
   assert.throws(f.build); // Cannot overwrite an output directory.
 });

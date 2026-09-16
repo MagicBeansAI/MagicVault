@@ -306,6 +306,8 @@ async fn run(cli: Cli) -> Result<serde_json::Value, ErrorCode> {
             Ok(serde_json::json!({"initialized": true, "instance_id": instance.id}))
         }
         Command::Serve => {
+            #[cfg(windows)]
+            let service_root = root.clone();
             let broker = tokio::task::spawn_blocking(move || {
                 Broker::open(storage::open(&root)?, Arc::new(NativeHuman))
             })
@@ -323,9 +325,13 @@ async fn run(cli: Cli) -> Result<serde_json::Value, ErrorCode> {
                         let _ = tokio::signal::ctrl_c().await;
                     }
                 }
-                #[cfg(not(unix))]
+                #[cfg(windows)]
                 {
-                    let _ = tokio::signal::ctrl_c().await;
+                    tokio::select! {
+                        _ = tokio::signal::ctrl_c() => {},
+                        _ = stop.cancelled() => {},
+                        _ = magicvault_service::launch_agent::wait_for_stop(&service_root, stop.clone()) => {},
+                    }
                 }
                 stop.cancel();
             });

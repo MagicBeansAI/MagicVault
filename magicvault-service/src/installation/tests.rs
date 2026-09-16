@@ -34,7 +34,7 @@ impl Fixture {
             serde_json::to_vec(&Bundle {
                 format_version: 1,
                 version: "0.5.0".into(),
-                platform: "darwin-arm64".into(),
+                platform: platform().into(),
                 files,
             })
             .unwrap(),

@@ -2,6 +2,7 @@
   <h1>MagicVault</h1>
   <p><strong>Let agents use credentials without seeing them</strong></p>
   <p>
+    <a href="https://www.npmjs.com/package/@magicbeansai/magicvault"><img src="https://img.shields.io/npm/v/%40magicbeansai%2Fmagicvault.svg" alt="npm version" /></a>
     <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/source-v0.9.0%20alpha-7C3AED.svg" alt="Source version 0.9.0 alpha" /></a>
     <a href="docs/platforms.md"><img src="https://img.shields.io/badge/macOS-alpha-orange.svg" alt="macOS alpha" /></a>
     <a href="docs/platforms.md"><img src="https://img.shields.io/badge/Linux-alpha-orange.svg" alt="Linux alpha" /></a>
@@ -32,8 +33,8 @@ This protects MagicVault's own tool calls and replies. Authorized recipients see
 the credential, and separate browser tools can still read it afterward.
 
 > [!WARNING]
-> **Alpha on macOS, Linux and Windows.** npm launch preparation is in place;
-> packages have not been published yet. Basic installed-browser/keychain/native-consent and
+> **Alpha on macOS, Linux and Windows.** Version 0.9.0 is available on npm as
+> [`@magicbeansai/magicvault`](https://www.npmjs.com/package/@magicbeansai/magicvault). Basic installed-browser/keychain/native-consent and
 > selected remembered-use, permission/recovery and cancellation cases passed on
 > one macOS/Chrome setup. Broader recovery, startup/process-delivery reliability
 > and signed-release qualification remain open.
@@ -80,28 +81,27 @@ Use **MCP** with Codex, Claude Code or another local agent. Prefer the
 Requires a logged-in desktop session and **Node.js 22+** for npm launchers.
 Source backends cover macOS, Linux and Windows; see the
 [platform requirements and validation status](docs/platforms.md).
-The commands below use the macOS Apple Silicon candidate; select matching tarballs for your OS/CPU. No Rust toolchain is needed to use prebuilt candidates.
+npm automatically selects the native package for your OS/CPU (macOS, Linux or
+Windows; x64/ARM64). Keep optional dependencies enabled. No Rust toolchain is needed.
 This is local stdio MCP—not a hosted endpoint or unattended credential access.
 
-The upcoming npm release will use the `latest` channel, with platform support
-still labelled alpha. Pushing a matching version tag starts the release workflow. Until it is
-published, use the local candidates below. Maintainers: [npm launch procedure](docs/npm-release.md).
+Install **one package: `@magicbeansai/magicvault`**. Its platform packages are
+internal dependencies; you do not need to select or install them separately.
+The `latest` channel currently provides 0.9.0; platform support remains alpha.
+An unavailable or invalid native package produces a launcher error.
+Maintainers: [npm release procedure](docs/npm-release.md).
 
-### 1. Install and set up a local candidate
-
-Obtain two matching, trusted tarballs from a maintainer or the
-[candidate build instructions](docs/distribution.md#build-local-candidates).
-These are local filenames, **not published npm package names**.
+### 1. Install and set up
 
 ```bash
-export MAGICVAULT_NPM_DIR="$HOME/.local/share/magicvault-npm"
-npm install --prefix "$MAGICVAULT_NPM_DIR" --ignore-scripts \
-  ./magicvault-local-magicvault-darwin-arm64-0.9.0.tgz \
-  ./magicvault-local-magicvault-0.9.0.tgz
-export PATH="$MAGICVAULT_NPM_DIR/node_modules/.bin:$PATH"
+npm install --global @magicbeansai/magicvault
 magicvault --profile agent setup
 magicvault --profile agent doctor
 ```
+
+For your own Node/TypeScript project, use `npm install @magicbeansai/magicvault`.
+See the [SDK guide](docs/typescript.md). Local tarballs remain available through
+the [candidate build instructions](docs/distribution.md#build-local-candidates).
 
 Explicit `setup`, not npm, installs the app/service/native host and initializes
 custody/pairing. No credential enrollment is needed for one-time browser fills.
@@ -206,7 +206,7 @@ status polling and cancellation. Scripts cannot approve themselves.
 Use the **[Node/TypeScript SDK](docs/typescript.md)** from the npm package for
 value-free requests in your own application. It includes CommonJS/ESM
 exports and TypeScript declarations, uses the native CLI and requires the same
-human setup and consent. Local candidates only; no public npm release yet.
+human setup and consent. Install it with `npm install @magicbeansai/magicvault`.
 
 Embed the **Rust custody/effect crates**, use the **authenticated local protocol**,
 or implement the **native bridge in your existing Chromium extension** for deeper

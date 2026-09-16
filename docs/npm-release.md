@@ -144,9 +144,18 @@ The loopback-server fixture was rerun outside the sandbox after its port bind
 was blocked. Release publication tests use a simulated registry; they do not
 prove the live token or npm permissions.
 
-This workflow is prepared locally. Its complete six-runner build and publication
-have not yet run for 0.9.0. The latest historical GitHub qualification and
-unsigned-distribution passes were for `81fe8c6` (0.8.3), not these changes.
-The release scope is configured as `@magicbeansai`. A valid publishing token and
-a successful automatic preparation run are required before the first release
-tag is pushed.
+Version **0.9.0** was published on **2026-09-16** from tag `v0.9.0`, commit
+`ea92d72b06ad6dc92fd00d67fd5ce60f3f3bd644`.
+The [release run](https://github.com/MagicBeansAI/MagicVault/actions/runs/35120650287)
+passed source checks, all six native builds and complete artifact verification.
+All seven packages are public under `@magicbeansai`, with `latest` set to 0.9.0
+and npm provenance attached. Users install only `@magicbeansai/magicvault`;
+npm automatically selects the matching native dependency.
+
+The first publish attempt uploaded all seven packages but failed the immediate
+registry read-back. Rerunning only the publish job with the retained artifacts
+confirmed identical published versions and passed every integrity/latest check.
+A fresh macOS ARM64 registry install selected only the main package and its
+matching native dependency; CLI/MCP version commands and the SDK import passed.
+These release checks do not replace the desktop acceptance limits in
+[platform status](platforms.md).

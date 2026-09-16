@@ -4,24 +4,22 @@ Use saved credentials through references, or request one-time browser credential
 through native hidden prompts while your application is running. The npm
 package includes a small client, TypeScript declarations, CLI/MCP launchers and
 an exact-version optional package containing prebuilt Rust binaries. Users of
-these candidates do not need Cargo. The SDK uses Node built-ins only.
+these packages do not need Cargo. The SDK uses Node built-ins only.
 
-This is a **local candidate**, not a public npm release. Runtime support remains
+Install **`@magicbeansai/magicvault`** from npm. Runtime support remains
 Node 22+ and an interactive desktop for native consent. See
 [platform prerequisites and validation](platforms.md) for macOS, Linux and Windows.
-The install example selects macOS Apple Silicon.
+npm selects the matching OS/CPU dependency automatically; keep optional dependencies enabled.
 This is a Node API, not a browser bundle or an unattended CI credential store.
 
 ## Install and prepare
 
-Obtain the two matching trusted tarballs from a maintainer or [build a local
-candidate](distribution.md#build-local-candidates). In your project:
+Install the main package in your project:
 
 ```bash
-npm install --ignore-scripts ./magicvault-local-magicvault-darwin-arm64-0.9.0.tgz \
-  ./magicvault-local-magicvault-0.9.0.tgz
-./node_modules/.bin/magicvault --profile agent setup
-./node_modules/.bin/magicvault --profile agent doctor
+npm install @magicbeansai/magicvault
+npx magicvault --profile agent setup
+npx magicvault --profile agent doctor
 ```
 
 Keep the daemon running and connect a [browser](browser-usage.md) for one-time
@@ -35,7 +33,7 @@ No enrollment is needed. Navigate with your existing browser tool, select the
 intended browser and discovered document, then:
 
 ```ts
-import { MagicVault, createOperationId } from '@magicvault-local/magicvault';
+import { MagicVault, createOperationId } from '@magicbeansai/magicvault';
 
 const vault = new MagicVault({ profile: 'agent' });
 const browsers = await vault.listBrowsers();
@@ -73,7 +71,7 @@ Enroll the required credential and register a profile labeled `Demo API` through
 method and credential placements; SDK invocations only select its ID.
 
 ```ts
-import { MagicVault, MagicVaultError, createOperationId } from '@magicvault-local/magicvault';
+import { MagicVault, MagicVaultError, createOperationId } from '@magicbeansai/magicvault';
 
 const vault = new MagicVault({ profile: 'agent' });
 const profiles = await vault.listDeliveryProfiles();
@@ -104,7 +102,7 @@ Connect your Chromium browser through CDP or the extension and authorize the exa
 origin/credential field first. Navigate using your existing browser tool, then:
 
 ```ts
-import { MagicVault, createOperationId } from '@magicvault-local/magicvault';
+import { MagicVault, createOperationId } from '@magicbeansai/magicvault';
 
 const vault = new MagicVault({ profile: 'agent' });
 const account = (await vault.listCredentials()).find(c => c.label === 'Demo account');
@@ -139,7 +137,7 @@ silently choose the first tab. The original browser tool handles submission.
 CommonJS is also supported:
 
 ```js
-const { MagicVault, createOperationId } = require('@magicvault-local/magicvault');
+const { MagicVault, createOperationId } = require('@magicbeansai/magicvault');
 ```
 
 | Methods | Result |

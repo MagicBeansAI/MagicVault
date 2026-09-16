@@ -1,8 +1,8 @@
 # Installation and distribution
 
 MagicVault has a native Rust application, an npm launcher and a typed Node client. macOS,
-Linux and Windows are alpha. The [npm alpha launch workflow](npm-release.md) is
-prepared; adding it does not publish packages. MCP is a stdio
+Linux and Windows are alpha. Version 0.9.0 is published on npm as
+**`@magicbeansai/magicvault`** through the [release workflow](npm-release.md). MCP is a stdio
 protocol, not a requirement to implement custody in JavaScript. The npm package
 exposes `magicvault` and `magicvault-mcp`; its exact-version optional dependency
 contains the four compiled executables (CLI/daemon, MCP, native host and prompt window), unpacked extension, reference-only
@@ -16,22 +16,23 @@ native CLI with reference-only requests and validates its closed replies. npm
 
 | Surface | Implemented distribution | Current limit |
 | --- | --- | --- |
-| CLI, MCP and Node/TypeScript SDK | OS/CPU-specific local npm tarballs | Node 22+; not published to npm yet; see [platform validation](platforms.md) |
+| CLI, MCP and Node/TypeScript SDK | One npm install: `@magicbeansai/magicvault`; native dependency selected automatically | Node 22+; keep optional dependencies enabled; see [platform validation](platforms.md) |
 | Daemon | Explicit native `setup`, private stable install and user-session service | macOS Keychain / Linux Secret Service / Windows Credential Manager; interactive desktop required |
 | Chromium extension and native host | Assets bundled; normal `setup` registers the fixed ID; independent automatic profile connections | Load unpacked manually; Chrome/Chromium only; no Web Store listing |
 | Rust embedders | Existing core/primitives and standalone crate sources | Core API/format unchanged; no dependency on npm or managed setup |
-| Intel macOS, Linux, Windows packages | Assembly and source backends implemented | Per-platform build and desktop acceptance are separate; no public binaries announced |
-| Apple-verified release, registry provenance | Release procedure provided | No signing, notarization or publication performed by this change |
+| macOS, Linux, Windows packages | Published for x64 and ARM64; all six build and package checks passed | Per-platform build and desktop acceptance are separate; all platforms remain alpha |
+| Publisher verification | npm provenance published for all seven packages | Executables are not Apple-signed/notarized or Windows code-signed |
 
-The candidate scope `@magicvault-local` is for **local tarballs only**. A maintainer
-must select and verify ownership of a public npm scope before publishing. Do not
-tell users to install an unverified package name or use `@latest` in a reviewed
-MCP configuration. After publication, the same launcher supports npm/npx; setup's
-stable MCP path avoids relying on npx's cache or fetching code at client startup.
+Users only install **`@magicbeansai/magicvault`**. The six native packages are
+internal optional dependencies constrained by OS/CPU and pinned to the same version.
+npm installs the matching dependency; the launcher fails clearly if it is missing,
+unsupported or invalid. The candidate scope `@magicvault-local` remains for
+**local tarballs only**. Setup's stable MCP path avoids relying on npx's cache or
+fetching code at client startup.
 
 ## Setup and lifecycle
 
-Install both matching tarballs as shown in the [quick start](../README.md#quick-start).
+Install the main npm package as shown in the [quick start](../README.md#quick-start).
 Then run the human-facing commands, using the same `--root`, `--app-dir` and
 `--profile` choices on subsequent invocations:
 

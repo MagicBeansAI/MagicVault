@@ -13,7 +13,6 @@ import time
 from pathlib import Path
 
 CANARIES = {"public username": "student", "public password": "Password123"}
-METHOD = re.compile(r"tools\.mcp__magicvault_demo__(\w+)\(")
 
 
 def call_arguments(source, start):
@@ -58,7 +57,10 @@ def mcp_replies(value):
             yield from mcp_replies(item)
 
 
-def audit(path):
+def audit(path, server="magicvault_demo", require_jit=False):
+    if not re.fullmatch(r"[a-z0-9_]+", server):
+        raise ValueError("Invalid MCP server namespace")
+    method = re.compile(r"tools\.mcp__" + re.escape(server) + r"__(\w+)\(")
     raw = path.read_bytes()
     requests, responses = [], []
     for line in raw.decode().splitlines():
@@ -68,7 +70,7 @@ def audit(path):
         payload = event.get("payload", {})
         if payload.get("type") == "custom_tool_call":
             source = payload.get("input", "")
-            for match in METHOD.finditer(source):
+            for match in method.finditer(source):
                 requests.append({"timestamp": event["timestamp"],
                                  "method": match[1],
                                  "arguments_source": call_arguments(source, match.end())})
@@ -92,14 +94,28 @@ def audit(path):
             "mcp_replies": sum(json.dumps(r["response"]).count(canary) for r in responses),
             "entire_rollout": raw.decode().count(canary),
         }
+    evidence = {}
+    if require_jit:
+        methods = [r["method"] for r in requests]
+        if methods.count("secure_prompt_fill") != 1 or "secure_fill" in methods:
+            raise ValueError("Expected exactly one JIT fill and no saved fill")
+        snapshots = [r["response"]["data"] for r in responses if r["response"].get("kind") == "credentials"]
+        if len(snapshots) < 2 or snapshots[0] != snapshots[-1]:
+            raise ValueError("Missing or changed before/after credential metadata")
+        evidence = {"jit_fill_calls": 1, "saved_fill_calls": 0,
+                    "saved_records_before": len(snapshots[0]), "saved_records_after": len(snapshots[-1]),
+                    "saved_metadata_unchanged": True}
     return {"source_file": path.name, "source_sha256": hashlib.sha256(raw).hexdigest(),
             "scope": "Literal public canaries in one recorded Codex rollout; not a general security proof.",
             "canary_source": "https://practicetestautomation.com/practice-test-login/",
-            "counts": counts, "requests": requests, "responses": responses}
+            "counts": counts, "requests": requests, "responses": responses,
+            "mcp_server": server, "jit_evidence": evidence}
 
 
-def display(report, pause):
+def display(report, pause, only=None):
     def screen(title, lines):
+        if only is not None and not title.startswith(str(only) + "."):
+            return
         print("\033[2J\033[HMagicVault | Actual Codex transcript audit\n", flush=True)
         print(title + "\n")
         for line in lines:
@@ -120,19 +136,31 @@ def display(report, pause):
     lines += ["Public test-account canaries; values omitted here.",
               "This checks this recording, not every possible browser tool."]
     screen("3. Computed credential-value check", lines)
+    if report.get("jit_evidence"):
+        evidence = report["jit_evidence"]
+        screen("4. One-time input did not add a saved credential", [
+            f"JIT fill calls:            {evidence['jit_fill_calls']}",
+            f"Saved-credential fills:    {evidence['saved_fill_calls']}",
+            f"Saved records before:     {evidence['saved_records_before']}",
+            f"Saved records after:      {evidence['saved_records_after']}",
+            f"All metadata unchanged:   {evidence['saved_metadata_unchanged']}",
+            "", "Computed from the actual before/after MCP replies."])
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--rollout", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--server", default="magicvault_demo", help="Normalized MCP server namespace")
+    parser.add_argument("--require-jit", action="store_true", help="Require one JIT fill and unchanged before/after metadata")
     parser.add_argument("--display", action="store_true")
     parser.add_argument("--pause", type=float, default=8)
+    parser.add_argument("--screen", type=int, choices=(1, 2, 3, 4), help="Display one audit screen")
     args = parser.parse_args()
-    report = audit(args.rollout)
+    report = audit(args.rollout, args.server, args.require_jit)
     args.output.write_text(json.dumps(report, indent=2) + "\n")
     if args.display:
-        display(report, args.pause)
+        display(report, args.pause, args.screen)
     else:
         print(json.dumps(report["counts"], indent=2))
     if any(count for counts in report["counts"].values() for count in counts.values()):

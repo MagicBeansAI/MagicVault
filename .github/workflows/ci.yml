@@ -1,0 +1,31 @@
+name: Source and package checks
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - name: Architecture and documentation
+        run: |
+          python3 scripts/check_architecture.py
+          python3 scripts/check-doc-links.py
+          python3 -B -m unittest discover -s scripts/tests -p 'test_*.py'
+      - name: SDK, all platform packages, release integrity and extension
+        run: node --test scripts/tests/*.test.mjs extension/tests/*.test.cjs
+      - name: TypeScript declarations in ESM and CommonJS
+        run: npm exec --yes --ignore-scripts --package=typescript@5.9.3 -- tsc --noEmit --strict --module NodeNext --target ES2022 scripts/tests/sdk-types.mts scripts/tests/sdk-types.cts
+      - name: GitHub Actions workflow syntax and shell checks
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -color

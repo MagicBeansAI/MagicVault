@@ -190,16 +190,22 @@ hooks, runtime downloads, daemon initialization or native enrollment. The launch
 checks the selected platform/version and binary hash before an argv-preserving,
 shell-free spawn; stdout belongs exclusively to the native protocol.
 
-The manual npm alpha workflow builds six OS/CPU-native bundles from one workflow
-revision, runs platform tests and executable version checks, and packs seven
-allowlisted tarballs. A separate secret-free job checks scope/version, SHA-512,
-archive members, metadata and all six exact optional dependencies. Publication
-requires explicit dispatch on main; only that job receives `NPM_TOKEN` through
-`NODE_AUTH_TOKEN` and OIDC provenance authority. All registry preflights complete
-before publishing native dependencies first and the launcher last, always under
-`alpha`. Exact already-published artifacts may be resumed; conflicting bytes or
-tags and uncertain errors stop without retry. Preparation is not proof of
-publication, OS signing or native desktop acceptance. [Release procedure](npm-release.md).
+The npm release workflow accepts an explicit `vX.Y.Z` tag push as the publication
+decision. It requires that version to match CLI/MCP/service/prompt manifests and
+the tagged commit to be on main. The workflow sets the confirmed npm scope to
+`@magicbeansai`; manual preparation can override it but cannot publish. Main
+pushes automatically prepare packages without publication. Source/package CI
+also runs on main pushes and pull requests. After source checks pass, six OS/CPU-native builds run
+platform tests and executable version checks, then pack seven allowlisted
+tarballs. A separate secret-free job checks scope/version, SHA-512, archive
+members, metadata and all six exact optional dependencies. Only the gated publish
+job receives `NPM_TOKEN` through `NODE_AUTH_TOKEN` and OIDC provenance authority.
+All registry preflights complete before publishing native dependencies first and
+the launcher last under `latest`. Existing versions must have identical bytes;
+an older/missing latest tag may be repaired, but latest cannot move backwards.
+The publisher verifies registry integrity and tags afterward. Uncertain errors
+stop without retry; an explicit rerun resumes the same retained artifacts.
+Publication is not OS signing or native desktop acceptance. [Release procedure](npm-release.md).
 
 The npm package also exports a Node client with TypeScript declarations. It uses
 only built-in Node modules, bounds and validates closed requests/results, and
@@ -246,8 +252,8 @@ The architecture gate includes npm launchers, package assembly/qualification,
 signing scripts, line-ending rules and desktop/distribution/qualification/release
 workflows as executable trust inputs. Release credentials and publication remain
 separate authorized operator actions. The distribution and qualification
-workflows produce unsigned local-tarball candidates; the npm alpha workflow
-publishes only through its explicit main-branch publication job described above.
+workflows produce unsigned local-tarball candidates; the npm release workflow
+publishes only through its version-tag-gated job described above.
 Qualification can run 1–20 independent installed-client trials, failing on the
 first error, plus explicit bounded load/capacity/shutdown probes. These use only
 synthetic custody in test executables, not a production bypass or daemon flag.
@@ -595,7 +601,7 @@ Magician need no API, source or storage migration for these standalone additions
 the current package versions and SHA-256 fingerprints of workspace/package
 manifests, production `src/` files, the root lockfile and extension assets.
 New/removed inputs, dependency changes, source edits or a version/document mismatch
-make `make check-architecture` fail. `make check` and manual qualification CI
+make `make check-architecture` fail. `make check`, source/release CI and manual qualification CI
 include that gate. No Git hook, push or publication is implied.
 
 The fingerprint is deliberately coarse: it flags possible drift, including

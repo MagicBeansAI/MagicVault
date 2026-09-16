@@ -22,6 +22,12 @@ export const assets = {
 export const binaries = ['magicvault', 'magicvault-mcp', 'magicvault-native-host', 'magicvault-prompt'];
 
 export const platforms = ['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64', 'win32-x64', 'win32-arm64'];
+export function standaloneVersion(repo) {
+  const versions = ['magicvault', 'magicvault-mcp', 'magicvault-service', 'magicvault-prompt'].map(name =>
+    fs.readFileSync(path.join(repo, name, 'Cargo.toml'), 'utf8').match(/^version = "((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))"$/m)?.[1]);
+  if (!versions[0] || versions.some(version => version !== versions[0])) throw new Error('standalone package versions must match');
+  return versions[0];
+}
 function binaryMatches(bytes, platform) {
   const [os, arch] = platform.split('-');
   if (os === 'darwin') return bytes.length >= 32 && bytes.readUInt32LE(0) === 0xfeedfacf && bytes.readUInt32LE(4) === (arch === 'arm64' ? 0x0100000c : 0x01000007);
@@ -50,10 +56,7 @@ export function assemble({ repo, binaryDir, output, scope, platform = 'darwin-ar
   const suffix = os === 'win32' ? '.exe' : '';
   if (typeof scope !== 'string' || scope.trim() !== scope || !/^@[a-z0-9][a-z0-9-]{0,63}$/.test(scope)) throw new Error('an explicitly owned npm scope is required');
   if (registryReadme && scope === '@magicvault-local') throw new Error('select an owned public npm scope for release packages');
-  const version = fs.readFileSync(path.join(repo, 'magicvault/Cargo.toml'), 'utf8').match(/^version = "(\d+\.\d+\.\d+)"$/m)?.[1];
-  const mcpVersion = fs.readFileSync(path.join(repo, 'magicvault-mcp/Cargo.toml'), 'utf8').match(/^version = "(\d+\.\d+\.\d+)"$/m)?.[1];
-  const promptVersion = fs.readFileSync(path.join(repo, 'magicvault-prompt/Cargo.toml'), 'utf8').match(/^version = "(\d+\.\d+\.\d+)"$/m)?.[1];
-  if (!version || version !== mcpVersion || version !== promptVersion) throw new Error('native package versions must match');
+  const version = standaloneVersion(repo);
   // Validate every source before creating output, including native architecture.
   const content = new Map();
   for (const name of binaries) {
@@ -68,7 +71,7 @@ export function assemble({ repo, binaryDir, output, scope, platform = 'darwin-ar
   const common = {
     version, license: 'MIT OR Apache-2.0',
     repository: { type: 'git', url: 'git+https://github.com/MagicBeansAI/MagicVault.git' },
-    engines: { node: '>=22' }, publishConfig: { access: 'public', tag: 'alpha', registry: 'https://registry.npmjs.org/' },
+    engines: { node: '>=22' }, publishConfig: { access: 'public', tag: 'latest', registry: 'https://registry.npmjs.org/' },
     homepage: 'https://github.com/MagicBeansAI/MagicVault#readme',
     bugs: { url: 'https://github.com/MagicBeansAI/MagicVault/issues' },
     keywords: ['mcp', 'credentials', 'vault', 'agents', 'typescript', 'alpha'],
@@ -86,7 +89,7 @@ export function assemble({ repo, binaryDir, output, scope, platform = 'darwin-ar
   for (const name of ['LICENSE-MIT', 'LICENSE-APACHE']) write(path.join(output, 'launcher', name), content.get(name));
   let readme = regular(path.join(repo, 'npm/README.md'), 64 * 1024).toString('utf8');
   if (registryReadme) {
-    const install = `Install the **alpha** package into your project (Node 22+):\n\n\x60\x60\x60bash\nnpm install ${mainName}@alpha\nnpx magicvault --profile agent setup\n\x60\x60\x60\n\nFor MCP/CLI use outside a project:\n\n\x60\x60\x60bash\nnpm install --global ${mainName}@alpha\nmagicvault --profile agent setup\nmagicvault --profile agent doctor\n\x60\x60\x60\n\nnpm selects the matching native package for macOS, Linux or Windows (x64/ARM64).\nKeep optional dependencies enabled. Explicit setup opens the human approval flow.\n`;
+    const install = `Install the package into your project (Node 22+; npm's **latest** channel):\n\n\x60\x60\x60bash\nnpm install ${mainName}\nnpx magicvault --profile agent setup\n\x60\x60\x60\n\nFor MCP/CLI use outside a project:\n\n\x60\x60\x60bash\nnpm install --global ${mainName}\nmagicvault --profile agent setup\nmagicvault --profile agent doctor\n\x60\x60\x60\n\nnpm selects the matching native package for macOS, Linux or Windows (x64/ARM64).\nPlatform support remains alpha. Keep optional dependencies enabled.\nExplicit setup opens the human approval flow.\n`;
     const section = /<!-- npm-install:start -->[\s\S]*?<!-- npm-install:end -->/;
     if (!section.test(readme)) throw new Error('missing npm README install section');
     readme = readme.replace(section, install);

@@ -6,6 +6,11 @@ The [release acceptance checklist](qualification/release.md) is the current
 readiness reference. The [evidence index](qualification/README.md#evidence-records)
 links version-specific results without treating old runs as current qualification.
 
+- **0.9.0 real macOS MCP/JIT demo:** human pairing, login/card enrollment,
+  browser connection, private one-time input and Use once completed on `d00398c`.
+  Codex verified the website login; saved metadata remained identical (2 → 2).
+  The recorded transcript passed the public-credential literal audit and its
+  copied-response positive control. [Recording and scope](demo.md).
 - **0.9.0 desktop/platform source:** Linux builds and 98 library tests passed;
   the real X11 prompt rendered and returned masked synthetic input privately.
   Windows source/test targets passed cross-compilation checks. Native Windows,

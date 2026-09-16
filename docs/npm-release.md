@@ -1,87 +1,152 @@
-# npm alpha launch
+# npm releases
 
-The launch workflow is prepared in `.github/workflows/npm-alpha.yml`. Nothing
-has been published by adding it. macOS, Linux and Windows remain **alpha**;
-[platform evidence](platforms.md#verification) lists the native acceptance still
-outstanding. Windows governed process delivery is not supported.
+Pushing a version tag such as **`v0.9.0`** starts
+[npm release](../.github/workflows/npm-release.yml): validate the source, build
+six native packages, verify the complete set, then publish those packages and
+the launcher/SDK under **`latest`**. Every push to `main` automatically runs the
+source checks and six-platform package preparation without publishing. Manual
+release-workflow runs also prepare artifacts only.
 
-## Package set
+`latest` is npm's default install channel. Platform support remains **alpha**;
+the channel does not change the [recorded platform limitations](platforms.md).
+The workflow does not sign/notarize desktop executables or create a GitHub Release.
+Publishing GitHub release notes for an existing tag does not trigger a second run.
+[npm dist-tag behavior](https://docs.npmjs.com/cli/v11/commands/npm-publish/).
 
-One launcher/SDK package, `@YOUR_SCOPE/magicvault`, depends on six exact-version
-native packages: `magicvault-darwin-arm64`, `magicvault-darwin-x64`,
-`magicvault-linux-arm64`, `magicvault-linux-x64`, `magicvault-win32-arm64` and
-`magicvault-win32-x64` under that same scope. Each native package includes the CLI,
-MCP server, native browser host, private prompt executable and browser assets.
-npm on Node 22+ selects the appropriate optional dependency; installation runs no hooks.
+## One-time repository setup
 
-The initial source/package version is `0.9.0`. Publication explicitly uses the
-**`alpha` dist-tag**, and generated `publishConfig` also defaults to `alpha`.
-The release does not update `latest`. The binaries and bundle retain matching
-numeric versions for installer compatibility. [npm tag behavior](https://docs.npmjs.com/cli/v11/commands/npm-publish/).
+1. The workflow's confirmed release scope is **`@magicbeansai`**, producing
+   **`@magicbeansai/magicvault`** and its six native dependencies. It is configured
+   in the versioned workflow; no repository variable is needed. Manual preparation
+   can override the scope for that run. `@magicvault-local` is refused for releases.
+2. Keep **`NPM_TOKEN`** in Actions secrets. It must authorize publication of
+   all seven public names in that scope, including creating them on the first
+   release. The workflow exposes it only to the publish step as `NODE_AUTH_TOKEN`.
+   An expired token or one without unattended-publish permissions will fail.
+3. Enable Actions and the hosted runners required by the release matrix. The
+   tagged commit must already be on `main`. Restrict who may push release tags
+   according to the repository's maintainer policy.
 
-The workflow builds natively on all six OS/CPU runners, executes library tests
-and the packaged CLI/MCP `--version` commands, and packs local tarballs. Linux
-binaries use Ubuntu 22.04 (glibc 2.35 baseline); Alpine/musl is not a target.
-Runner labels follow [GitHub's hosted-runner table](https://docs.github.com/en/actions/reference/runners/github-hosted-runners).
-These build checks do not replace logged-in desktop, keyring or browser acceptance.
+The repository owner's GitHub name does not establish npm scope ownership.
+The configured token's presence alone does not prove npm publication rights.
+Current token-based automation uses an appropriate granular token with bypass
+2FA enabled. [npm CI authentication](https://docs.npmjs.com/using-private-packages-in-a-ci-cd-workflow/).
+For longer-term credential-free releases, npm also supports
+[trusted publishing](https://docs.npmjs.com/trusted-publishers/); this workflow
+currently uses the existing `NPM_TOKEN` integration.
 
-## Prepare and review
+## Packages and checks
 
-1. Choose an npm scope that you own. `@magicvault-local` remains a local-fixture
-   scope and is refused by the release workflow. A GitHub organization name
-   does not establish npm scope ownership.
-2. After the local changes have been reviewed and deliberately pushed, select
-   **Actions → npm alpha release → Run workflow**, choose `main`, enter the
-   scope and leave **publish unchecked**. This produces six platform artifacts
-   and a seven-package release plan. No publishing token reaches build or
-   verification jobs.
-3. Review all six runner results, package filenames/integrities, the generated
-   scope-specific npm README, platform acceptance evidence and unsigned-binary
-   limitations. No Apple Developer ID/notarization or Windows code signing is
-   performed by this workflow.
+`@magicbeansai/magicvault` contains the Node/TypeScript client and CLI/MCP
+launchers. Its six optional dependencies are pinned to the exact same version:
 
-The source npm README keeps local-candidate instructions. Release assembly uses
-`--registry-readme` to replace its install section with real scoped `@alpha`
-commands and updates SDK imports. The GitHub README does not claim an available
-registry install until publication succeeds.
+| Native package suffix | Hosted build runner |
+| --- | --- |
+| `darwin-arm64` | `macos-15` |
+| `darwin-x64` | `macos-15-intel` |
+| `linux-x64` | `ubuntu-22.04` |
+| `linux-arm64` | `ubuntu-22.04-arm` |
+| `win32-x64` | `windows-2022` |
+| `win32-arm64` | `windows-11-arm` |
 
-## Publish when authorized
+Each native package contains the CLI, MCP server, browser native host, desktop
+prompt and browser assets. Node 22+ selects the matching dependency; installation
+runs no lifecycle hooks. Linux packages require glibc 2.35 or newer; Alpine/musl
+is not included. Windows governed process delivery remains unsupported.
+[GitHub runner reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners).
 
-Run the same workflow on the reviewed `main` revision with **publish checked**.
-It rebuilds and verifies the complete set before publishing; this is an explicit
-release operation, never a consequence of a push, tag or pull request.
+The release gates are:
 
-The publish job passes the existing repository secret **`NPM_TOKEN`** as
-`NODE_AUTH_TOKEN`, using `actions/setup-node`'s npm registry configuration.
-The token must be valid and authorize publishing all seven public package names
-in the selected scope. Token values are never embedded in repository files or
-uploaded artifacts. Current npm token-based automation requires an appropriate
-granular token and unattended-publish permissions. [GitHub configuration](https://docs.github.com/en/actions/tutorials/publish-packages/publish-nodejs-packages),
-[npm token requirements](https://docs.npmjs.com/using-private-packages-in-a-ci-cd-workflow/).
+- **Version and source:** `vX.Y.Z` must exactly match CLI, MCP, service and prompt
+  manifests. Prerelease tags, mismatches and commits outside `main` are refused.
+- **Source CI:** architecture drift, documentation links, Python checks,
+  SDK/package/release tests, ESM/CommonJS TypeScript declarations, extension tests
+  and Actions workflow linting. The same checks run for normal
+  main pushes and pull requests. Desktop CI also checks macOS, Linux and Windows.
+- **Native builds:** Rust 1.92, platform libraries/tests, all four executables,
+  and execution of the packaged CLI/MCP version commands on all six runners.
+- **Artifacts:** seven allowlisted npm tarballs with SHA-512 integrity, exact
+  identity, native platform metadata and all six pinned dependencies.
+- **Publication:** registry preflights complete before any mutation. Native
+  packages publish first, the common launcher last. Explicit public access,
+  `latest`, ignored lifecycle scripts and npm provenance are used. Registry
+  integrity and latest tags are read back after publication.
 
-Publication checks every tarball's SHA-512, package identity, platform, exact
-dependencies, file allowlist and absence of lifecycle scripts. Registry
-preflights for all seven finish before any upload. Native packages publish first;
-the launcher publishes last. Public access, `alpha`, ignored lifecycle scripts
-and npm provenance are explicit. The publish job alone requests OIDC permission
-for provenance; it does not modify GitHub branches, tags or releases.
+The publish job alone receives the token and OIDC permission for
+[npm provenance](https://docs.npmjs.com/generating-provenance-statements/).
+No build/test job receives publishing credentials. Passing these checks is
+distinct from native desktop/keychain/browser acceptance on every platform.
 
-If an upload fails, the script stops without retrying an uncertain publication.
-Re-run the failed job using the **same retained build artifacts** after inspecting
-npm state. Already-published identical tarballs are skipped only when their alpha
-tag matches. Different bytes, another tag or ambiguous registry responses refuse
-the run; do not overwrite a version or silently rebuild it for recovery. Published
-versions are immutable. The artifact retention window is 14 days.
+## Prepare without publishing
 
-After a successful launch, verify installs on the target desktops, update the
-GitHub README's registry availability wording and use the actual owned scope:
+Push the source changes to `main`. The **npm release** workflow automatically
+runs source checks, then builds and verifies all six platform artifacts. Its
+publish job is skipped for branch pushes, so a separate preparation dispatch
+is unnecessary.
 
-```text
-npm install --global @YOUR_SCOPE/magicvault@alpha
+To explicitly repeat preparation, select **Actions → npm release → Run workflow**
+on `main`. Leave the scope input empty to use `@magicbeansai`, or supply an owned
+scope for that preparation run. Manual dispatch cannot publish, even when run
+against an existing version tag.
+
+Review all six platform artifacts and `MagicVault-release-plan`. The generated
+npm README contains real scoped install commands, the JIT GIF, narrated-video
+link and SDK imports. Demo assets must be on GitHub before publishing so npm's
+hosted image links resolve. Raw recordings, vaults and narration intermediates
+are excluded from the npm package and Git.
+
+## Release a version
+
+Update the standalone component versions together, lockfile, changelog and
+reviewed architecture baseline before tagging. Shared libraries and the browser
+extension retain their independent versions. Commit and push `main`, review CI
+and the automatic package-preparation results, then deliberately push the version tag:
+
+```bash
+# Example for the current source version; these commands publish when pushed.
+git tag -a v0.9.0 -m 'MagicVault 0.9.0'
+git push origin v0.9.0
+```
+
+The tag push performs the release; no second publish checkbox is required.
+After it succeeds, these resolve through `latest`:
+
+```bash
+npm install --global @magicbeansai/magicvault
 magicvault --profile agent setup
 magicvault --profile agent doctor
 ```
 
-For applications use `npm install @YOUR_SCOPE/magicvault@alpha` and the exported
-Node/TypeScript client. The platform badges remain alpha until the recorded
-release criteria justify changing them.
+For applications use `npm install @magicbeansai/magicvault`. Update the project
+README's availability wording only after the package has actually been published.
+
+## Recover a failed release
+
+Publication stops on an uncertain upload result; it does not repeat the upload.
+Inspect npm, then **rerun the failed publish job in the same Actions run**, using
+the retained artifacts. Identical published versions are skipped, and an older
+or absent latest tag can be repaired. Different bytes or a newer latest version
+abort before any mutation, so an old release cannot roll back the default install.
+
+Do not rerun all build jobs to recover a partially published version: a rebuild
+may produce different bytes. Published versions are immutable. Artifacts are
+retained for 14 days; if they are unavailable, prepare a new source version.
+Concurrent release runs are serialized within this repository, but npm does not
+provide an atomic transaction across seven packages. Avoid publishing the same
+scope/packages independently while this workflow is running.
+
+## Current readiness
+
+Local pre-push validation passed: 122 JavaScript tests, 26 Python tests,
+ESM/CommonJS declaration checks with TypeScript 5.9.3, workflow linting with
+actionlint 1.7.12, the architecture gate and local links in 56 documentation files.
+The loopback-server fixture was rerun outside the sandbox after its port bind
+was blocked. Release publication tests use a simulated registry; they do not
+prove the live token or npm permissions.
+
+This workflow is prepared locally. Its complete six-runner build and publication
+have not yet run for 0.9.0. The latest historical GitHub qualification and
+unsigned-distribution passes were for `81fe8c6` (0.8.3), not these changes.
+The release scope is configured as `@magicbeansai`. A valid publishing token and
+a successful automatic preparation run are required before the first release
+tag is pushed.

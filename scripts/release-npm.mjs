@@ -6,16 +6,26 @@ import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import { platforms, assets, binaries } from './package-npm.mjs';
+import { platforms, assets, binaries, standaloneVersion } from './package-npm.mjs';
 
 const registry = 'https://registry.npmjs.org/';
 const anchor = 'darwin-arm64'; // Exactly one runner produces the common launcher.
+const versionPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 const launcherFiles = ['package.json', 'README.md', 'cli.cjs', 'mcp.cjs', 'launcher.cjs', 'sdk.cjs', 'sdk.d.cts', 'LICENSE-MIT', 'LICENSE-APACHE'];
 const digest = bytes => `sha512-${crypto.createHash('sha512').update(bytes).digest('base64')}`;
 function ensure(ok, message) { if (!ok) throw new Error(message); }
 function identity(scope, version) {
   ensure(typeof scope === 'string' && scope.trim() === scope && /^@[a-z0-9][a-z0-9-]{0,63}$/.test(scope) && scope !== '@magicvault-local', 'select an owned public npm scope');
-  ensure(typeof version === 'string' && version.trim() === version && /^\d+\.\d+\.\d+$/.test(version), 'invalid release version');
+  ensure(typeof version === 'string' && version.trim() === version && versionPattern.test(version), 'invalid release version');
+}
+export function releaseContext({ scope, version, event, ref }) {
+  identity(scope, version);
+  ensure(['push', 'workflow_dispatch'].includes(event), 'unsupported release event');
+  const isTag = ref?.startsWith('refs/tags/');
+  if (isTag) {
+    ensure(ref === `refs/tags/v${version}`, 'release tag must exactly match standalone versions');
+  } else ensure(ref === 'refs/heads/main', 'prepare releases from main or the matching version tag');
+  return { scope, version, tag: 'latest', publish: event === 'push' && isTag };
 }
 function read(file, max = 65536) {
   const stat = fs.lstatSync(file);
@@ -44,7 +54,7 @@ function npm(args, options = {}) {
 function checkMetadata(meta, scope, version, platform) {
   ensure(meta.name === `${scope}/magicvault${platform ? `-${platform}` : ''}` && meta.version === version, 'package identity mismatch');
   ensure(!Object.hasOwn(meta, 'scripts') && meta.publishConfig?.access === 'public'
-    && meta.publishConfig?.tag === 'alpha' && meta.publishConfig?.registry === registry, 'unsafe publication metadata');
+    && meta.publishConfig?.tag === 'latest' && meta.publishConfig?.registry === registry, 'unsafe publication metadata');
   ensure(Object.keys(meta.publishConfig).sort().join(',') === 'access,registry,tag'
     && !['dependencies', 'devDependencies', 'peerDependencies', 'bundledDependencies', 'bundleDependencies'].some(k => Object.hasOwn(meta, k)), 'unexpected package dependencies or publication overrides');
   ensure(meta.repository?.url === 'git+https://github.com/MagicBeansAI/MagicVault.git', 'wrong source repository');
@@ -95,7 +105,7 @@ export function releasePlan({ root, scope, version }) {
   identity(scope, version);
   const records = [];
   for (const platform of platforms) {
-    const directory = path.join(root, `MagicVault-alpha-${platform}`);
+    const directory = path.join(root, `MagicVault-npm-${platform}`);
     const manifest = json(path.join(directory, 'release.json'));
     ensure(manifest.schema === 1 && manifest.scope === scope && manifest.version === version && manifest.platform === platform, 'release set identity mismatch');
     const kinds = platform === anchor ? ['native', 'launcher'] : ['native'];
@@ -118,30 +128,52 @@ export function releasePlan({ root, scope, version }) {
 // All registry preflights finish before the first mutation. An ambiguous publish
 // failure stops immediately; a later explicit run can resume identical artifacts.
 export function publishPlan(plan, invoke = npm, report = console.log) {
-  const states = plan.map(record => {
-    let integrity;
-    try { integrity = JSON.parse(invoke(['view', `${record.name}@${record.version}`, 'dist.integrity', '--json', '--registry', registry])); }
-    catch (error) {
+  function lookup(name, field) {
+    try {
+      const raw = invoke(['view', name, field, '--json', '--registry', registry]);
+      return { missing: false, value: raw.trim() ? JSON.parse(raw) : undefined };
+    } catch (error) {
       let code;
       try { code = JSON.parse(String(error.stdout)).error?.code; } catch { /* closed below */ }
-      ensure(code === 'E404', 'registry preflight failed; nothing published');
-      return { record, exists: false };
+      ensure(code === 'E404', 'registry lookup failed');
+      return { missing: true };
     }
-    ensure(integrity === record.integrity, 'published version differs; use a new version');
-    const tag = JSON.parse(invoke(['view', record.name, 'dist-tags.alpha', '--json', '--registry', registry]));
-    ensure(tag === record.version, 'existing version has a different alpha tag; reconcile explicitly');
-    return { record, exists: true };
+  }
+  function newer(a, b) {
+    ensure(typeof a === 'string' && a.trim() === a && versionPattern.test(a), 'invalid latest version; reconcile explicitly');
+    const first = a.split('.').map(BigInt), second = b.split('.').map(BigInt);
+    for (let i = 0; i < 3; i++) if (first[i] !== second[i]) return first[i] > second[i];
+    return false;
+  }
+  const states = plan.map(record => {
+    const artifact = lookup(`${record.name}@${record.version}`, 'dist.integrity');
+    const latest = lookup(record.name, 'dist-tags.latest');
+    if (!artifact.missing) ensure(artifact.value === record.integrity, 'published version differs; use a new version');
+    ensure(artifact.missing || !latest.missing, 'inconsistent registry response');
+    if (latest.value !== undefined) ensure(!newer(latest.value, record.version), 'refusing to move latest backwards');
+    return { record, exists: !artifact.missing, promote: latest.value !== record.version };
   });
-  for (const { record, exists } of states) {
-    if (!exists) invoke(['publish', record.file, '--access', 'public', '--tag', 'alpha', '--ignore-scripts', '--provenance', '--registry', registry]);
-    report(`${exists ? 'Already published' : 'Published'} ${record.name}@${record.version} (alpha)`);
+  for (const { record, exists, promote } of states) {
+    if (!exists) invoke(['publish', record.file, '--access', 'public', '--tag', 'latest', '--ignore-scripts', '--provenance', '--registry', registry]);
+    else if (promote) invoke(['dist-tag', 'add', `${record.name}@${record.version}`, 'latest', '--registry', registry]);
+    report(`${exists ? 'Already published' : 'Published'} ${record.name}@${record.version} (latest)`);
+  }
+  for (const record of plan) {
+    ensure(lookup(`${record.name}@${record.version}`, 'dist.integrity').value === record.integrity
+      && lookup(record.name, 'dist-tags.latest').value === record.version, 'post-publication verification failed; inspect registry state');
   }
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
   try {
     const { values } = parseArgs({ options: { mode: { type: 'string', default: 'verify' }, packages: { type: 'string' }, output: { type: 'string' }, root: { type: 'string' }, scope: { type: 'string' }, platform: { type: 'string' }, version: { type: 'string' } } });
-    if (values.mode === 'pack') {
+    if (values.mode === 'context') {
+      const context = releaseContext({ scope: values.scope, version: standaloneVersion(path.resolve(import.meta.dirname, '..')),
+        event: process.env.GITHUB_EVENT_NAME, ref: process.env.GITHUB_REF });
+      if (process.env.GITHUB_OUTPUT) fs.appendFileSync(process.env.GITHUB_OUTPUT,
+        Object.entries(context).map(([key, value]) => `${key}=${value}\n`).join(''));
+      console.log(JSON.stringify(context));
+    } else if (values.mode === 'pack') {
       ensure(values.packages && values.output, 'pack requires packages and fresh output');
       console.log(JSON.stringify(packRelease(values)));
     } else {
@@ -154,7 +186,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
     }
   } catch (error) {
     // npm errors can include configuration: never echo raw child diagnostics.
-    console.error('MagicVault npm release failed; verify scope, version, complete artifacts and registry state.');
+    console.error('MagicVault npm release failed; verify NPM_SCOPE, matching vX.Y.Z tag/source versions, complete artifacts and registry state.');
     process.exitCode = 1;
   }
 }

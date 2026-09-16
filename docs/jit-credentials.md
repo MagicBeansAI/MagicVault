@@ -6,8 +6,9 @@ inputs, then asks **Use once** for the exact browser, page/frame origins and fie
 mapping. It fills those fields and returns status. Nothing is enrolled in the
 vault, and no future-use permission is created or reused.
 
-This flow is available in the `0.9.0` source candidate. The existing recorded demo
-shows saved credentials with `0.8.3`; it does not demonstrate this new flow.
+This flow is available in the `0.9.0` source candidate. The
+[recorded MCP demo](demo.md) shows optional storage followed by an actual
+just-in-time login, native approval and a transcript audit on macOS.
 
 ## Saved and one-time credentials
 
@@ -20,7 +21,8 @@ MagicVault formats the prompt itself. Client labels, field names and selectors
 come from the request; page/frame origins come from browser discovery. Exact
 selector mappings remain available under **Request details**. Each input window
 shows only the current field, and the final window reviews the complete fill.
-See [prompts](prompts.md) and [platform requirements](platforms.md).
+See [prompts](prompts.md), [platform requirements](platforms.md#requirements) and
+[per-platform storage and IPC](platforms.md#credential-storage).
 
 ## Before the first use
 

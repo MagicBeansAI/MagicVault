@@ -112,6 +112,7 @@ production change or a requirement to modify MagicRun's runtime.
   changed boundaries. A fingerprint match is not a security attestation.
 - Keep profiles, capabilities, traces, private machine configuration and live
   credentials out of commits. Examples contain synthetic references only.
-- Tags, pushes, registry publication, binary/installer distribution and extension
-  store submissions require a separate release decision. A source version or
-  local commit performs none of them.
+- Pushing a matching `vX.Y.Z` tag is the npm release decision: it triggers the
+  six-platform build and publication to `latest`. An ordinary main push runs CI
+  and package preparation without publishing; a local commit or tag has no remote effect. OS signing,
+  installer distribution and extension store submissions remain separate.

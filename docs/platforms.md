@@ -1,13 +1,18 @@
 # Desktop platforms
 
-The source candidate includes native backends for macOS, Linux and Windows.
+The source candidate includes native backends for macOS, Linux and Windows;
+**all three platforms are alpha**.
 Platform code, a successful build and a tested desktop flow are separate claims.
 No public npm release or signed cross-platform release is announced here.
+
+This guide covers the standalone CLI/MCP/npm bundle. Magician's embedded
+integration manages its own storage and human prompts; see
+[embedded consumers](integrations.md#existing-embedded-consumers).
 
 | Component | macOS | Linux | Windows |
 | --- | --- | --- | --- |
 | Prompt window | Shared Rust desktop UI | Same UI, X11/Wayland | Same UI |
-| Master key | macOS Keychain | Secret Service session keyring | Credential Manager |
+| Master key | macOS Keychain | Secret Service desktop keyring | Credential Manager |
 | Local connection | Same-UID Unix socket | Same-UID Unix socket | Same-user named pipe with private DACL |
 | Login-session service | LaunchAgent | systemd user unit | Per-user interactive scheduled task |
 | Browser connection | CDP or Chromium native host | CDP or Chromium native host | CDP or Chromium native host |
@@ -49,10 +54,92 @@ tarballs, then run `magicvault --profile agent setup`. Use the exact MCP command
 and extension path returned by setup; do not copy macOS paths into Windows.
 Source builds also need the `magicvault-prompt` executable beside the daemon.
 
-Default roots are `.magicvault` and `.magicvault-app` under the current user's
-home (`USERPROFILE` on Windows). Unix vault roots retain the 85-byte socket-path
-limit. Windows uses a hashed named-pipe name rather than a filesystem socket.
-Existing keys are never regenerated as an outage workaround.
+## Credential storage
+
+Saved login and card-field records use the same encrypted vault format on every
+platform. MagicVault serializes the saved records and encrypts them with
+**AES-256-GCM**, using a fresh random 96-bit nonce per write. The encrypted bytes
+live in `vault/provisioned_secrets.vault` beneath the vault root. The OS credential
+store holds the **256-bit master key** used to decrypt that file.
+
+| Platform | Default vault root | Master-key backend |
+| --- | --- | --- |
+| macOS | `$HOME/.magicvault` | The user's macOS Keychain |
+| Linux | `$HOME/.magicvault` | A Secret Service provider reached through the user's session D-Bus |
+| Windows | `%USERPROFILE%\.magicvault` | The user's Windows Credential Manager |
+
+Explicit initialization generates the key and a vault-instance UUID. The keyring
+entry uses service `ai.magicbeans.magicvault` and account `instance-<UUID>`.
+The daemon loads and caches that key in owned zeroizing memory for its lifetime;
+locking the OS keyring afterward does not automatically erase a running daemon's
+cached key. If the daemon cannot retrieve its existing key at startup, it refuses
+to open the vault, without creating a replacement key. Linux has no volatile kernel-keyring
+or plaintext-file fallback. Copying the vault directory alone does not transfer
+its OS-held key to another machine.
+
+Other files beneath the root have different roles:
+
+| File | Contents and protection |
+| --- | --- |
+| `instance.json` | Vault identity, including the UUID used to find the master key. |
+| `clients.json` | Client token hashes, references, policies and other broker registry metadata. |
+| `client-<profile>.json` | The paired client's bearer capability. This is sensitive even though it contains no saved website password. |
+| `vault/secret_audit.jsonl` | Typed audit events and operation metadata, without credential values. |
+
+These JSON/JSONL files are protected by filesystem access controls; they are not
+all encrypted vault files. macOS/Linux use owner-only directories (`0700`) and
+files (`0600`). Windows uses an owner/SYSTEM-only access-control list (DACL),
+rejecting unsafe ownership, permissive access and reparse points. The separate
+`.magicvault-app` directory under the same user home contains managed application
+versions and installation state. Keep pairing files and private runtime state
+out of agent messages and shared diagnostics.
+
+For **just-in-time input**, no credential record is created on any platform.
+Values pass from the masked desktop helper to the daemon and the approved browser
+delivery adapter in temporary memory. They are omitted from vault records,
+registry state, audit events and agent replies. Owned secret buffers are zeroized
+when dropped; OS/UI/browser copies are outside that guarantee. See
+[one-time credentials](jit-credentials.md#lifetime-and-boundary).
+
+## Local IPC and credential flow
+
+The model-facing MCP connection uses **stdio**. The native MCP server and CLI
+then connect to the local daemon; the npm SDK invokes that CLI. The daemon's
+control API does not open a TCP/HTTP listener.
+
+- **macOS/Linux:** `rpc.sock` carries client requests and `bridge.sock` carries
+  trusted browser-native-host traffic under the private vault root. Both sockets
+  use `0600` permissions, and each side checks that the peer has the same Unix
+  user ID. The vault root retains the 85-byte path limit for Unix socket paths.
+- **Windows:** the same logical endpoints map to separate
+  `\\.\pipe\MagicVault-<hash>` named pipes. The hash binds the canonical root,
+  endpoint and user SID. Pipes use an owner/SYSTEM-only DACL, reject remote
+  clients and reserve the first server instance. Both sides also verify the
+  other process's user SID. No `.sock` filesystem transport is used on Windows.
+
+OS peer checks are combined with a paired-client capability and per-client
+authorization for protected operations. Protocol messages use length-prefixed
+JSON, enforce size limits before allocating their payloads and have bounded
+admission/timeouts. Version and daemon-session checks reject incompatible or
+stale requests. A lost reply never causes automatic replay of a credential use.
+
+Credential input takes a separate path: the daemon launches its bundled
+`magicvault-prompt` helper and exchanges bounded messages through private
+stdin/stdout pipes. The helper returns entered values only to the daemon. Agent
+requests carry references or JIT field metadata; replies contain metadata and
+status. The trusted browser bridge or loopback CDP connection does carry the
+values needed for the approved fill, and the destination page receives them.
+There is no terminal/chat input fallback if the desktop helper fails.
+
+These controls separate the supported agent protocol from secret delivery; they
+do not sandbox other software running as the same OS user. See the
+[security boundary](../SECURITY.md#what-this-does-not-protect-against) for that
+limit, and [prompt behavior](prompts.md) for collection and cancellation.
+
+Implementation references: [key identity and loading](../magicvault-service/src/storage.rs),
+[vault encryption](../magicvault-core/src/encryption.rs),
+[IPC framing and admission](../magicvault-service/src/ipc.rs), and
+[Unix/Windows transport](../magicvault-primitives/src/local_ipc.rs).
 
 ## Installation and recovery differences
 
@@ -82,10 +169,12 @@ an unrelated task, unit or registry entry.
 See the [2026-09-16 executed checks](qualification/results-desktop-platforms-2026-09-16.md)
 for Linux test/UI results, Windows compile checks and remaining native acceptance.
 
-The checked-in 0.8.3 demo and earlier native acceptance results cover one macOS
-installation and the previous dialog renderer. They do not qualify the new UI
-or Windows/Linux desktop behavior. The new platform build/test workflow and
-focused tests cover the source changes. Record actual executed results in the
+The [0.9.0 MCP demo](demo.md) records the new desktop UI on macOS: pairing,
+optional login/card enrollment, browser connection and a successful one-time
+login with human input/approval. This is one debug source build on one host;
+it does not qualify Windows/Linux desktop behavior or a signed package. The
+historical 0.8.3 demo covers the previous renderer. The platform build/test
+workflow and focused tests cover the source changes. Record executed results in the
 [qualification index](qualification/README.md) before marking desktop acceptance
 complete. Windows scheduled tasks, Credential Manager, browser registration,
 Linux login-session startup/keyring and headed UI behavior require native runs.

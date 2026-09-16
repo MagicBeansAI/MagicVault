@@ -1,0 +1,229 @@
+{
+  "recorded_at": "2026-09-16",
+  "platform": "macOS arm64",
+  "codex_cli": "0.154.0",
+  "build": {
+    "source_commit": "d00398cf6de8166550790b6de337b5d771772eaf",
+    "profile": "dev",
+    "version": "0.9.0",
+    "binaries": {
+      "magicvault": "6404e8447af87f3687e34bd938db50ffbc2612d003317c47e14664bf329de366",
+      "magicvault-mcp": "74bf00762e5fb6217c277e27316af6c9d4526b597fe65a0c372c525ed4fe1540",
+      "magicvault-native-host": "9b19af8fee944c6f20776a76ef65f98e1031cee40681349d2bac7bb6b2be6232",
+      "magicvault-prompt": "a36e88a57fc61e72329d00e5d64ad94cdce41e05f57d2db8608116eb4987176e"
+    }
+  },
+  "positive_control": {
+    "source_sha256": "a96e3ceacece09bcd2e17c3eaec9e632dd369df39de9031a583675c929436c42",
+    "original_all_counts_zero": true,
+    "control_inserted_in_copied_mcp_reply": true,
+    "copy_mcp_password_matches": 1,
+    "copy_rollout_password_matches": 1,
+    "source_unchanged": true
+  },
+  "duration_seconds": 93,
+  "capture_method": "Actual window screenshots; source intervals retimed; static success, final response and audit shots held for readability.",
+  "scenes": [
+    {
+      "source": "terminal",
+      "start": 1789567612,
+      "end": 1789567614.5,
+      "duration": 4,
+      "caption": "Enable MagicVault MCP for a just-in-time login.",
+      "chapter": "Connect MCP"
+    },
+    {
+      "source": "terminal",
+      "start": 1789567616,
+      "end": 1789567618,
+      "duration": 3,
+      "caption": "Connected and enabled. Credentials stay in MagicVault.",
+      "chapter": "Connect MCP"
+    },
+    {
+      "source": "prompt",
+      "start": 1789567622,
+      "end": 1789567626,
+      "duration": 4,
+      "caption": "Approve the local client in MagicVault\u2019s own window.",
+      "chapter": "Connect MCP",
+      "crop": [
+        0,
+        0,
+        1200,
+        820
+      ]
+    },
+    {
+      "source": "terminal",
+      "start": 1789567632,
+      "end": 1789567635,
+      "duration": 3,
+      "caption": "Optional: save a login for repeat tasks. No values in the command.",
+      "chapter": "Save for later"
+    },
+    {
+      "source": "prompt",
+      "start": 1789567640,
+      "end": 1789567644,
+      "duration": 3,
+      "caption": "Enter the username privately.",
+      "chapter": "Save for later",
+      "crop": [
+        0,
+        0,
+        1200,
+        870
+      ]
+    },
+    {
+      "source": "prompt",
+      "start": 1789567650,
+      "end": 1789567654,
+      "duration": 4,
+      "caption": "Enter the password privately, then save the record.",
+      "chapter": "Save for later",
+      "crop": [
+        0,
+        0,
+        1200,
+        870
+      ]
+    },
+    {
+      "source": "prompt",
+      "start": 1789567780,
+      "end": 1789567784,
+      "duration": 4,
+      "caption": "You can also store named card fields. This example is synthetic.",
+      "chapter": "Save for later",
+      "crop": [
+        0,
+        0,
+        1200,
+        870
+      ]
+    },
+    {
+      "source": "terminal",
+      "start": 1789567795,
+      "end": 1789567798,
+      "duration": 4,
+      "caption": "The saved list contains references and field names, never values.",
+      "chapter": "Save for later"
+    },
+    {
+      "source": "prompt",
+      "start": 1789567800,
+      "end": 1789567802,
+      "duration": 3,
+      "caption": "Approve the dedicated browser connection.",
+      "chapter": "Connect MCP",
+      "crop": [
+        0,
+        0,
+        1200,
+        820
+      ]
+    },
+    {
+      "source": "terminal",
+      "start": 1789567808,
+      "end": 1789567811,
+      "duration": 5,
+      "caption": "This login uses just-in-time credentials. No saved login needed.",
+      "chapter": "Just in time"
+    },
+    {
+      "source": "terminal",
+      "start": 1789567850,
+      "end": 1789567854,
+      "duration": 4,
+      "caption": "Ask the real Codex session to log in using one-time input.",
+      "chapter": "Just in time"
+    },
+    {
+      "source": "terminal",
+      "start": 1789568054,
+      "end": 1789568058,
+      "duration": 5,
+      "caption": "Codex requests a one-time fill using destination metadata.",
+      "chapter": "Just in time"
+    },
+    {
+      "source": "prompt",
+      "start": 1789568058,
+      "end": 1789568062.8,
+      "duration": 5,
+      "caption": "Enter the username when the task needs it.",
+      "chapter": "Just in time",
+      "crop": [
+        0,
+        0,
+        1200,
+        1030
+      ]
+    },
+    {
+      "source": "prompt",
+      "start": 1789568065,
+      "end": 1789568068.6,
+      "duration": 5,
+      "caption": "Enter the password privately. These values will not be saved.",
+      "chapter": "Just in time",
+      "crop": [
+        0,
+        0,
+        1200,
+        1030
+      ]
+    },
+    {
+      "source": "prompt",
+      "start": 1789568070,
+      "end": 1789568071.5,
+      "duration": 7,
+      "caption": "Review the destination, then approve Use once.",
+      "chapter": "Just in time",
+      "crop": [
+        0,
+        0,
+        1200,
+        970
+      ]
+    },
+    {
+      "source": "browser",
+      "start": 1789568073,
+      "end": 1789568075,
+      "duration": 3,
+      "caption": "MagicVault fills the browser directly after your approval.",
+      "chapter": "Just in time"
+    },
+    {
+      "file": "edit/browser-success-clean.png",
+      "duration": 6,
+      "caption": "Codex submits the form. The real website confirms a successful login.",
+      "chapter": "Just in time"
+    },
+    {
+      "file": "edit/codex-final.png",
+      "duration": 7,
+      "caption": "Codex receives a filled receipt. Saved records remain 2 \u2192 2.",
+      "chapter": "Verify"
+    },
+    {
+      "file": "edit/audit-live-1.png",
+      "duration": 6,
+      "caption": "One JIT fill. No saved credential was added.",
+      "chapter": "Verify"
+    },
+    {
+      "file": "edit/audit-counts.png",
+      "duration": 8,
+      "caption": "The public test credentials never appear in this agent transcript.",
+      "chapter": "Verify",
+      "footer": "Literal public-credential check of this recording \u00b7 Website receives the values"
+    }
+  ]
+}

@@ -1,135 +1,177 @@
-# MagicVault MCP demo
+# Just-in-time MCP demo
 
-![Full real MCP setup and Codex login](assets/magicvault-mcp-full-demo.gif)
+![Real Codex MCP setup, optional storage, private one-time input and website login](assets/magicvault-mcp-jit-demo.gif)
 
-[Watch the full MP4](assets/magicvault-mcp-full-demo.mp4) ·
-[Static poster](assets/magicvault-mcp-full-demo-poster.png) ·
-[Actual MCP transcript audit](assets/magicvault-mcp-full-demo-audit.json)
+[Watch with narration](assets/magicvault-mcp-jit-demo-narrated.mp4) ·
+[Silent MP4](assets/magicvault-mcp-jit-demo.mp4) ·
+[Static poster](assets/magicvault-mcp-jit-demo-poster.png) ·
+[Actual MCP transcript audit](assets/magicvault-mcp-jit-demo-audit.json) ·
+[Build, edit and positive-control evidence](assets/magicvault-mcp-jit-demo-evidence.json)
 
-This **1-minute 47-second** edit records the full MCP onboarding and login flow
-after MagicVault is installed and its local service is running. It uses a real
-Codex CLI session, real native dialogs, and a real Chrome window on
-[Practice Test Automation](https://practicetestautomation.com/practice-test-login/).
+This **1-minute 33-second** recording shows a real Codex CLI session using
+MagicVault MCP to log in to
+[Practice Test Automation](https://practicetestautomation.com/practice-test-login/)
+in Chrome. It briefly shows how to store a login and synthetic card fields, then
+uses **just-in-time input for the actual login**. The human enters the website
+credentials in MagicVault's masked desktop windows and approves **Use once**.
+No saved credential is used for that login, and no record is added.
 
-| Time | Actual recorded step |
+The dark frame, chapter labels and bottom-centred captions surround actual
+application captures. Captions occupy a separate panel below the windows.
+The narrated MP4 adds a synthetic English voice generated with MiniMax CLI,
+timed to the same scenes. The GIF remains silent.
+
+| Time | Recorded step |
 | --- | --- |
-| 0:00 | Add the MCP server with `codex mcp add`; verify `enabled: true`. |
-| 0:07 | Pair the local client and approve the native pairing dialog. |
-| 0:14 | Start enrollment, enter the username and password in hidden native fields, receive a credential reference. |
-| 0:32 | Configure the exact website origin and approve its field permission. |
-| 0:40 | Register the dedicated browser, approve the connection, list references. |
-| 0:50 | Ask Codex to log in and allow the MCP tools. |
-| 1:02 | Codex calls `secure_fill` with references and selectors; the response is `pending`. |
-| 1:08 | The human approves one fill; the browser receives the values. |
-| 1:19 | Codex receives a `filled` receipt, submits the form, and verifies the successful login. |
-| 1:33 | Inspect the actual credential metadata and run the transcript audit. |
+| 0:00 | Enable the MCP server in Codex and check its configuration. |
+| 0:07 | Approve local client pairing in MagicVault's desktop window. |
+| 0:11 | Glimpse optional enrollment: a saved login and synthetic card fields, entered privately. |
+| 0:25 | List saved references and field names; approve the dedicated browser connection. |
+| 0:32 | Introduce the one-time flow and ask a fresh Codex session to log in. |
+| 0:41 | Codex calls `secure_prompt_fill` using destination metadata. |
+| 0:46 | Enter the username and password in masked native windows. |
+| 0:56 | Review the destination and approve **Use once**. |
+| 1:03 | MagicVault fills the fields; Codex submits the form and verifies the successful login. |
+| 1:12 | Inspect Codex's receipt and unchanged saved-record list. |
+| 1:19 | Audit the actual MCP calls, replies and login-agent transcript. |
 
-## What the agent received
+## What the recording verifies
 
-The final segment runs `scripts/audit-mcp-demo.py` against the **actual login
-agent's Codex rollout**. It extracts six MagicVault MCP call expressions and six
-replies, including the `pending` and `filled` receipts. The shared JSON report
-contains those expressions, replies, timestamps, counts, and the source file's
-SHA-256 hash. It contains no vault contents.
+The final segment runs `scripts/audit-mcp-demo.py` against the actual login
+agent's Codex rollout. The shared report includes all **six MagicVault MCP call
+expressions and six replies**, their timestamps and the rollout's SHA-256 hash.
+The sequence is `list_browsers`, `list_credentials`, `browser_targets`,
+`secure_prompt_fill`, `fill_status`, then `list_credentials` again. There is
+exactly **one JIT fill and zero saved-credential fills**.
 
-Both the practice account's public username and password had **zero literal
-matches** in the extracted MCP call source, MCP replies, and the complete
-recorded login-agent rollout. A positive-control check confirmed the parser
-detects the public password when inserted into a copied response. The audit
-reads the recording; it never opens the vault.
+The final receipt is `filled`, with both fields filled and no reported error.
+Codex separately verified the real website's **Logged In Successfully** heading.
+The saved metadata before and after is identical: **two example records → two
+example records**, including the same references, labels and field names.
 
-This supports the specific recorded result: MagicVault returned references,
-field names and status receipts instead of credential values. It is a literal
-check of one session, not a general proof against all possible observation or
-encoding. The login agent saved browser screenshots to disk without loading
-them into its model context; the demo editor separately inspected screen
-captures to produce this video.
+Both public practice-account values had **zero literal matches** in the MCP
+call source, MCP replies and complete recorded login-agent rollout. A positive
+control inserted the public password into a copied MCP reply; the audit detected
+it in both that reply and the copied rollout. The original recording was
+unchanged. Two automated audit tests cover positive detection, namespace
+mismatch, incomplete fill and changed saved metadata.
 
-The practice website publishes its sample credentials on the page. The website
-receives the filled values, and separate browser tools can observe them.
-MagicVault protects its own output boundary; this recording does not claim that
-credentials are inaccessible to every browser tool or to the demo editor.
+This is evidence for the recorded session, not a general security proof. The
+login agent did not load browser screenshots or credential values into its
+context. The demo editor separately inspected captures and knows the public
+practice account. The website publishes those values on its login page and
+receives them when filled; other browser tools can observe them. MagicVault's
+own replies contain metadata and status, not credential values. The literal
+audit does not check every possible encoding or observation channel.
 
 ## What was running
 
-- Codex CLI 0.154.0, connected to the real stdio `magicvault-demo` MCP server.
-- MagicVault 0.8.3, its local service, macOS Keychain custody and native consent.
-- A fresh `walkthrough` client profile and the public practice account entered
-  by the human in native hidden-input prompts.
+- MagicVault **0.9.0**, source commit `d00398cf6de8166550790b6de337b5d771772eaf`,
+  built locally in the debug profile on macOS arm64 with the desktop prompt
+  feature. Binary hashes are in the linked evidence file.
+- A fresh, isolated vault with macOS Keychain custody and a running daemon;
+  the `jit-demo` client profile was paired by the human.
+- Codex CLI **0.154.0**, connected to the real stdio `magicvault-jit-demo` MCP
+  server. The older demo server was disabled in this login session.
 - A dedicated Chrome profile registered through MagicVault's CDP route.
-- `cua-driver` for ordinary browser submission, result verification and recording.
+- Human credential entry, native approvals and Codex tool approvals.
+  `cua-driver` handled ordinary browser submission/verification and separate
+  window capture. The login agent used the verified form selectors, without
+  reading the website's public credential hints.
 
-The video begins with installed binaries and a running vault service. It includes
-MCP activation, pairing, enrollment, origin permission and browser registration.
-Installation itself, extension auto-connection, HTTP/process delivery, and a
-separate agent integration are outside this recording. See [Setup](setup.md)
-for installation and service startup.
+The two saved records are unrelated storage examples. The login uses values
+entered during the task. This take demonstrates that an existing saved record
+is unnecessary for JIT use; empty-vault behavior also has automated coverage in
+[the one-time flow documentation](jit-credentials.md).
+
+This is one successful native macOS flow, not complete desktop qualification
+or an npm/signed-package acceptance run. Linux and Windows retain their
+[separate validation status](platforms.md#verification). Installation and daemon
+startup occur before the video. Saved-credential delivery, HTTP/process delivery
+and the separate Magician agent integration are outside this recording.
 
 ## Source and editing
 
-All application screens and tool results are real captures. Waiting time is cut,
-windows are resized, and native dialogs are cropped and slowed for readability.
-The last two shots show a real Terminal running the transcript audit after the
-login. The clean success shot follows dismissal of Chrome's save-password offer.
-This is an edited demonstration, not an uninterrupted desktop recording.
+Every application window, prompt and tool result comes from this live take.
+Waiting time is cut; selected intervals are sped up or slowed down. Native
+windows are cropped to remove unused space while retaining the request and
+controls. The success page, final Codex response and audit screens are real
+still captures held for readability. The clean success shot follows dismissal
+of Chrome's save-password offer by the editor.
 
-Local source captures and the timestamped edit manifest are in
-`output/full-mcp-demo/`, excluded from Git. Only selected demo windows, tight
-native-dialog crops, and the value-free MCP audit are shared. The first native
-video's original H.264 frames were recovered after its recorder exited without
-finalizing the MP4; the recovered clip uses the recorder's intended 30 fps.
+An initial card-enrollment command was rejected before showing a dialog because
+its label contained an unsupported character. The label was corrected to ASCII
+and card enrollment continued; that rejected setup attempt is omitted from the
+edit. The saved login was not enrolled twice, and the JIT fill was not retried.
 
-With these local source captures present, Python 3, Pillow and FFmpeg reproduce
-the edit:
+Local raw captures, setup helpers and the timestamped edit manifest are in
+`output/jit-mcp-demo/`, excluded from Git. The published evidence contains build
+hashes, selected capture times, captions and positive-control results, with no
+credential values. Older recordings remain in Git history; the current checkout
+contains only the JIT demo assets.
+
+With the local captures present, Python 3, Pillow, FFmpeg and Arial or DejaVu
+Sans reproduce the edit:
 
 ```bash
-python3 scripts/render-full-mcp-demo.py --capture-root output/full-mcp-demo
+python3 scripts/render-jit-mcp-demo.py --capture-root output/jit-mcp-demo --preview
+python3 scripts/render-jit-mcp-demo.py --capture-root output/jit-mcp-demo
 ```
 
-Re-run the audit against the local recorded Codex session:
+The MP4 is 1600 × 1000 at 12 fps; the looping GIF is 1280 × 800 at 8 fps.
+Source window screenshots were sampled at approximately 2 fps. These exports
+are an edited screen demonstration, not an uninterrupted desktop video.
+
+### Narration
+
+The [narration script and timing report](assets/magicvault-mcp-jit-demo-narrated.json)
+records 17 segments generated with MiniMax CLI 1.0.18, `speech-2.8-hd` and the
+`English_expressive_narrator` system voice. Only the written narration is sent
+for synthesis. The source screen recording and vault contents are not uploaded.
+
+Each clip starts within its matching scene. The mixer trims silence at the
+outside edges, preserves pauses within sentences and applies a small speed
+adjustment only where needed. It refuses an adjustment above 1.18× or a changed
+source video. The full track is normalized toward −16 LUFS with a −1.5 dBTP peak
+limit, then encoded as 48 kHz AAC. The original video stream is copied intact.
+This is an added voice-over; it is not audio captured during the login.
+
+To reproduce using an authenticated [MiniMax CLI](https://github.com/MiniMax-AI/cli),
+place the shared narration JSON at `output/jit-mcp-demo/narration/plan.json`.
+The existing silent MP4 must match its source hash. Then run:
+
+```bash
+python3 -B scripts/narrate-jit-mcp-demo.py generate --mmx /path/to/mmx
+python3 -B scripts/narrate-jit-mcp-demo.py mix
+```
+
+Generation uses the CLI's login, caches matching completed requests and stops
+on an error. Mixing uses local clips only. Raw speech files and provider replies
+stay in ignored `output/`; the shared report contains text, timings and hashes.
+
+### Transcript audit
+
+Re-run the audit against the local login-agent recording:
 
 ```bash
 python3 scripts/audit-mcp-demo.py \
   --rollout /path/to/recorded-codex-rollout.jsonl \
-  --output output/full-mcp-demo/transcript-audit.json
+  --server magicvault_jit_demo --require-jit \
+  --output output/jit-mcp-demo/transcript-audit.json
+python3 -B -m unittest discover -s scripts/tests -p 'test_demo_audit.py'
 ```
 
-The audit is specific to this public practice-account recording and its
-`magicvault-demo` tool names. Do not supply private secrets as canaries. The
-renderer uses the macOS supplemental Arial fonts and this take's source times;
-update those paths and times for another recording.
+The parser is specific to the public practice-account demo and the supplied
+MCP namespace. Do not supply private secrets as canaries. `--display` shows
+the computed audit in a terminal; `--screen 3` selects the credential-value
+counts and `--screen 4` selects the JIT/before-after metadata check.
 
-## Record the saved + one-time MCP demo
+## Recording another take
 
-The checked-in footage is the older saved-credential flow. Record a new real
-website/Codex take after the new desktop UI passes acceptance; do not relabel
-existing footage as a demonstration of one-time input.
-
-1. Briefly show enabling MCP, pairing, then enrolling a sample login and a
-   synthetic card record in masked MagicVault windows. Show only their labels,
-   field names and references afterward. No payment or real card data is needed.
-2. Ask the actual Codex session to log in to a real test website using the saved
-   reference. Record the native destination summary, approval, `filled` receipt,
-   browser submission and successful website result.
-3. Open a second test login with no saved credential. Show its absence from the
-   permitted metadata list, then let Codex call `secure_prompt_fill`. The human
-   enters values privately and approves **Use once**. Record the receipt and
-   successful website result; show that no credential record was added.
-4. Inspect the actual MCP calls/replies and the login agent's transcript for
-   both flows. Run positive-control checks with synthetic canaries outside the
-   recorded agent session. Publish only a value-free audit report.
-
-Keep the short card-storage glimpse separate from the login demonstrations.
-Show real native windows and actual tool results. Record only intended windows;
-never load screenshots of unmasked values into the login agent's context. State
-that the website receives values and other browser tools can observe them. A
-literal transcript audit is evidence for that recording, not proof against every
-observation or encoding. Keep any separate Magician/agent demo in its own file.
-
-## Recording setup
-
-Use an isolated vault/client profile and a trusted test account. Start the local
-service, enable recording, then add the MCP server. For default installed paths:
+Use an isolated vault/client profile, a trusted public test account and a
+dedicated browser profile. Start the local service, then record MCP activation,
+pairing and browser registration. The [setup guide](setup.md) covers installation.
+For a default installed bundle:
 
 ```bash
 codex mcp add magicvault -- "$HOME/.magicvault-app/current/bin/magicvault-mcp" --profile agent
@@ -137,30 +179,18 @@ codex mcp get magicvault
 ```
 
 This follows the [official Codex MCP documentation](https://learn.chatgpt.com/docs/extend/mcp?surface=cli).
-Record native pairing, enrollment, exact-origin permission and browser
-registration before starting a fresh Codex session. Keep ordinary browser
-automation available for navigation and submission. Leave security approval
-and credential entry to the human.
+Keep ordinary browser automation available for navigation and submission.
+Leave security approval and credential entry to the human. Optional saved
+examples must remain separate from the JIT login; cards use synthetic data.
 
-Record the real tool calls, native use approval, filled fields, receipt,
-submission and website result. A `filled` receipt alone does not prove login
-success. Keep secret values out of command arguments, prompts, labels and tool
-responses. Share only the intended windows and masked native input dialogs.
+Record the actual call, masked inputs, **Use once**, browser fill, receipt,
+submission and website result. Compare saved metadata before and after. Run the
+transcript audit and its positive control outside the login agent's session.
+Update the edit's source times for each recording and inspect the encoded output.
+Keep a future Magician/agent demo in its own file.
 
-## Other cuts
+## Earlier recordings
 
-The earlier [37.5-second MCP GIF](assets/magicvault-mcp-demo.gif) and
-[MP4](assets/magicvault-mcp-demo.mp4) show a separate successful login take with
-setup completed beforehand. Reproduce it using:
-
-```bash
-python3 scripts/render-live-mcp-demo.py --capture-root output/live-mcp-demo
-```
-
-The [illustrated overview](assets/magicvault-demo.gif) is a separate synthetic
-explanation, explicitly labeled as an illustration. It also introduces
-HTTP/process uses and the TypeScript client; those scenes are not live footage.
-
-```bash
-python3 scripts/render-demo.py
-```
+The older saved-credential demos and illustrated overview are retained in
+[the previous source revision](https://github.com/MagicBeansAI/MagicVault/tree/7fd0731/docs/assets).
+They use the previous renderer and are not evidence for this JIT flow.

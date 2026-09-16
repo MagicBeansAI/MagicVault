@@ -21,11 +21,12 @@ MagicVault delivers credentials to an approved browser field, HTTP request or ne
 process. Use saved references for repeat tasks, or enter one-time browser credentials
 in a native prompt when needed. The agent gets a status receipt without the values.
 
-![Real MagicVault MCP setup, native credential entry, Codex website login and transcript audit](docs/assets/magicvault-mcp-full-demo.gif)
+[![Real Codex MCP demo: optional vault storage, just-in-time private input, website login and transcript audit](docs/assets/magicvault-mcp-jit-demo.gif)](docs/assets/magicvault-mcp-jit-demo-narrated.mp4)
 
-*Saved-credential demo (0.8.3), 1:47: enable MCP, enroll credentials, approve a real Codex login,
-then inspect the transcript for credential values. Actual screens, edited for readability. The new one-time flow is not in this recording.
-[Watch the MP4](docs/assets/magicvault-mcp-full-demo.mp4) · [Recording and audit details](docs/demo.md).*
+*Real MCP demo (0.9.0), 1:33: enable MCP, glimpse optional login/card storage,
+then log in with **just-in-time credentials** entered in MagicVault's private window.
+Codex receives a receipt; no saved record is added. Click the GIF to watch with narration.
+[Watch with audio](docs/assets/magicvault-mcp-jit-demo-narrated.mp4) · [Recording and transcript audit](docs/demo.md).*
 
 This protects MagicVault's own tool calls and replies. Authorized recipients see
 the credential, and separate browser tools can still read it afterward.
@@ -82,7 +83,8 @@ Source backends cover macOS, Linux and Windows; see the
 The commands below use the macOS Apple Silicon candidate; select matching tarballs for your OS/CPU. No Rust toolchain is needed to use prebuilt candidates.
 This is local stdio MCP—not a hosted endpoint or unattended credential access.
 
-The upcoming npm release will use the explicit `alpha` channel. Until it is
+The upcoming npm release will use the `latest` channel, with platform support
+still labelled alpha. Pushing a matching version tag starts the release workflow. Until it is
 published, use the local candidates below. Maintainers: [npm launch procedure](docs/npm-release.md).
 
 ### 1. Install and set up a local candidate

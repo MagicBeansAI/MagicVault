@@ -8,9 +8,13 @@ Entries describe source changes, not publication announcements. See
 ## 0.9.0 — One-time credentials and desktop prompts — 2026-09-16 (source candidate)
 
 - Mark macOS, Linux and Windows as alpha in project/npm README badges. Prepare a
-  manual six-platform npm build and publication workflow using `NPM_TOKEN`,
-  complete tarball verification, native-first publication, the `alpha` channel
-  and scope-specific install instructions. Nothing is published automatically.
+  six-platform npm release using `NPM_TOKEN`: pushing a matching `vX.Y.Z` tag
+  builds and verifies seven packages, then publishes native dependencies before
+  the launcher under `latest` in the confirmed `@magicbeansai` scope. Main pushes
+  automatically prepare packages after source checks; manual runs also only
+  prepare artifacts. Add main/PR
+  source checks, tag/version validation, scope-specific install instructions,
+  rollback prevention and registry readback. No release has been published yet.
 - Add `secure_prompt_fill` to MCP, `secure-prompt-fill` to the CLI and
   `securePromptFill` to the Node SDK. Collect hidden native inputs when needed,
   require a final Use once decision, fill the captured browser document and
@@ -18,7 +22,8 @@ Entries describe source changes, not publication announcements. See
 - Share saved-fill target consumption, replay protection, cancellation, expiry,
   revocation, audit and partial/uncertain outcome handling. Add empty-vault,
   value-free persistence, CLI/MCP and SDK integration coverage with synthetic
-  human/browser peers. New native UI acceptance remains pending.
+  human/browser peers. A real macOS MCP/JIT login is recorded below; broader
+  native UI acceptance remains pending.
 - Replace AppleScript dialogs with a shared Rust desktop prompt for macOS,
   Linux and Windows: masked entry, a readable summary, expandable exact request
   details and explicit one-time/remembered choices. The daemon controls wording;
@@ -30,7 +35,16 @@ Entries describe source changes, not publication announcements. See
   assembly and selection to OS/CPU-specific native bundles. Qualification is
   reported separately; Windows governed process delivery remains unsupported.
 - Document optional login/card-field enrollment, one-time input with an empty
-  vault, prompt ownership and the next real saved-plus-one-time MCP demo.
+  vault and prompt ownership. Replace the main demo with a real 1:33 Codex MCP
+  recording: optional login/card storage, native just-in-time input, Use once,
+  website login and transcript audit. Add a framed layout with bottom-centred
+  captions, reproducible rendering and audit controls. The two saved example
+  records remain unchanged; the public login credentials have zero literal
+  matches in the recorded login-agent session. Retain older demos in Git history
+  and remove their obsolete assets and broken local links from the current checkout.
+- Add MiniMax-generated English narration synchronized to the demo's scene
+  timings. Keep the original video frames and silent export, and include the
+  narration text, timing evidence and reproducible generation/mixing helper.
 - CLI/MCP/service advance to `0.9.0`, protocol to `0.7.0`, effect to `0.7.1`, primitives to `0.1.2`, and local agent wire
   to `5`; update the matching standalone bundle together. Core, vault formats,
   extension and MagicRun remain unchanged. New primitives add Windows filesystem

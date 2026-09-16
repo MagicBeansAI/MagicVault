@@ -3,7 +3,7 @@
   "project": "MagicVault",
   "architecture_version": "0.9.0",
   "document": "docs/architecture.md",
-  "document_sha256": "207a1550920ebf3081c6f65594ebac90a089271f3a244405abd3d92a8b205081",
+  "document_sha256": "d57c96716ef201a1c78b3fcdf1c6f41bc98df41fdbbfd9a08a98d903e22987db",
   "component_versions": {
     "extension": "0.6.1",
     "magicvault": "0.9.0",
@@ -17,9 +17,10 @@
   },
   "source_sha256": {
     ".gitattributes": "16cf10fb8eaf8285b7212b83cfa69b0d67b7ebabf7cf80d6ac72829e6df61c15",
-    ".github/workflows/desktop-platforms.yml": "e26ad5e02d950fa638d6dd8c4694b968bea07f84cba1a326a93f798ec2bf8458",
+    ".github/workflows/ci.yml": "c5a538509bcd416623d4979fda43bfea525fa0c5ce1d77ea65a1bafcb13820d4",
+    ".github/workflows/desktop-platforms.yml": "06f1264b999e214cfab9c188978b5c767eed103d9548d570145962b1c85b2b64",
     ".github/workflows/distribution.yml": "145b6a9f6a7c97f857f3c031ab8ce6f9e03e34a4f522489d0eec7bd16e0b02b7",
-    ".github/workflows/npm-alpha.yml": "a8641406e00f5ad035105744ec4aeb20c03e31394709a50a86fa74b18af5e5de",
+    ".github/workflows/npm-release.yml": "80cc998bfcf3dcf2f232e4b29169a933a1f79b45ec57149efcd97ba4f91e00d5",
     ".github/workflows/process-investigation.yml": "cf0fa5b99d58a3393b6371a449dedbe6bac2707c1c3ee261ed44e41330ce7730",
     ".github/workflows/qualification.yml": "30c7320e100240fd08c7be430ffb7f09bcb220b4511858bbd16bcdc266bb9942",
     "Cargo.lock": "e983e9d53d1fcf9a05660309566732b8fa4b26f6b028a1f360197086362c1a10",
@@ -97,15 +98,15 @@
     "magicvault/src/bin/magicvault-native-host.rs": "dd723ce9bbecdd1d77898257d25d16290be4c93c4a7acc8cad605c8e2d5c6476",
     "magicvault/src/main.rs": "c2c6c50838c03b476213f586ca2954ed3dc9789963cc0c2e61d5cc20b8a3ebad",
     "magicvault/src/setup.rs": "18bde0e1bdc557821d9ac4fd33f17a9328bdeed8f9c67bd1234ff068b5f9e365",
-    "npm/README.md": "78518a66c4bd2da19cf6b721d74bc5579652586782cad2807698d0c70eb4b559",
+    "npm/README.md": "9d229b0c1171b6e69df58ae03c7f03436e763d1d62373cca3424a9bd77967e52",
     "npm/cli.cjs": "10255efa0a415dcd99403a2d31b324d15fd6b4a57361ff0f5011228989897a04",
     "npm/launcher.cjs": "73230b7253c53646d41c6903edf884fcaa6da96045ffd7fe832396e7efdca412",
     "npm/mcp.cjs": "2233e6719217ccbb08ae28b97499632ba773905c552c598a554f938a033e402b",
     "npm/sdk.cjs": "17f9f9cef9a4487c62ca2aa4c87275956f3d13a59553e1a02b6ad6db6c8ae9e4",
-    "scripts/package-npm.mjs": "234330e3a7c0d16306572776d97fd00fd2eefdb3f76a70ddcc14a1a27d1076b6",
+    "scripts/package-npm.mjs": "ad5104906803f30ca90bce9a239f84a595703093382d3413c6a0e8bddcc2a41a",
     "scripts/process-investigation.mjs": "4940d6f089c3ad67744978c4e7c65ae363bfecf77ac45aded5d3af0ac717f4da",
     "scripts/qualify-package.mjs": "acd14e471627820037bc6598a9c344f78a1a23f916128190977eb76972725f0b",
-    "scripts/release-npm.mjs": "07ca46a482ac84603f48975b5ef7e5c2c7e6214723877080c453dca134eb29b3",
+    "scripts/release-npm.mjs": "894a939dee4e7a6427dd14341805a141a236890f76517816a069f9d03efd7c58",
     "scripts/sign-release.sh": "ce9def2bd1e61a19dc408cd3782984fb8919820b1d5e0e7bafdafccd389f3a92"
   }
 }

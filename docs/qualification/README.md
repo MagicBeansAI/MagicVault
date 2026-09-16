@@ -45,6 +45,7 @@ earlier failures. They are technical evidence, not a task queue or roadmap.
 
 ### Version-specific native acceptance
 
+- [0.9.0 real macOS Codex MCP/JIT login, native prompts and transcript audit](../demo.md)
 - [Browser permissions, pause/reconnect and in-flight cancellation](results-permission-recovery-2026-09-08.md)
 - [Cancellation receipts and installed recovery](results-cancellation-2026-09-08.md)
 - [Process/HTTP native consent modes, revocation and persistence](results-consent-2026-09-08.md)

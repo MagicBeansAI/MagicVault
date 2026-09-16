@@ -1,6 +1,8 @@
 name: Desktop platform checks
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
   pull_request:
 permissions:
   contents: read
@@ -27,7 +29,7 @@ jobs:
           rustup override set 1.92.0
       - name: Linux desktop libraries
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libxkbcommon-x11-0 libwayland-dev libx11-dev libxrandr-dev libxi-dev libxcursor-dev libgl1-mesa-dev
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev libxkbcommon-dev libxkbcommon-x11-0 libwayland-dev libx11-dev libxrandr-dev libxi-dev libxcursor-dev libgl1-mesa-dev
       - name: Native compile including the real desktop renderer
         run: cargo check --locked -p magicvault -p magicvault-mcp -p magicvault-prompt --features magicvault-prompt/desktop
       - name: Private IPC, filesystem, prompt and service tests

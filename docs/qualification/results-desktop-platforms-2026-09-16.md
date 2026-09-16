@@ -55,9 +55,12 @@ adapters and synthetic humans; they do not constitute a real Codex/browser demo.
 
 The new `desktop-platforms.yml` workflow defines native macOS/Linux/Windows build
 and library-test runners. It was not dispatched or reported green in this pass.
-The original 0.8.3 demo remains historical. The next real demo must capture both
-saved and unsaved flows plus actual value-free agent transcripts, following the
-[demo plan](../demo.md).
+The original 0.8.3 saved-fill demo remains historical. A subsequent
+[real macOS 0.9.0 demo](../demo.md), built from `d00398c`, records optional
+login/card enrollment followed by a just-in-time login with native human input
+and approval. Its successful website result and value-free transcript audit are
+separate evidence from the source/container checks above. It does not exercise
+saved-credential delivery with the new renderer or complete platform acceptance.
 
 Raw fixture screenshots and local harness material belong in ignored `output/`.
 No personal vault, account, live service, Magician runtime or existing browser

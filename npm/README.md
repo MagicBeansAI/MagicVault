@@ -11,6 +11,14 @@ when automation reaches an unfamiliar login. Enrollment is optional. A native da
 delivers them to an authorized recipient; MCP/CLI clients receive closed status,
 not credential values or raw recipient output.
 
+[![Real Codex MCP demo: optional vault storage, just-in-time private input, website login and transcript audit](https://raw.githubusercontent.com/MagicBeansAI/MagicVault/main/docs/assets/magicvault-mcp-jit-demo.gif)](https://github.com/MagicBeansAI/MagicVault/blob/main/docs/assets/magicvault-mcp-jit-demo-narrated.mp4)
+
+*Real MCP demo (0.9.0), 1:33: enable MCP, glimpse optional login/card storage,
+then log in with **just-in-time credentials** entered in MagicVault's private window.
+Codex receives a receipt; no saved record is added. Click the GIF to watch with narration.
+[Watch with audio](https://github.com/MagicBeansAI/MagicVault/blob/main/docs/assets/magicvault-mcp-jit-demo-narrated.mp4) ·
+[Recording and transcript audit](https://github.com/MagicBeansAI/MagicVault/blob/main/docs/demo.md).*
+
 Authorized recipients receive the secret; separate browser tools can still read
 it afterward. [Security boundary](https://github.com/MagicBeansAI/MagicVault/blob/main/SECURITY.md).
 

@@ -15,9 +15,9 @@ executables or create a GitHub Release. See [platform limits](platforms.md).
   Manual preparation can override it; `@magicvault-local` is refused for releases.
 - Keep `NPM_TOKEN` in Actions secrets. It must authorize public publication in
   this scope, provenance and unattended publishing. The 0.9.1 migration also
-  requires permission to deprecate the existing packages. The 0.9.2 cleanup
-  requires unpublish permission. Only publication and this one-time cleanup
-  receive it as `NODE_AUTH_TOKEN`.
+  requires permission to deprecate the existing packages. Only the publish job
+  receives it as `NODE_AUTH_TOKEN`. Package deletion requires interactive
+  authentication; a bypass-2FA automation token cannot unpublish packages.
 - A matching release tag must point to a commit on `main`. A source/version
   mismatch, prerelease tag or commit outside main is refused.
 
@@ -106,25 +106,37 @@ After verified 0.9.1 publication, the workflow's one-time migration:
 That first migration **deprecated packages without deleting them**; their direct
 URLs remained accessible. No future version publishes native packages.
 
-The 0.9.2 tag additionally runs a separate `remove-legacy` job after publication.
-It checks the replacement's bundled metadata, integrity and `latest` tag, then
+The original 0.9.2 tag published successfully, but npm rejected its separate
+cleanup job with 403. npm's current
+[authentication rules](https://api-docs.npmjs.com/) reject package deletion using
+bypass-2FA granular tokens, even when the same token can publish and deprecate.
+The unsupported CI cleanup jobs were removed from main. Their failure did not
+roll back the published description or delete any package.
+
+Run the bounded cleanup from an interactive maintainer terminal after login:
+
+```bash
+npm login --auth-type=web --registry=https://registry.npmjs.org/
+node scripts/release-npm.mjs --mode remove-legacy --scope @magicbeansai --version 0.9.2 --interactive
+```
+
+Complete npm's authentication prompts directly; do not put passwords or OTPs in
+chat, workflow inputs or committed files. The cleanup requires latest 0.9.2 and
+the preserved 0.9.1 version. It checks bundled metadata and integrity, then
 preflights all six known native package names. Each must already be missing or
-contain only deprecated 0.9.0. npm refused the original cleanup because main
-0.9.0 still depended on those packages. Recovery also verifies that exact old
-dependency graph and unpublishes **only main 0.9.0** before its six dependencies.
-It never unpublishes the main package name; 0.9.1 and latest 0.9.2 are preserved
+contain only deprecated 0.9.0. It never unpublishes any main package version;
+0.9.1 and latest 0.9.2 are preserved
 with unchanged integrity. Reruns skip versions already removed.
 
 Unpublishing is irreversible and fresh pinned 0.9.0 installs may no longer work;
 upgrade to the self-contained main package first. npm's
 [unpublish policy](https://docs.npmjs.com/policies/unpublish/) may refuse packages
-with dependents, including the old main 0.9.0 dependency graph, or require
-additional authentication. The job stops on refusal or an uncertain write and
+with dependents or require
+additional authentication. Cleanup stops on refusal or an uncertain write and
 reports failure; deprecation is not reported as removal. Inspect registry state
-before rerunning only the cleanup job. It never retries a deletion automatically.
-The separate **Actions → npm legacy cleanup → Run workflow** on `main` runs source
-checks and this fixed 0.9.0 cleanup using `NPM_TOKEN`. It cannot publish a package,
-select arbitrary targets or run from another branch. It shares release concurrency.
+before rerunning cleanup. It never retries a deletion automatically. Do not run
+publication concurrently. npm's generic 403 detail mentions dependencies for
+many failures; use the actual registry summary to diagnose the cause.
 
 ## Recover a failed release
 
@@ -138,6 +150,17 @@ version. Publication is serialized by the `magicvault-npm-release` concurrency
 group; avoid independent publication of the same package while it runs.
 
 ## Release evidence
+
+Version 0.9.2 was published as `latest` from tag `v0.9.2`, commit
+`34c1b336790287d27beafe1d9703b4cf6f1aeddd`. Its
+[release run](https://github.com/MagicBeansAI/MagicVault/actions/runs/35131736336)
+passed source checks, all six builds, universal artifact verification, all six
+offline installation checks and publication. A fresh npm install added exactly
+one package; CLI/MCP versions and CommonJS/ESM SDK imports passed. The public
+registry description now explains MCP, CLI, TypeScript, encrypted storage,
+private prompts and just-in-time login. The subsequent cleanup jobs failed with
+403; those failures did not undo publication. Deletion requires the separate
+interactive authentication described above.
 
 Version 0.9.0 was published on 2026-09-16 from `v0.9.0`, commit
 `ea92d72b06ad6dc92fd00d67fd5ce60f3f3bd644`, using the original seven-package layout.

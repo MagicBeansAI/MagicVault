@@ -13,9 +13,12 @@ Entries describe source changes, not publication announcements. See
 - After verified publication, attempt to unpublish only the six deprecated
   native packages at 0.9.0. Preflight the entire fixed set and replacement before
   removal, stop on npm policy/authentication errors or uncertain writes, and
-  verify self-contained main versions remain intact. npm's dependent-package
-  policy requires removing obsolete main 0.9.0 before the six native packages;
-  preserve 0.9.1 and 0.9.2. Provide a manual, source-checked recovery workflow.
+  verify self-contained main versions remain intact. The fixed cleanup targets
+  only the six native packages; main package versions are never deleted.
+- npm rejected CI deletion with 403. Its current authentication rules prohibit
+  unpublishing with bypass-2FA tokens. Remove the unsupported CI cleanup jobs;
+  provide an interactive terminal mode using the maintainer's npm login/2FA.
+  Do not infer the cause of 403 from npm's generic dependency-related detail.
 - Runtime behavior, credential custody, wire/storage formats and shared Rust
   APIs are unchanged. Legacy 0.9.0 installs must migrate to the main package.
 

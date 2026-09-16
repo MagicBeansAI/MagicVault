@@ -221,6 +221,10 @@ export function retireLegacy({ scope, version }, invoke = npm, report = console.
     report(`Retired ${target}; retained for existing 0.9.0 installs`);
   }
 }
+export function removalInvoker(interactive, invoke = npm, terminal = Boolean(process.stdin.isTTY && process.stdout.isTTY)) {
+  ensure(!interactive || terminal, 'interactive removal requires a terminal');
+  return interactive ? args => invoke(args, args[0] === 'unpublish' ? {stdio: 'inherit', timeout: 300000} : {}) : invoke;
+}
 export function removeLegacy({ scope, version }, invoke = npm, report = console.log, wait = sleep) {
   ensure(scope === '@magicbeansai' && version === '0.9.2', 'legacy removal is scoped to the 0.9.2 release');
   const name = `${scope}/magicvault`;
@@ -229,18 +233,10 @@ export function removeLegacy({ scope, version }, invoke = npm, report = console.
   ensure(lookup(invoke, name, 'dist-tags.latest').value === version, 'replacement must be latest before removal');
   ensure(typeof replacement.dist?.integrity === 'string' && replacement.dist.integrity.startsWith('sha512-'), 'replacement integrity missing');
   const legacy = platforms.map(p => `${name}-${p}`);
-  const oldMain = lookup(invoke, `${name}@0.9.0`, '');
-  if (!oldMain.missing) {
-    const meta = oldMain.value;
-    ensure(meta?.name === name && meta.version === '0.9.0' && Boolean(meta.deprecated)
-      && JSON.stringify(Object.entries(meta.optionalDependencies || {}).sort())
-        === JSON.stringify(legacy.map(p => [p, '0.9.0']).sort()), 'unexpected legacy main dependency graph');
-  }
   const previous = lookup(invoke, `${name}@0.9.1`, 'dist.integrity');
   ensure(typeof previous.value === 'string' && previous.value.startsWith('sha512-'), 'previous self-contained version must remain available');
   // Preflight the entire fixed set. An exact version spec prevents deleting any
-  // concurrently added version. Only the obsolete main 0.9.0 can be removed;
-  // npm otherwise refuses its six dependencies. Never unpublish the main name.
+  // concurrently added version. No main package version is a deletion target.
   const remaining = legacy.filter(target => {
     const versions = lookup(invoke, target, 'versions');
     if (versions.missing) return false;
@@ -248,18 +244,27 @@ export function removeLegacy({ scope, version }, invoke = npm, report = console.
     ensure(Boolean(lookup(invoke, `${target}@0.9.0`, 'deprecated').value), 'legacy package must already be deprecated');
     return true;
   });
-  for (const target of [...(oldMain.missing ? [] : [name]), ...remaining]) {
+  for (const target of remaining) {
     report(`Removing ${target}@0.9.0`);
     try {
       invoke(['unpublish', `${target}@0.9.0`, '--force', '--ignore-scripts', '--json', '--registry', registry]);
     } catch (error) {
-      let code = 'UNKNOWN', dependents = false;
+      let code = 'UNKNOWN', summary = '';
       try {
         const diagnostic = JSON.parse(String(error.stdout)).error;
         if (/^E[A-Z0-9_]+$/.test(diagnostic?.code)) code = diagnostic.code;
-        dependents = /depend/i.test(String(diagnostic?.summary) + String(diagnostic?.detail));
+        // The CLI's generic E403 detail mentions dependencies even for auth
+        // failures. Report only the registry summary, never infer its cause.
+        if (typeof diagnostic?.summary === 'string') {
+          summary = diagnostic.summary;
+          if (process.env.NODE_AUTH_TOKEN) summary = summary.replaceAll(process.env.NODE_AUTH_TOKEN, '[redacted]');
+          summary = summary.replace(/npm_[A-Za-z0-9]+/g, '[redacted]')
+            .replace(/(https?:\/\/)[^\s/@]+:[^\s/@]+@/g, '$1[redacted]@')
+            .replace(/(authorization|token|password)\s*[:=]\s*\S+/gi, '$1=[redacted]').slice(0, 1500);
+        }
       } catch { /* Never expose raw npm output or authentication configuration. */ }
-      report(`Removal stopped for ${target}: ${code}${dependents ? ' (npm reports dependent packages)' : ''}. No write was retried.`);
+      report(`Removal stopped for ${target}: ${code}. No write was retried.`);
+      if (summary) report(`npm registry summary: ${summary}`);
       throw new Error('legacy removal failed; inspect registry policy and authentication');
     }
     verifyEventually(() => lookup(invoke, `${target}@0.9.0`, 'version').missing, wait,
@@ -273,7 +278,8 @@ export function removeLegacy({ scope, version }, invoke = npm, report = console.
 }
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
   try {
-    const { values } = parseArgs({ options: { mode: { type: 'string', default: 'verify' }, packages: { type: 'string' }, output: { type: 'string' }, root: { type: 'string' }, scope: { type: 'string' }, platform: { type: 'string' }, version: { type: 'string' } } });
+    const { values } = parseArgs({ options: { mode: { type: 'string', default: 'verify' }, packages: { type: 'string' }, output: { type: 'string' }, root: { type: 'string' }, scope: { type: 'string' }, platform: { type: 'string' }, version: { type: 'string' }, interactive: {type: 'boolean', default: false} } });
+    ensure(!values.interactive || values.mode === 'remove-legacy', 'interactive mode is only for legacy removal');
     if (values.mode === 'context') {
       const context = releaseContext({ scope: values.scope, version: standaloneVersion(path.resolve(import.meta.dirname, '..')), event: process.env.GITHUB_EVENT_NAME, ref: process.env.GITHUB_REF });
       if (process.env.GITHUB_OUTPUT) fs.appendFileSync(process.env.GITHUB_OUTPUT, Object.entries(context).map(([key, value]) => `${key}=${value}\n`).join(''));
@@ -288,8 +294,8 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
       ensure(process.env.NODE_AUTH_TOKEN, 'NPM_TOKEN is required through NODE_AUTH_TOKEN');
       retireLegacy(values);
     } else if (values.mode === 'remove-legacy') {
-      ensure(process.env.NODE_AUTH_TOKEN, 'NPM_TOKEN is required through NODE_AUTH_TOKEN');
-      removeLegacy(values);
+      // Use the maintainer's npm login. Bypass-2FA CI tokens cannot unpublish.
+      removeLegacy(values, removalInvoker(values.interactive));
     } else {
       ensure(['verify', 'publish'].includes(values.mode) && values.root, 'invalid release mode/root');
       const plan = releasePlan(values);

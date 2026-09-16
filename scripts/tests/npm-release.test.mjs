@@ -5,7 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { createRequire } from 'node:module';
 import { assemble, binaries, platforms, standaloneVersion } from '../package-npm.mjs';
-import { packRelease, assembleRelease, releasePlan, publishPlan, releaseContext, retireLegacy, removeLegacy, npm } from '../release-npm.mjs';
+import { packRelease, assembleRelease, releasePlan, publishPlan, releaseContext, retireLegacy, removeLegacy, removalInvoker, npm } from '../release-npm.mjs';
 
 const repo = path.resolve(import.meta.dirname, '../..');
 const scope = '@magicvault-release-fixture';
@@ -304,15 +304,13 @@ test('publication tolerates a full five-minute registry cache lifetime without u
 function removalRegistry() {
   const old = migrationRegistry(), version = '0.9.2', calls = [];
   const metadata = {...old.metadata, version, dist: {integrity: 'sha512-replacement'}};
-  const legacy = {name: '@magicbeansai/magicvault', version: '0.9.0', deprecated: 'Retired',
-    optionalDependencies: Object.fromEntries(platforms.map(p => [`@magicbeansai/magicvault-${p}`, '0.9.0']))};
-  const remaining = new Set([legacy.name, ...Object.keys(legacy.optionalDependencies)]);
+  const remaining = new Set(platforms.map(p => `@magicbeansai/magicvault-${p}`));
   const invoke = args => {
     calls.push(args);
     const [command, spec, field] = args;
     if (command === 'unpublish') {
       assert(spec.endsWith('@0.9.0'));
-      assert(remaining.delete(spec.slice(0, -6)), 'only the known obsolete 0.9.0 graph can be removed');
+      assert(remaining.delete(spec.slice(0, -6)), 'only known native packages can be removed');
       assert(args.includes('--force') && args.includes('--ignore-scripts'));
       return '';
     }
@@ -326,33 +324,31 @@ function removalRegistry() {
     if (spec === '@magicbeansai/magicvault@0.9.1') return '"sha512-previous"';
     const name = spec.endsWith('@0.9.0') ? spec.slice(0, -6) : spec;
     if (!remaining.has(name)) missing();
-    if (spec === '@magicbeansai/magicvault@0.9.0' && field === '--json') return JSON.stringify(legacy);
     if (field === 'versions') return '["0.9.0"]';
     if (field === 'deprecated') return '"Retired compatibility package"';
     assert.equal(field, 'version'); return '"0.9.0"';
   };
-  return {scope: old.scope, version, metadata, legacy, remaining, calls, invoke};
+  return {scope: old.scope, version, metadata, remaining, calls, invoke};
 }
 
-test('removal deletes obsolete main 0.9.0 before its six dependencies, preserves newer versions and skips completed removals', () => {
+test('removal deletes exactly six native versions, preserves all main versions and skips completed removals', () => {
   const r = removalRegistry();
   removeLegacy(r, r.invoke, () => {}, () => {});
   const writes = r.calls.filter(a => a[0] === 'unpublish');
-  assert.deepEqual(writes.map(a => a[1]), ['@magicbeansai/magicvault@0.9.0', ...platforms.map(p => `@magicbeansai/magicvault-${p}@0.9.0`)]);
+  assert.deepEqual(writes.map(a => a[1]), platforms.map(p => `@magicbeansai/magicvault-${p}@0.9.0`));
   assert.equal(r.remaining.size, 0);
   assert(r.calls.findIndex(a => a[0] === 'unpublish') >= 14);
   removeLegacy(r, r.invoke, () => {}, () => {});
-  assert.equal(r.calls.filter(a => a[0] === 'unpublish').length, 7);
+  assert.equal(r.calls.filter(a => a[0] === 'unpublish').length, 6);
 });
 
 test('removal preflights all targets and refuses unsafe replacement or unexpected registry state before deleting', () => {
-  for (const failure of ['scope', 'version', 'dependencies', 'integrity', 'latest', 'legacy', 'deprecated', 'network', 'old-main', 'previous']) {
+  for (const failure of ['scope', 'version', 'dependencies', 'integrity', 'latest', 'legacy', 'deprecated', 'network', 'previous']) {
     const r = removalRegistry();
     if (failure === 'scope') r.scope = '@other-owner';
     if (failure === 'version') r.version = '0.9.3';
     if (failure === 'dependencies') r.metadata.optionalDependencies = {};
     if (failure === 'integrity') delete r.metadata.dist;
-    if (failure === 'old-main') r.legacy.optionalDependencies['@unrelated/package'] = '0.9.0';
     assert.throws(() => removeLegacy(r, args => {
       if (args[0] === 'view') {
         if (failure === 'latest' && args[2] === 'dist-tags.latest') return '"0.9.1"';
@@ -377,9 +373,9 @@ test('uncertain removal stops without retry and a later rerun resumes remaining 
     return result;
   }, () => {}, () => {}), /removal failed/);
   assert.equal(writes, 1);
-  assert.equal(r.remaining.size, 6);
+  assert.equal(r.remaining.size, 5);
   removeLegacy(r, r.invoke, () => {}, () => {});
-  assert.equal(r.calls.filter(a => a[0] === 'unpublish').length, 7);
+  assert.equal(r.calls.filter(a => a[0] === 'unpublish').length, 6);
 });
 
 test('npm policy refusal is reported without deleting more packages or echoing diagnostics', () => {
@@ -394,26 +390,38 @@ test('npm policy refusal is reported without deleting more packages or echoing d
     return r.invoke(args);
   }, line => reports.push(line), () => {}));
   assert.equal(writes, 1);
-  assert.equal(r.remaining.size, 7);
-  assert.match(reports.join('\n'), /E400 \(npm reports dependent packages\)/);
+  assert.equal(r.remaining.size, 6);
+  assert.match(reports.join('\n'), /E400/);
+  assert.match(reports.join('\n'), /npm registry summary: dependent packages/);
   assert.doesNotMatch(reports.join('\n'), /private data|sensitive diagnostic/);
 });
 
-test('unpublish cleanup can run only after successful tagged 0.9.2 publication', () => {
-  const workflow = fs.readFileSync(path.join(repo, '.github/workflows/npm-release.yml'), 'utf8');
-  const cleanup = workflow.split('\n  remove-legacy:\n')[1];
-  assert.match(cleanup, /needs: \[prepare, publish\]/);
-  assert.match(cleanup, /if: needs\.prepare\.outputs\.publish == 'true' && needs\.prepare\.outputs\.version == '0.9.2' && needs\.prepare\.outputs\.scope == '@magicbeansai'/);
-  assert.match(cleanup, /--mode remove-legacy --scope @magicbeansai --version 0.9.2/);
+test('cleanup reports the registry summary without mistaking generic CLI details for its cause or exposing tokens', () => {
+  const r = removalRegistry(), reports = [];
+  assert.throws(() => removeLegacy(r, args => {
+    if (args[0] === 'unpublish') {
+      const e = new Error('private child output');
+      e.stdout = JSON.stringify({error: {code: 'E403', summary: 'Forbidden token=npm_syntheticSecret',
+        detail: 'In most cases, you or one of your dependencies are requesting a package version that is forbidden.'}});
+      throw e;
+    }
+    return r.invoke(args);
+  }, line => reports.push(line), () => {}));
+  assert.match(reports.join('\n'), /Forbidden token=\[redacted\]/);
+  assert.doesNotMatch(reports.join('\n'), /syntheticSecret|dependen|private child/);
 });
 
-test('cleanup recovery requires explicit main dispatch and checks before receiving its token', () => {
-  const workflow = fs.readFileSync(path.join(repo, '.github/workflows/npm-legacy-cleanup.yml'), 'utf8');
-  assert.match(workflow, /workflow_dispatch:/);
-  assert.doesNotMatch(workflow, /push:|pull_request:|--mode publish/);
-  assert.equal((workflow.match(/if: github.ref == 'refs\/heads\/main'/g) || []).length, 2);
-  assert.match(workflow, /needs: checks/);
-  assert.match(workflow, /group: magicvault-npm-release/);
-  assert.doesNotMatch(workflow.split('\n  cleanup:\n')[0], /secrets\.|NODE_AUTH_TOKEN/);
-  assert.match(workflow, /--mode remove-legacy --scope @magicbeansai --version 0.9.2/);
+test('publication does not attempt deletion using a bypass-2FA CI token', () => {
+  const workflow = fs.readFileSync(path.join(repo, '.github/workflows/npm-release.yml'), 'utf8');
+  assert.doesNotMatch(workflow, /remove-legacy|unpublish/);
+});
+
+test('interactive cleanup preserves machine-readable preflight and lets npm handle human authentication in the terminal', () => {
+  const calls = [], invoke = (...args) => { calls.push(args); return 'output'; };
+  assert.throws(() => removalInvoker(true, invoke, false), /terminal/);
+  assert.equal(removalInvoker(false, invoke, false), invoke);
+  const interactive = removalInvoker(true, invoke, true);
+  assert.equal(interactive(['view', 'fixture']), 'output');
+  interactive(['unpublish', 'fixture@0.9.0']);
+  assert.deepEqual(calls, [[['view', 'fixture'], {}], [['unpublish', 'fixture@0.9.0'], {stdio: 'inherit', timeout: 300000}]]);
 });

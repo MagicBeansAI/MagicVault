@@ -225,13 +225,13 @@ retry. An explicit rerun resumes the same retained artifact.
 The 0.9.1 migration validates the published replacement has no dependencies and is
 latest before deprecating the six allowlisted legacy packages and main 0.9.0.
 Unexpected legacy versions stop migration. That initial migration retains bytes.
-The 0.9.2 release adds a separate, token-authorized cleanup after successful
-publication. It preflights all six deprecated native packages and unpublishes
-only their exact 0.9.0 versions. npm refused deletion while main 0.9.0 depended
-on them, so recovery validates and removes that exact obsolete main version
-first. It preserves 0.9.1 and latest 0.9.2 with unchanged integrity; the bare main
-package name is never a deletion target. A main-only manual cleanup workflow
-runs source checks first and shares release concurrency. Already missing
+The 0.9.2 cleanup preflights all six deprecated native packages and unpublishes
+only their exact 0.9.0 versions. It preserves 0.9.1 and latest 0.9.2 with unchanged
+integrity; no main package version is a deletion target. npm rejected
+CI deletion with 403. Bypass-2FA tokens cannot perform package governance writes,
+so cleanup is separate from publication and uses a maintainer's interactive
+npm login/2FA. Explicit `--interactive` requires a terminal and inherits it only
+for deletion commands; registry preflight reads remain machine-readable. Already missing
 packages are skipped; unknown versions, policy/authentication errors and uncertain
 writes stop cleanup. Deletions are not retried automatically. npm's dependent
 package policy may prevent removal. Old pinned installs must migrate first.

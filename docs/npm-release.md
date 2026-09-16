@@ -15,8 +15,9 @@ executables or create a GitHub Release. See [platform limits](platforms.md).
   Manual preparation can override it; `@magicvault-local` is refused for releases.
 - Keep `NPM_TOKEN` in Actions secrets. It must authorize public publication in
   this scope, provenance and unattended publishing. The 0.9.1 migration also
-  requires permission to deprecate the existing packages. Only the publish job
-  receives it as `NODE_AUTH_TOKEN`.
+  requires permission to deprecate the existing packages. The 0.9.2 cleanup
+  requires unpublish permission. Only publication and this one-time cleanup
+  receive it as `NODE_AUTH_TOKEN`.
 - A matching release tag must point to a commit on `main`. A source/version
   mismatch, prerelease tag or commit outside main is refused.
 
@@ -67,8 +68,8 @@ is the publication decision; its workflow gates publication on all checks:
 
 ```bash
 # Example for the current source version; pushing this tag publishes after checks.
-git tag -a v0.9.1 -m 'MagicVault 0.9.1'
-git push origin v0.9.1
+git tag -a v0.9.2 -m 'MagicVault 0.9.2'
+git push origin v0.9.2
 ```
 
 The publish job verifies the single artifact and registry state, refuses differing
@@ -102,11 +103,23 @@ After verified 0.9.1 publication, the workflow's one-time migration:
 3. Deprecates those entire packages and main version 0.9.0, with an upgrade message.
 4. Reads back each deprecation; already-matching messages are skipped on reruns.
 
-It **does not unpublish old bytes**. Pinned 0.9.0 users retain working downloads.
-[npm removes entirely deprecated packages from search](https://docs.npmjs.com/policies/unpublish/);
-old direct package URLs remain accessible for compatibility. No future version
-will publish native packages. Unexpected legacy versions or a different scope
-stop migration before mutation.
+That first migration **deprecated packages without deleting them**; their direct
+URLs remained accessible. No future version publishes native packages.
+
+The 0.9.2 tag additionally runs a separate `remove-legacy` job after publication.
+It checks the replacement's bundled metadata, integrity and `latest` tag, then
+preflights all six known native package names. Each must already be missing or
+contain only deprecated 0.9.0. It unpublishes that exact version, verifies removal
+with bounded reads, and verifies the main package is unchanged. Reruns skip
+packages already removed. Main package versions are never deletion targets.
+
+Unpublishing is irreversible and fresh pinned 0.9.0 installs may no longer work;
+upgrade to the self-contained main package first. npm's
+[unpublish policy](https://docs.npmjs.com/policies/unpublish/) may refuse packages
+with dependents, including the old main 0.9.0 dependency graph, or require
+additional authentication. The job stops on refusal or an uncertain write and
+reports failure; deprecation is not reported as removal. Inspect registry state
+before rerunning only the cleanup job. It never retries a deletion automatically.
 
 ## Recover a failed release
 

@@ -208,3 +208,20 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: node scripts/release-npm.mjs --mode retire-legacy --scope "$NPM_SCOPE" --version "$VERSION"
+  remove-legacy:
+    if: needs.prepare.outputs.publish == 'true' && needs.prepare.outputs.version == '0.9.2' && needs.prepare.outputs.scope == '@magicbeansai'
+    needs: [prepare, publish]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org/'
+      - name: Remove only the six deprecated native packages, preserving the main package
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: node scripts/release-npm.mjs --mode remove-legacy --scope @magicbeansai --version 0.9.2

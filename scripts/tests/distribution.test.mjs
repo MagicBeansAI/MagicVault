@@ -182,8 +182,8 @@ function install(f) {
 test('assembly includes only explicit bundled assets, with no install hooks', t => {
   const f = fixture(t); f.build();
   const main = JSON.parse(fs.readFileSync(path.join(f.output, 'launcher/package.json')));
-  assert.equal(main.description, 'Let agents use credentials without seeing them — reference-only credential delivery');
-  assert.match(fs.readFileSync(path.join(f.output, 'launcher/README.md'), 'utf8'), /\*\*Let agents use credentials without seeing them\*\*/);
+  assert.equal(main.description, 'Secure credentials for AI agents via MCP, CLI, and TypeScript, with encrypted storage, private prompts, and just-in-time login.');
+  assert.match(fs.readFileSync(path.join(f.output, 'launcher/README.md'), 'utf8'), /\*\*Secure credentials for AI agents via MCP, CLI, and TypeScript\.\*\*/);
   assert.equal(main.optionalDependencies, undefined);
   assert.equal(main.private, true);
   assert.equal(main.magicvault.layout, 'bundled-v1');

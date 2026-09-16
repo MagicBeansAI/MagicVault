@@ -221,6 +221,45 @@ export function retireLegacy({ scope, version }, invoke = npm, report = console.
     report(`Retired ${target}; retained for existing 0.9.0 installs`);
   }
 }
+export function removeLegacy({ scope, version }, invoke = npm, report = console.log, wait = sleep) {
+  ensure(scope === '@magicbeansai' && version === '0.9.2', 'legacy removal is scoped to the 0.9.2 release');
+  const name = `${scope}/magicvault`;
+  const replacement = lookup(invoke, `${name}@${version}`, '').value;
+  checkMetadata(replacement, scope, version, platforms, false);
+  ensure(lookup(invoke, name, 'dist-tags.latest').value === version, 'replacement must be latest before removal');
+  ensure(typeof replacement.dist?.integrity === 'string' && replacement.dist.integrity.startsWith('sha512-'), 'replacement integrity missing');
+  const legacy = platforms.map(p => `${name}-${p}`);
+  // Preflight the entire fixed set. An exact version spec prevents deleting any
+  // concurrently added version. The main package is never an unpublish target.
+  const remaining = legacy.filter(target => {
+    const versions = lookup(invoke, target, 'versions');
+    if (versions.missing) return false;
+    ensure(JSON.stringify(versions.value) === JSON.stringify(['0.9.0']), 'unexpected legacy versions; review removal');
+    ensure(Boolean(lookup(invoke, `${target}@0.9.0`, 'deprecated').value), 'legacy package must already be deprecated');
+    return true;
+  });
+  for (const target of remaining) {
+    report(`Removing ${target}@0.9.0`);
+    try {
+      invoke(['unpublish', `${target}@0.9.0`, '--force', '--ignore-scripts', '--json', '--registry', registry]);
+    } catch (error) {
+      let code = 'UNKNOWN', dependents = false;
+      try {
+        const diagnostic = JSON.parse(String(error.stdout)).error;
+        if (/^E[A-Z0-9_]+$/.test(diagnostic?.code)) code = diagnostic.code;
+        dependents = /depend/i.test(String(diagnostic?.summary) + String(diagnostic?.detail));
+      } catch { /* Never expose raw npm output or authentication configuration. */ }
+      report(`Removal stopped for ${target}: ${code}${dependents ? ' (npm reports dependent packages)' : ''}. No write was retried.`);
+      throw new Error('legacy removal failed; inspect registry policy and authentication');
+    }
+    verifyEventually(() => lookup(invoke, `${target}@0.9.0`, 'version').missing, wait,
+      [1000, 2000, 4000, 8000, 16000, 30000, 60000, 60000, 60000, 60000]);
+    report(`Removed ${target}@0.9.0`);
+  }
+  ensure(lookup(invoke, `${name}@${version}`, 'dist.integrity').value === replacement.dist.integrity
+    && lookup(invoke, name, 'dist-tags.latest').value === version, 'replacement changed during removal');
+  report(`Verified ${name}@${version} remains latest with unchanged bytes`);
+}
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
   try {
     const { values } = parseArgs({ options: { mode: { type: 'string', default: 'verify' }, packages: { type: 'string' }, output: { type: 'string' }, root: { type: 'string' }, scope: { type: 'string' }, platform: { type: 'string' }, version: { type: 'string' } } });
@@ -237,6 +276,9 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
     } else if (values.mode === 'retire-legacy') {
       ensure(process.env.NODE_AUTH_TOKEN, 'NPM_TOKEN is required through NODE_AUTH_TOKEN');
       retireLegacy(values);
+    } else if (values.mode === 'remove-legacy') {
+      ensure(process.env.NODE_AUTH_TOKEN, 'NPM_TOKEN is required through NODE_AUTH_TOKEN');
+      removeLegacy(values);
     } else {
       ensure(['verify', 'publish'].includes(values.mode) && values.root, 'invalid release mode/root');
       const plan = releasePlan(values);

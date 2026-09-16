@@ -3,7 +3,7 @@
   <p><strong>Let agents use credentials without seeing them</strong></p>
   <p>
     <a href="https://www.npmjs.com/package/@magicbeansai/magicvault"><img src="https://img.shields.io/npm/v/%40magicbeansai%2Fmagicvault.svg" alt="npm version" /></a>
-    <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/source-v0.9.1%20alpha-7C3AED.svg" alt="Source version 0.9.1 alpha" /></a>
+    <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/source-v0.9.2%20alpha-7C3AED.svg" alt="Source version 0.9.2 alpha" /></a>
     <a href="docs/platforms.md"><img src="https://img.shields.io/badge/macOS-alpha-orange.svg" alt="macOS alpha" /></a>
     <a href="docs/platforms.md"><img src="https://img.shields.io/badge/Linux-alpha-orange.svg" alt="Linux alpha" /></a>
     <a href="docs/platforms.md"><img src="https://img.shields.io/badge/Windows-alpha-orange.svg" alt="Windows alpha" /></a>
@@ -81,7 +81,7 @@ Use **MCP** with Codex, Claude Code or another local agent. Prefer the
 Requires a logged-in desktop session and **Node.js 22+** for npm launchers.
 Source backends cover macOS, Linux and Windows; see the
 [platform requirements and validation status](docs/platforms.md).
-Version 0.9.1 bundles the native binaries for macOS, Linux and Windows
+Version 0.9.2 bundles the native binaries for macOS, Linux and Windows
 (x64/ARM64) in one package. The launcher selects your OS/CPU. No Rust toolchain is needed.
 This is local stdio MCP—not a hosted endpoint or unattended credential access.
 

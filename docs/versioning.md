@@ -2,8 +2,10 @@
 
 ## Current component versions
 
-**0.9.1 — one self-contained npm package, 2026-09-16.**
-This packaging-only update bundles every platform in the main npm package.
+**0.9.2 — clearer npm description and legacy package removal, 2026-09-16.**
+This metadata release clarifies the package description and adds a bounded
+removal of the six deprecated native npm packages. From 0.9.1, every platform
+is bundled in the main package.
 The runtime, wire and custody contracts are unchanged from 0.9.0.
 The [one-time input guide](jit-credentials.md) documents native collection without
 saving credentials and the automated validation boundary. Existing native
@@ -16,11 +18,11 @@ binary release, extension store listing or production-safety certification.
 
 | Component | Source version / contract | Compatibility responsibility |
 | --- | --- | --- |
-| `magicvault` CLI, daemon and native-host executable | Package `0.9.1` | Matching wire-5 bundle; CLI-only consent inspection/revocation; native-host forwarding |
-| `magicvault-mcp` | Package `0.9.1` | Matching value-free client; no tool can grant consent |
-| `magicvault-service` | `0.9.1` | One-time native input, exact-use consent, bounded durable grants and revocation; destination, installation and custody checks retained |
+| `magicvault` CLI, daemon and native-host executable | Package `0.9.2` | Matching wire-5 bundle; CLI-only consent inspection/revocation; native-host forwarding |
+| `magicvault-mcp` | Package `0.9.2` | Matching value-free client; no tool can grant consent |
+| `magicvault-service` | `0.9.2` | One-time native input, exact-use consent, bounded durable grants and revocation; destination, installation and custody checks retained |
 | `magicvault-effect` | `0.7.1` | Shared native bridge supports Unix sockets and Windows named pipes; Windows process use fails closed |
-| `magicvault-prompt` | `0.9.1` | Shared desktop renderer and versioned private pipe contract; ship beside daemon |
+| `magicvault-prompt` | `0.9.2` | Shared desktop renderer and versioned private pipe contract; ship beside daemon |
 | `magicvault-protocol` | `0.7.0` | Closed prompt-and-fill request; existing request framing and receipts retained |
 | Chromium extension | Manifest `0.6.1` | Permission-filtered, loaded-tab discovery with exact narrowing; document binding, fixed identity, reconnect/backoff, pause and site controls retained |
 | Local agent protocol | Wire version `5` | Version mismatches fail closed; not the package version |

@@ -5,6 +5,18 @@ Entries describe source changes, not publication announcements. See
 [release acceptance checklist](docs/qualification/release.md) and
 [version-specific test evidence](docs/qualification/README.md#evidence-records).
 
+## 0.9.2 — npm description and legacy removal — 2026-09-16
+
+- Explain the npm package in plain language: secure credentials for AI agents
+  through MCP, CLI and TypeScript, with encrypted storage, private prompts and
+  just-in-time login. Update the npm README introduction to match.
+- After verified publication, attempt to unpublish only the six deprecated
+  native packages at 0.9.0. Preflight the entire fixed set and replacement before
+  removal, stop on npm policy/authentication errors or uncertain writes, and
+  verify the main package remains intact. Main 0.9.0 is not a removal target.
+- Runtime behavior, credential custody, wire/storage formats and shared Rust
+  APIs are unchanged. Legacy 0.9.0 installs must migrate to the main package.
+
 ## 0.9.1 — One self-contained npm package — 2026-09-16
 
 - Bundle all six OS/CPU builds inside `@magicbeansai/magicvault`; select and

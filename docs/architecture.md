@@ -1,6 +1,6 @@
 # MagicVault architecture
 
-Architecture version: `0.9.1`
+Architecture version: `0.9.2`
 
 Previous immutable baseline tag: `architecture/v0.3.0`. The current reviewed
 source/document baseline is [architecture-baseline.json](architecture-baseline.json).
@@ -70,11 +70,11 @@ that an immediate restart can acquire the old instance lock.
 
 | Component | Version | Ownership |
 | --- | --- | --- |
-| `magicvault`, `magicvault-mcp` | `0.9.1` | Human administration, value-free requests including one-time prompt-and-fill; CLI builds daemon/native host |
-| `magicvault-service` | `0.9.1` | Native one-time input, consent/grants and cancellation, bounded discovery, one store writer and private application-bundle installer |
+| `magicvault`, `magicvault-mcp` | `0.9.2` | Human administration, value-free requests including one-time prompt-and-fill; CLI builds daemon/native host |
+| `magicvault-service` | `0.9.2` | Native one-time input, consent/grants and cancellation, bounded discovery, one store writer and private application-bundle installer |
 | `magicvault-protocol` | `0.7.0` | Closed prompt-and-fill request plus existing authentication, policy, consent, profiles, jobs and bounded IPC |
 | `magicvault-effect` | `0.7.1` | Shared Unix/Windows native bridge; existing CDP/HTTP adapters and Unix MagicRun execution; Windows process use refused |
-| `magicvault-prompt` | `0.9.1` | Shared desktop window; bounded private metadata/input pipe; no vault or agent API |
+| `magicvault-prompt` | `0.9.2` | Shared desktop window; bounded private metadata/input pipe; no vault or agent API |
 | Chromium extension | `0.6.1` | Permission-aware exact discovery narrowing, site grants/blocks and document-targeted fill; no navigation or submission API |
 | MagicRun `tool-runtime-core` | `0.1.74`, public Git dependency locked to `af348ab5` | Governed process preparation, descriptor-bound native macOS spawn for non-jailed batches, digest-bound dispatch, cancellation, output bounds and owned-child cleanup |
 | `magicvault-core` | `0.1.3` | Encryption, credential references, existing policies, scoped stores and typed audit |
@@ -214,7 +214,7 @@ The public package has no dependency or lifecycle-hook fields. npm OS/CPU metada
 and the launcher refuse unsupported platforms. Download size includes all builds.
 
 All six runners then install that exact tarball offline with optional dependencies
-disabled and execute CLI/MCP version checks and SDK imports. Only the gated publish
+disabled and execute CLI/MCP version checks and SDK imports. The gated publish
 job receives `NPM_TOKEN` through `NODE_AUTH_TOKEN` and OIDC provenance authority.
 It publishes only `@magicbeansai/magicvault` under `latest`. Existing versions must
 have identical bytes; latest cannot move backwards. Registry reads use online
@@ -224,8 +224,14 @@ retry. An explicit rerun resumes the same retained artifact.
 
 The 0.9.1 migration validates the published replacement has no dependencies and is
 latest before deprecating the six allowlisted legacy packages and main 0.9.0.
-Unexpected legacy versions stop migration. It never unpublishes bytes: pinned
-0.9.0 installs remain usable while deprecated package names leave npm search.
+Unexpected legacy versions stop migration. That initial migration retains bytes.
+The 0.9.2 release adds a separate, token-authorized cleanup after successful
+publication. It preflights all six deprecated native packages and unpublishes
+only their exact 0.9.0 versions, then verifies the main package's integrity/tag
+remain unchanged. Main versions are never deletion targets. Already missing
+packages are skipped; unknown versions, policy/authentication errors and uncertain
+writes stop cleanup. Deletions are not retried automatically. npm's dependent
+package policy may prevent removal. Old pinned installs must migrate first.
 Publication is not OS signing or native desktop acceptance. [Release procedure](npm-release.md).
 
 The npm package also exports a Node client with TypeScript declarations. It uses

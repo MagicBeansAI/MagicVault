@@ -94,7 +94,7 @@ export function assemble({ repo, binaryDir, output, scope, platform = 'darwin-ar
   }
   readme = readme.replaceAll('@magicvault-local/', `${scope}/`);
   write(path.join(output, 'launcher/README.md'), readme);
-  write(path.join(output, 'launcher/package.json'), `${JSON.stringify({ ...common, name: mainName, description: 'Let agents use credentials without seeing them — reference-only credential delivery', bin: { magicvault: 'cli.cjs', 'magicvault-mcp': 'mcp.cjs' }, main: './sdk.cjs', types: './sdk.d.cts', exports: { '.': { types: './sdk.d.cts', default: './sdk.cjs' }, './package.json': './package.json' }, private: true, os: [os], cpu: [arch], files: [...launcherFiles, 'LICENSE-MIT', 'LICENSE-APACHE', 'native'], magicvault: { layout: 'bundled-v1', platforms: { [platform]: `native/${platform}` } } }, null, 2)}\n`);
+  write(path.join(output, 'launcher/package.json'), `${JSON.stringify({ ...common, name: mainName, description: 'Secure credentials for AI agents via MCP, CLI, and TypeScript, with encrypted storage, private prompts, and just-in-time login.', bin: { magicvault: 'cli.cjs', 'magicvault-mcp': 'mcp.cjs' }, main: './sdk.cjs', types: './sdk.d.cts', exports: { '.': { types: './sdk.d.cts', default: './sdk.cjs' }, './package.json': './package.json' }, private: true, os: [os], cpu: [arch], files: [...launcherFiles, 'LICENSE-MIT', 'LICENSE-APACHE', 'native'], magicvault: { layout: 'bundled-v1', platforms: { [platform]: `native/${platform}` } } }, null, 2)}\n`);
   return { version, mainName };
 }
 

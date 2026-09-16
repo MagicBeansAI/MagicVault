@@ -4,7 +4,9 @@
 [![Linux alpha](https://img.shields.io/badge/Linux-alpha-orange.svg)](https://github.com/MagicBeansAI/MagicVault/blob/main/docs/platforms.md)
 [![Windows alpha](https://img.shields.io/badge/Windows-alpha-orange.svg)](https://github.com/MagicBeansAI/MagicVault/blob/main/docs/platforms.md)
 
-**Let agents use credentials without seeing them**
+**Secure credentials for AI agents via MCP, CLI, and TypeScript.**
+
+Encrypted storage, private prompts, and just-in-time login.
 
 Use saved credentials for repeat tasks or enter one-time browser credentials
 when automation reaches an unfamiliar login. Enrollment is optional. A native daemon holds credentials, requests human approval and

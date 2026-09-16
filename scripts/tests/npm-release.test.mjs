@@ -5,7 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { createRequire } from 'node:module';
 import { assemble, binaries, platforms, standaloneVersion } from '../package-npm.mjs';
-import { packRelease, assembleRelease, releasePlan, publishPlan, releaseContext, retireLegacy, npm } from '../release-npm.mjs';
+import { packRelease, assembleRelease, releasePlan, publishPlan, releaseContext, retireLegacy, removeLegacy, npm } from '../release-npm.mjs';
 
 const repo = path.resolve(import.meta.dirname, '../..');
 const scope = '@magicvault-release-fixture';
@@ -299,4 +299,104 @@ test('publication tolerates a full five-minute registry cache lifetime without u
   }, () => {}, ms => { assert(ms <= 60_000); elapsed += ms; });
   assert(elapsed >= 300_000 && elapsed <= 310_000);
   assert.equal(r.calls.filter(a => a[0] === 'publish').length, 1);
+});
+
+function removalRegistry() {
+  const old = migrationRegistry(), version = '0.9.2', calls = [];
+  const metadata = {...old.metadata, version, dist: {integrity: 'sha512-replacement'}};
+  const remaining = new Set(platforms.map(p => `@magicbeansai/magicvault-${p}`));
+  const invoke = args => {
+    calls.push(args);
+    const [command, spec, field] = args;
+    if (command === 'unpublish') {
+      assert(spec.endsWith('@0.9.0'));
+      assert(remaining.delete(spec.slice(0, -6)), 'only known native packages can be removed');
+      assert(args.includes('--force') && args.includes('--ignore-scripts'));
+      return '';
+    }
+    assert.equal(command, 'view');
+    if (spec === '@magicbeansai/magicvault') {
+      assert.equal(field, 'dist-tags.latest'); return JSON.stringify(version);
+    }
+    if (spec === `@magicbeansai/magicvault@${version}`) {
+      return JSON.stringify(field === '--json' ? metadata : metadata.dist.integrity);
+    }
+    const name = spec.endsWith('@0.9.0') ? spec.slice(0, -6) : spec;
+    if (!remaining.has(name)) missing();
+    if (field === 'versions') return '["0.9.0"]';
+    if (field === 'deprecated') return '"Retired compatibility package"';
+    assert.equal(field, 'version'); return '"0.9.0"';
+  };
+  return {scope: old.scope, version, metadata, remaining, calls, invoke};
+}
+
+test('removal deletes exactly six native versions, preserves main and skips completed removals', () => {
+  const r = removalRegistry();
+  removeLegacy(r, r.invoke, () => {}, () => {});
+  const writes = r.calls.filter(a => a[0] === 'unpublish');
+  assert.deepEqual(writes.map(a => a[1]), platforms.map(p => `@magicbeansai/magicvault-${p}@0.9.0`));
+  assert.equal(r.remaining.size, 0);
+  assert(r.calls.findIndex(a => a[0] === 'unpublish') >= 14);
+  removeLegacy(r, r.invoke, () => {}, () => {});
+  assert.equal(r.calls.filter(a => a[0] === 'unpublish').length, 6);
+});
+
+test('removal preflights all targets and refuses unsafe replacement or unexpected registry state before deleting', () => {
+  for (const failure of ['scope', 'version', 'dependencies', 'integrity', 'latest', 'legacy', 'deprecated', 'network']) {
+    const r = removalRegistry();
+    if (failure === 'scope') r.scope = '@other-owner';
+    if (failure === 'version') r.version = '0.9.3';
+    if (failure === 'dependencies') r.metadata.optionalDependencies = {};
+    if (failure === 'integrity') delete r.metadata.dist;
+    assert.throws(() => removeLegacy(r, args => {
+      if (args[0] === 'view') {
+        if (failure === 'latest' && args[2] === 'dist-tags.latest') return '"0.9.1"';
+        if (args[1].includes('win32-arm64')) {
+          if (failure === 'legacy' && args[2] === 'versions') return '["0.9.0","0.9.1"]';
+          if (failure === 'deprecated' && args[2] === 'deprecated') return '';
+          if (failure === 'network') throw new Error('connection refused');
+        }
+      }
+      return r.invoke(args);
+    }, () => {}, () => {}), failure);
+    assert(r.calls.every(a => a[0] === 'view'), failure);
+  }
+});
+
+test('uncertain removal stops without retry and a later rerun resumes remaining packages', () => {
+  const r = removalRegistry(); let writes = 0;
+  assert.throws(() => removeLegacy(r, args => {
+    const result = r.invoke(args);
+    if (args[0] === 'unpublish' && ++writes === 1) throw new Error('lost reply');
+    return result;
+  }, () => {}, () => {}), /removal failed/);
+  assert.equal(writes, 1);
+  assert.equal(r.remaining.size, 5);
+  removeLegacy(r, r.invoke, () => {}, () => {});
+  assert.equal(r.calls.filter(a => a[0] === 'unpublish').length, 6);
+});
+
+test('npm policy refusal is reported without deleting more packages or echoing diagnostics', () => {
+  const r = removalRegistry(), reports = []; let writes = 0;
+  assert.throws(() => removeLegacy(r, args => {
+    if (args[0] === 'unpublish') {
+      writes++;
+      const e = new Error('sensitive diagnostic');
+      e.stdout = JSON.stringify({error: {code: 'E400', summary: 'dependent packages', detail: 'private data'}});
+      throw e;
+    }
+    return r.invoke(args);
+  }, line => reports.push(line), () => {}));
+  assert.equal(writes, 1);
+  assert.equal(r.remaining.size, 6);
+  assert.match(reports.join('\n'), /E400 \(npm reports dependent packages\)/);
+  assert.doesNotMatch(reports.join('\n'), /private data|sensitive diagnostic/);
+});
+
+test('unpublish cleanup can run only after successful tagged 0.9.2 publication', () => {
+  const workflow = fs.readFileSync(path.join(repo, '.github/workflows/npm-release.yml'), 'utf8');
+  const cleanup = workflow.split('\n  remove-legacy:\n')[1];
+  assert.match(cleanup, /needs: \[prepare, publish\]/);
+  assert.match(cleanup, /if: needs\.prepare\.outputs\.publish == 'true' && needs\.prepare\.outputs\.version == '0.9.2' && needs\.prepare\.outputs\.scope == '@magicbeansai'/);
+  assert.match(cleanup, /--mode remove-legacy --scope @magicbeansai --version 0.9.2/);
 });

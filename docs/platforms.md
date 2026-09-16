@@ -152,7 +152,9 @@ qualified separately on the target filesystem.
 Unix activation replaces the `current` symlink atomically. Windows uses a
 directory junction, which does not need Developer Mode or administrator symlink
 privileges. Replacement occurs only after draining the daemon, but includes a
-short interval without `current`. An interrupted activation retains complete
+short interval without `current`. The verified old junction is detached and its
+empty directory removed; its target version's files are preserved. An interrupted
+activation retains complete
 old/new version directories and any staged junction; it is not an automatic
 rollback. Inspect with `doctor`, then explicitly rerun setup with the matching
 trusted bundle if activation is incomplete. Do not delete or reinitialize the

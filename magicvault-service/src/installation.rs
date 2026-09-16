@@ -460,6 +460,9 @@ impl Installation {
             if exists(&current)? {
                 self.current()?; // Verify an owned version before removing only its junction.
                 junction::delete(&current).map_err(|_| ErrorCode::PersistenceUncertain)?;
+                // junction 1.x removes the reparse point but leaves an empty
+                // directory. Windows rename cannot replace that directory.
+                fs::remove_dir(&current).map_err(|_| ErrorCode::PersistenceUncertain)?;
             }
             // Windows cannot atomically replace a directory junction. A failure
             // retains the complete staged version/junction for explicit recovery.
@@ -506,6 +509,8 @@ impl Installation {
             // Junctions are absolute: keep the retired bundle self-contained.
             let current = archive.join("current");
             junction::delete(&current).map_err(|_| ErrorCode::PersistenceUncertain)?;
+            // Remove only the empty junction directory, never its target tree.
+            fs::remove_dir(&current).map_err(|_| ErrorCode::PersistenceUncertain)?;
             junction::create(archive.join(relative), &current)
                 .map_err(|_| ErrorCode::PersistenceUncertain)?;
         }
@@ -568,17 +573,26 @@ mod windows_tests {
         assert!(executable.ends_with("magicvault.exe"));
         storage::private_path(&executable, false).unwrap();
         assert_eq!(app.current().unwrap().unwrap().platform, platform());
-        app.activate(app.stage(&source, "0.9.0").unwrap()).unwrap();
+        let replacement = app.stage(&source, "0.9.0").unwrap();
+        let second = root.join(&replacement.relative);
+        app.activate(replacement)
+            .expect("replace the current junction");
         assert!(first.is_dir());
+        assert_eq!(
+            fs::read(first.join("bin/magicvault.exe")).unwrap(),
+            fs::read(second.join("bin/magicvault.exe")).unwrap()
+        );
         let current = junction::get_target(root.join("current")).unwrap();
+        assert_eq!(current.canonicalize().unwrap(), second);
         fs::write(source.join("bin/magicvault.exe"), "tampered source").unwrap();
         assert!(app.stage(&source, "0.9.0").is_err());
         assert_eq!(junction::get_target(root.join("current")).unwrap(), current);
         fs::create_dir(&vault).unwrap();
         fs::write(vault.join("sentinel"), "keep").unwrap();
-        let archived = app.retire().unwrap();
+        let archived = app.retire().expect("retarget the retired junction");
         assert!(!root.exists());
         assert!(archived.join("current/bin/magicvault.exe").is_file());
+        assert!(archived.join(first.strip_prefix(&root).unwrap()).is_dir());
         assert_eq!(fs::read(vault.join("sentinel")).unwrap(), b"keep");
     }
 }

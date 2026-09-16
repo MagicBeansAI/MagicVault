@@ -3,7 +3,7 @@
   "project": "MagicVault",
   "architecture_version": "0.9.0",
   "document": "docs/architecture.md",
-  "document_sha256": "d57c96716ef201a1c78b3fcdf1c6f41bc98df41fdbbfd9a08a98d903e22987db",
+  "document_sha256": "043581499031cebfd81b286d12454e281baa9d53e4fcb75d3f152ffc1cab1a69",
   "component_versions": {
     "extension": "0.6.1",
     "magicvault": "0.9.0",
@@ -84,7 +84,7 @@
     "magicvault-service/src/broker/delivery/tests.rs": "ef5b34ae10484855b46de41b2996b5b5461b7608cedea31216237cd5f7f3ef20",
     "magicvault-service/src/client.rs": "1475f063d6ff227df61bb920de36d9dacafa1ea75b4c662a12d58ec089a37ea1",
     "magicvault-service/src/human.rs": "3270e4a7cd2912e96d75a0c7516b3af66bbc0b2d481a7a00b3d818e53d40cee0",
-    "magicvault-service/src/installation.rs": "1bd3387b7c09fabad4f38fc57397564254fc822d504a68916b2a61d14a1bd877",
+    "magicvault-service/src/installation.rs": "cb203bb7246d749d866458f1fddbd81838c2648c232ec633eba2aad6f12ba2b2",
     "magicvault-service/src/installation/tests.rs": "81e24d3bf01dd36c4e18b3f62611457d3b816d3e7b5c871582f5ba3fd9713d87",
     "magicvault-service/src/ipc.rs": "ec0793036ae1c532bd2b129034c51813c8767088f0d1cf3b43e0858369fbcffa",
     "magicvault-service/src/launch_agent.rs": "60887212feab9100fbcb1af32017b9675d4e138d245224f6f52e99072e69ea7a",

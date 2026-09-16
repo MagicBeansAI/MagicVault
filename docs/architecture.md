@@ -143,6 +143,9 @@ interval; Unix retains atomic symlink activation. Complete versions and ambiguou
 staging paths remain available for explicit recovery.
 Windows retirement retargets the owned absolute junction into the archive;
 failure remains explicit persistence uncertainty with the version bytes retained.
+Upgrade and retirement detach the verified junction's reparse point, then remove
+only its remaining empty directory before renaming or recreating the junction.
+This accommodates junction 1.x semantics without deleting the target version tree.
 
 Linux registers user Chrome/Chromium/Edge native manifests. Windows uses only
 HKCU native-messaging registrations, a private hash-checked host executable copy

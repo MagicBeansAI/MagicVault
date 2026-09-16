@@ -174,11 +174,11 @@ function newer(a, b) {
   for (let i = 0; i < 3; i++) if (first[i] !== second[i]) return first[i] > second[i];
   return false;
 }
-function verifyEventually(check, wait) {
+function verifyEventually(check, wait, delays = [1000, 2000, 4000, 8000, 16000]) {
   // Only repeat read-only checks. Uploads and deprecations are never retried here.
-  for (let attempt = 0; attempt < 6; attempt++) {
+  for (let attempt = 0; attempt <= delays.length; attempt++) {
     if (check()) return;
-    if (attempt < 5) wait(1000 * 2 ** attempt);
+    if (attempt < delays.length) wait(delays[attempt]);
   }
   throw new Error('post-publication verification failed; inspect registry state');
 }
@@ -193,11 +193,13 @@ export function publishPlan(plan, invoke = npm, report = console.log, wait = sle
   if (artifact.missing) invoke(['publish', record.file, '--access', 'public', '--tag', 'latest', '--ignore-scripts', '--provenance', '--registry', registry]);
   else if (latest.value !== record.version) invoke(['dist-tag', 'add', `${record.name}@${record.version}`, 'latest', '--registry', registry]);
   report(`${artifact.missing ? 'Published' : 'Already published'} ${record.name}@${record.version} (latest)`);
+  // npm packuments are publicly cached for up to 300 seconds. Allow a complete
+  // cache lifetime after upload, without ever repeating the upload itself.
   verifyEventually(() => {
     const integrity = lookup(invoke, `${record.name}@${record.version}`, 'dist.integrity');
     ensure(integrity.missing || integrity.value === record.integrity, 'published bytes differ');
     return !integrity.missing && lookup(invoke, record.name, 'dist-tags.latest').value === record.version;
-  }, wait);
+  }, wait, [1000, 2000, 4000, 8000, 16000, 30000, 60000, 60000, 60000, 60000]);
 }
 export function retireLegacy({ scope, version }, invoke = npm, report = console.log, wait = sleep) {
   ensure(scope === '@magicbeansai' && version === '0.9.1', 'legacy migration is scoped to the 0.9.1 release');

@@ -218,7 +218,8 @@ disabled and execute CLI/MCP version checks and SDK imports. Only the gated publ
 job receives `NPM_TOKEN` through `NODE_AUTH_TOKEN` and OIDC provenance authority.
 It publishes only `@magicbeansai/magicvault` under `latest`. Existing versions must
 have identical bytes; latest cannot move backwards. Registry reads use online
-revalidation and bounded retries for propagation; uncertain writes stop without
+revalidation and a bounded five-minute publication read-back window for the
+registry cache lifetime; uncertain writes stop without
 retry. An explicit rerun resumes the same retained artifact.
 
 The 0.9.1 migration validates the published replacement has no dependencies and is

@@ -288,3 +288,15 @@ test('migration refuses the wrong scope, a dependent replacement, non-latest rel
     assert(r.calls.every(a => a[0] === 'view'));
   }
 });
+
+
+test('publication tolerates a full five-minute registry cache lifetime without uploading twice', () => {
+  const r = registry(); let published = false, elapsed = 0;
+  publishPlan(records, args => {
+    if (args[0] === 'publish') published = true;
+    if (published && args[0] === 'view' && elapsed < 300_000) missing();
+    return r.invoke(args);
+  }, () => {}, ms => { assert(ms <= 60_000); elapsed += ms; });
+  assert(elapsed >= 300_000 && elapsed <= 310_000);
+  assert.equal(r.calls.filter(a => a[0] === 'publish').length, 1);
+});

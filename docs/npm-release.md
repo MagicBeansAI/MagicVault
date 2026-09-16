@@ -75,7 +75,7 @@ The publish job verifies the single artifact and registry state, refuses differi
 bytes or a newer `latest`, and publishes with explicit public access, `latest`,
 ignored lifecycle scripts and [npm provenance](https://docs.npmjs.com/generating-provenance-statements/).
 It then reads back package integrity and the tag, with bounded read-only retries
-for registry propagation. No upload is automatically retried after uncertainty.
+covering npm's five-minute metadata cache lifetime. No upload is automatically retried after uncertainty.
 
 Main pushes and **Actions → npm release → Run workflow** prepare and test the
 same artifact without publishing. Manual dispatch cannot publish even on a tag.
@@ -128,5 +128,21 @@ passed all six builds and artifact checks. An immediate registry read-back faile
 rerunning the publish job verified all existing bytes and `latest` tags without
 uploading again. A fresh macOS ARM64 install passed CLI/MCP/SDK checks.
 
-Version 0.9.1 changes packaging and migration only. Its hosted release and native
-smoke results are recorded after the release workflow completes.
+Version **0.9.1** was published on 2026-09-16 from `v0.9.1`, commit
+`89458078916ff502250e6144494c752040b3e28d`. Its
+[release run](https://github.com/MagicBeansAI/MagicVault/actions/runs/35126703108)
+passed all six native builds, universal artifact verification and all six offline
+single-package CLI/MCP/SDK install checks. Source CI and all three desktop-platform
+jobs also passed. The duplicate main-branch preparation was deliberately cancelled
+so the fully gated tag release could run without waiting for a redundant build.
+
+The first upload succeeded, but its initial 31-second read-back window was shorter
+than npm's observed `max-age=300` metadata cache. Retrying only the publish job
+verified the same bytes without uploading again and completed all seven legacy
+deprecations. The publisher now allows a full cache lifetime for read-only checks.
+
+A fresh macOS ARM64 registry install with scripts and optional dependencies disabled
+installed exactly one package. CLI/MCP reported 0.9.1 and SDK imports passed.
+Updating a disposable 0.9.0 install removed its old native dependency automatically.
+The published package contains all six platforms and has no dependency or lifecycle
+script fields. Old 0.9.0 tarballs remain available for compatibility.

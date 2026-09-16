@@ -3,7 +3,7 @@
   "project": "MagicVault",
   "architecture_version": "0.9.1",
   "document": "docs/architecture.md",
-  "document_sha256": "8780ecc8a21e5638587ef095fb461a849406ba45716927b18718be874d1a886d",
+  "document_sha256": "47b943012ff9f956bf55863eb13345124fc7a1d5f0c135d3f86647144149686c",
   "component_versions": {
     "extension": "0.6.1",
     "magicvault": "0.9.1",
@@ -106,7 +106,7 @@
     "scripts/package-npm.mjs": "ab5cedcff26ceab018df3d08431c40d58149985483d49313d641a4e1b00d9f49",
     "scripts/process-investigation.mjs": "4940d6f089c3ad67744978c4e7c65ae363bfecf77ac45aded5d3af0ac717f4da",
     "scripts/qualify-package.mjs": "1913f86cc44fc2da34e3082d525cfa16daaa8b504f4a6f42e704093d9b5f2faa",
-    "scripts/release-npm.mjs": "39be3dc9703c96b7d9a8badb6913a90be25ae675999b9827108817499e6f0115",
+    "scripts/release-npm.mjs": "e01f05ebced496880c6950a032dafea1592d7aa646f354cdaef6c1a1121c472e",
     "scripts/sign-release.sh": "ce9def2bd1e61a19dc408cd3782984fb8919820b1d5e0e7bafdafccd389f3a92",
     "scripts/smoke-npm.mjs": "8ab427fff51aaacef0190780f627ecdca17c0c170ef5408cb42505de381642d9"
   }

@@ -10,6 +10,8 @@ Entries describe source changes, not publication announcements. See
 - Fix Windows upgrade and retirement after hosted x64/ARM64 tests caught a
   junction replacement failure. Remove the verified junction's empty directory
   after detaching its reparse point, preserving installed versions and vault data.
+  Keep the installation lease held while moving its lock file outside the app
+  tree during Windows archival, then restore the file inside the archive.
 - Mark macOS, Linux and Windows as alpha in project/npm README badges. Prepare a
   six-platform npm release using `NPM_TOKEN`: pushing a matching `vX.Y.Z` tag
   builds and verifies seven packages, then publishes native dependencies before

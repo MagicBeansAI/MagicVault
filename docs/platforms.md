@@ -161,6 +161,12 @@ trusted bundle if activation is incomplete. Do not delete or reinitialize the
 vault. Close browser native-host connections before replacing their Windows
 executable copy; a file in use can refuse replacement.
 
+During Windows retirement, the held `install.lock` file temporarily moves to a
+unique `<app-name>.retirement-lock-<UUID>` sibling so the app directory can be
+renamed. The lease stays held, and the file moves back inside the archive on
+success. If interrupted, preserve that file and the app/archive directories for
+explicit recovery; setup refuses an existing installation missing its lock file.
+
 Service/native-host definitions are user-owned and checked before replacement
 or removal. Foreign or modified definitions cause a conflict. A partial setup
 may require explicit reconciliation; repeating setup is not permission to adopt

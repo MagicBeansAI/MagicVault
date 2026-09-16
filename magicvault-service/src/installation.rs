@@ -503,7 +503,27 @@ impl Installation {
         if exists(&archive)? {
             return Err(ErrorCode::Conflict);
         }
+        #[cfg(windows)]
+        let retirement_lock = {
+            // Windows cannot rename a directory containing an open file, even
+            // when that file allows delete sharing. Move the still-locked file
+            // outside the tree; never release the installation lease early.
+            // The missing install.lock makes a concurrent opener refuse this
+            // old installation until its root has moved to the archive.
+            let path = self
+                .app
+                .with_file_name(format!("{name}.retirement-lock-{}", Uuid::new_v4()));
+            if exists(&path)? {
+                return Err(ErrorCode::Conflict);
+            }
+            fs::rename(self.app.join("install.lock"), &path)
+                .map_err(|_| ErrorCode::PersistenceUncertain)?;
+            path
+        };
         fs::rename(&self.app, &archive).map_err(|_| ErrorCode::PersistenceUncertain)?;
+        #[cfg(windows)]
+        fs::rename(&retirement_lock, archive.join("install.lock"))
+            .map_err(|_| ErrorCode::PersistenceUncertain)?;
         #[cfg(windows)]
         if let Some(relative) = current_relative {
             // Junctions are absolute: keep the retired bundle self-contained.
@@ -566,6 +586,22 @@ mod windows_tests {
             Installation::open(&root, &vault, true),
             Err(ErrorCode::Busy)
         ));
+        // The retirement handoff keeps the original lease held. A caller
+        // cannot adopt the old root while its lock file is outside the tree.
+        let displaced_lock = base.join("displaced-install.lock");
+        fs::rename(root.join("install.lock"), &displaced_lock).unwrap();
+        assert!(matches!(
+            Installation::open(&root, &vault, true),
+            Err(ErrorCode::Unavailable)
+        ));
+        let contender = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&displaced_lock)
+            .unwrap();
+        assert!(contender.try_lock_exclusive().is_err());
+        drop(contender);
+        fs::rename(&displaced_lock, root.join("install.lock")).unwrap();
         let staged = app.stage(&source, "0.9.0").unwrap();
         let first = root.join(&staged.relative);
         app.activate(staged).unwrap();
@@ -593,6 +629,12 @@ mod windows_tests {
         assert!(!root.exists());
         assert!(archived.join("current/bin/magicvault.exe").is_file());
         assert!(archived.join(first.strip_prefix(&root).unwrap()).is_dir());
+        storage::private_path(&archived.join("install.lock"), false).unwrap();
+        assert!(!fs::read_dir(&base).unwrap().any(|entry| entry
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .contains(".retirement-lock-")));
         assert_eq!(fs::read(vault.join("sentinel")).unwrap(), b"keep");
     }
 }

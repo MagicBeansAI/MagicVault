@@ -146,6 +146,11 @@ failure remains explicit persistence uncertainty with the version bytes retained
 Upgrade and retirement detach the verified junction's reparse point, then remove
 only its remaining empty directory before renaming or recreating the junction.
 This accommodates junction 1.x semantics without deleting the target version tree.
+Windows retirement moves the still-held installation lock to a unique sibling
+before renaming the app directory, then moves it back inside the archive. It does
+not release the lease to work around Windows' open-child rename restriction.
+Interrupted moves retain the lock file and version tree for explicit recovery;
+an existing installation with a missing lock file is refused by setup.
 
 Linux registers user Chrome/Chromium/Edge native manifests. Windows uses only
 HKCU native-messaging registrations, a private hash-checked host executable copy

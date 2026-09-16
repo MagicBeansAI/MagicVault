@@ -508,6 +508,9 @@ impl Installation {
             // Windows cannot rename a directory containing an open file, even
             // when that file allows delete sharing. Move the still-locked file
             // outside the tree; never release the installation lease early.
+            // Preserve the locked file identity: the durable byte-store writer
+            // would replace it instead, breaking the lease. These are moves,
+            // not publication of newly serialized state.
             // The missing install.lock makes a concurrent opener refuse this
             // old installation until its root has moved to the archive.
             let path = self

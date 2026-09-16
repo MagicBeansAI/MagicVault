@@ -21,6 +21,7 @@ jobs:
       - name: Architecture and documentation
         run: |
           python3 scripts/check_architecture.py
+          python3 scripts/check_store_durability_adoption.py
           python3 scripts/check-doc-links.py
           python3 -B -m unittest discover -s scripts/tests -p 'test_*.py'
       - name: SDK, all platform packages, release integrity and extension

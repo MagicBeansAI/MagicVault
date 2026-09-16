@@ -17,7 +17,7 @@
   },
   "source_sha256": {
     ".gitattributes": "16cf10fb8eaf8285b7212b83cfa69b0d67b7ebabf7cf80d6ac72829e6df61c15",
-    ".github/workflows/ci.yml": "c5a538509bcd416623d4979fda43bfea525fa0c5ce1d77ea65a1bafcb13820d4",
+    ".github/workflows/ci.yml": "72a08a54d6400d8a11c4dc5ab8cf7daec3386ccfe9ed0389cfab099d63feb1b2",
     ".github/workflows/desktop-platforms.yml": "06f1264b999e214cfab9c188978b5c767eed103d9548d570145962b1c85b2b64",
     ".github/workflows/distribution.yml": "145b6a9f6a7c97f857f3c031ab8ce6f9e03e34a4f522489d0eec7bd16e0b02b7",
     ".github/workflows/npm-release.yml": "80cc998bfcf3dcf2f232e4b29169a933a1f79b45ec57149efcd97ba4f91e00d5",
@@ -84,7 +84,7 @@
     "magicvault-service/src/broker/delivery/tests.rs": "ef5b34ae10484855b46de41b2996b5b5461b7608cedea31216237cd5f7f3ef20",
     "magicvault-service/src/client.rs": "1475f063d6ff227df61bb920de36d9dacafa1ea75b4c662a12d58ec089a37ea1",
     "magicvault-service/src/human.rs": "3270e4a7cd2912e96d75a0c7516b3af66bbc0b2d481a7a00b3d818e53d40cee0",
-    "magicvault-service/src/installation.rs": "856e54ea62288786f8a7de0f8a4e6833c1d517cfb6fcf52367943d3a89ffd882",
+    "magicvault-service/src/installation.rs": "e5f1fc98f769b492bab2f6f645c92a7c7ffa5c8b47772fd497a4cd23a8ca89fb",
     "magicvault-service/src/installation/tests.rs": "81e24d3bf01dd36c4e18b3f62611457d3b816d3e7b5c871582f5ba3fd9713d87",
     "magicvault-service/src/ipc.rs": "ec0793036ae1c532bd2b129034c51813c8767088f0d1cf3b43e0858369fbcffa",
     "magicvault-service/src/launch_agent.rs": "60887212feab9100fbcb1af32017b9675d4e138d245224f6f52e99072e69ea7a",

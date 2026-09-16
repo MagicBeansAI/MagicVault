@@ -1,6 +1,6 @@
 {
-  "_comment": "Three existing production counts transferred from Magician aef928c. Two test-only renames retain synthetic browser/delivery journals. Installation adds two reviewed non-byte-store operations: atomic current symlink publication and recoverable app-directory retirement; both sync the parent and preserve ambiguous artifacts. Shared durable primitive definitions are intentionally not scanned.",
-  "total_violations": 7,
+  "_comment": "Three existing production counts transferred from Magician aef928c. Two test-only renames retain synthetic browser/delivery journals. Installation includes two reviewed non-byte-store operations: current link publication and recoverable app-directory retirement. Windows retirement adds two moves preserving the held installation lock's file identity, plus two synthetic test moves verifying the handoff remains exclusive. Complete versions and ambiguous artifacts are retained; these moves do not serialize credential state. Shared durable primitive definitions are intentionally not scanned.",
+  "total_violations": 11,
   "files": {
     "magicvault-core/src/store.rs": {
       "hand_rolled_atomic_write": 3
@@ -12,7 +12,7 @@
       "hand_rolled_atomic_write": 1
     },
     "magicvault-service/src/installation.rs": {
-      "hand_rolled_atomic_write": 2
+      "hand_rolled_atomic_write": 6
     }
   }
 }

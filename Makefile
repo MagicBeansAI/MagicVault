@@ -140,6 +140,20 @@ sync-lockfile:
 test-distribution:
 	node --test scripts/tests/distribution.test.mjs
 
+test-sdk:
+	node --test scripts/tests/sdk.test.mjs scripts/tests/distribution.test.mjs
+
+# Production CLI, IPC and effects with test-only custody/consent/CDP and local recipients.
+test-sdk-native:
+	cargo test --locked -p magicvault --test delivery_cli node_sdk_reaches_real_cli_ipc_and_all_three_effects -- --ignored --nocapture
+
+# Development-only compiler; consumers need no TypeScript or Rust compilation.
+TSC ?= tsc
+test-sdk-types:
+	$(TSC) --noEmit --strict --module NodeNext --target ES2022 scripts/tests/sdk-types.mts scripts/tests/sdk-types.cts
+
+.PHONY: test-sdk test-sdk-native test-sdk-types
+
 package-npm:
 	@test -n "$(NPM_SCOPE)" -a -n "$(PACKAGE_OUTPUT)" || (echo 'Set NPM_SCOPE and a fresh PACKAGE_OUTPUT directory'; exit 1)
 	node scripts/package-npm.mjs --binary-dir "$(CARGO_TARGET_DIR)/release" --output "$(PACKAGE_OUTPUT)" --scope "$(NPM_SCOPE)"

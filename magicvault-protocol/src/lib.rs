@@ -13,7 +13,7 @@ pub use consent::*;
 
 // Closed enums require matching standalone executables; persisted vault and
 // registry formats and embedded core APIs are independent of this wire version.
-pub const VERSION: u32 = 4;
+pub const VERSION: u32 = 5;
 pub const MAX_FRAME_BYTES: usize = 32 * 1024;
 pub const MAX_REPLY_BYTES: usize = 256 * 1024;
 pub const MAX_FIELDS: usize = 8;
@@ -61,6 +61,7 @@ pub enum Request {
     DisconnectBrowser(BrowserQuery),
     ConfigureBrowserCredential(BrowserRule),
     SecureFill(SecureFill),
+    SecurePromptFill(SecurePromptFill),
     FillStatus(FillQuery),
     CancelFill(FillQuery),
     RegisterDeliveryProfile(DeliveryProfile),
@@ -264,6 +265,7 @@ impl Request {
             }
             Self::ConfigureBrowserCredential(p) => p.valid(),
             Self::SecureFill(p) => p.valid(),
+            Self::SecurePromptFill(p) => p.valid(),
             Self::RegisterDeliveryProfile(p) => p.valid(),
             Self::SecureNewProcess(p) | Self::SecureNewHttp(p) => {
                 !p.operation_id.is_nil() && !p.profile_id.is_nil()

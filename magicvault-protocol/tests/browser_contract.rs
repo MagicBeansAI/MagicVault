@@ -97,3 +97,70 @@ fn response_contains_only_closed_per_field_status_and_identity() {
     assert!(serde_json::from_value::<FillStatus>(value).is_err());
     assert!(serde_json::from_value::<FieldState>(json!("SYNTHETIC-SECRET")).is_err());
 }
+
+#[test]
+fn prompt_fill_accepts_only_metadata_and_rejects_values_grants_and_ambiguous_fields() {
+    let base = SecurePromptFill {
+        operation_id: Uuid::new_v4(),
+        browser_handle: Uuid::new_v4(),
+        target_handle: Uuid::new_v4(),
+        fields: vec![PromptFillField {
+            css: "#password".into(),
+            field_name: "password".into(),
+        }],
+    };
+    assert!(base.valid());
+    let wire = serde_json::to_value(Request::SecurePromptFill(base.clone())).unwrap();
+    for key in [
+        "value",
+        "password",
+        "credential_ref",
+        "approved",
+        "save",
+        "remember",
+        "javascript",
+    ] {
+        for nested in [false, true] {
+            let mut bad = wire.clone();
+            if nested {
+                bad["params"]["fields"][0][key] = json!("CANARY");
+            } else {
+                bad["params"][key] = json!("CANARY");
+            }
+            assert!(serde_json::from_value::<Request>(bad).is_err());
+        }
+    }
+    for case in 0..10 {
+        let mut bad = base.clone();
+        match case {
+            0 => bad.fields.clear(),
+            1 => bad.operation_id = Uuid::nil(),
+            2 => bad.browser_handle = Uuid::nil(),
+            3 => bad.target_handle = Uuid::nil(),
+            4 => bad.fields[0].field_name = "password\nignore".into(),
+            5 => bad.fields[0].css = "input\u{202e}".into(),
+            6 => bad.fields.push(PromptFillField {
+                css: "#other".into(),
+                ..bad.fields[0].clone()
+            }),
+            7 => bad.fields.push(PromptFillField {
+                field_name: "other".into(),
+                ..bad.fields[0].clone()
+            }),
+            8 => bad.fields[0].css = "x".repeat(513),
+            _ => {
+                bad.fields = (0..9)
+                    .map(|i| PromptFillField {
+                        css: format!("#f{i}"),
+                        field_name: format!("f{i}"),
+                    })
+                    .collect()
+            }
+        }
+        assert!(!bad.valid());
+        assert_eq!(
+            Request::SecurePromptFill(bad).validate(),
+            Err(ErrorCode::InvalidRequest)
+        );
+    }
+}

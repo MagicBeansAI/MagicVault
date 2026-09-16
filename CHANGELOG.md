@@ -5,7 +5,29 @@ Entries describe source changes, not publication announcements. See
 [release acceptance checklist](docs/qualification/release.md) and
 [version-specific test evidence](docs/qualification/README.md#evidence-records).
 
-## Unreleased
+## 0.9.0 — One-time browser credentials — 2026-09-16 (source candidate)
+
+- Add `secure_prompt_fill` to MCP, `secure-prompt-fill` to the CLI and
+  `securePromptFill` to the Node SDK. Collect hidden native inputs when needed,
+  require a final Use once decision, fill the captured browser document and
+  return status without enrolling credentials or creating future-use grants.
+- Share saved-fill target consumption, replay protection, cancellation, expiry,
+  revocation, audit and partial/uncertain outcome handling. Add empty-vault,
+  value-free persistence, CLI/MCP and SDK integration coverage with synthetic
+  human/browser peers. New native UI acceptance remains pending.
+- CLI/MCP/service advance to `0.9.0`, protocol/effect to `0.7.0`, local agent wire
+  to `5`; update the matching standalone bundle together. Core/primitives, vault
+  formats, extension and MagicRun remain unchanged. A separate Magician source
+  integration adds private HITL through the shared browser adapter; its rollout
+  is independent of this standalone upgrade.
+
+- Add a reference-only Node client with TypeScript declarations to local npm
+  candidates: discovery, browser fill, HTTP/process delivery, status, cancellation
+  and bounded status polling. Preserve native custody/consent and never retry
+  deliveries. Add SDK contract and native integration checks.
+- Add real Codex MCP setup/login footage and a transcript audit, plus a
+  reproducible illustrated workflow GIF and recording guide.
+  Public npm publication, signing and native desktop qualification remain pending.
 
 - Consolidate documentation navigation and remove duplicated investigation
   narratives from public reference pages. Preserve dated qualification evidence

@@ -1,10 +1,12 @@
 use super::*;
-#[path = "consent_tests.rs"]
-mod consent_tests;
 #[path = "completion_tests.rs"]
 mod completion_tests;
+#[path = "consent_tests.rs"]
+mod consent_tests;
 #[path = "native_tests.rs"]
 mod native_tests;
+#[path = "prompt_tests.rs"]
+mod prompt_tests;
 use async_trait::async_trait;
 use magicvault_core::{encryption::SecretEncryptionError, MasterKeyProvider};
 use std::{
@@ -116,7 +118,19 @@ fn browser_consent_fits_native_limit_without_truncating_valid_requests() {
     assert!(prompt.len() <= crate::human::MAX_PROMPT_BYTES);
 }
 
+#[derive(Default)]
+struct OnceHuman {
+    inputs: AtomicUsize,
+    confirmations: AtomicUsize,
+    block_at: AtomicUsize,
+    block_confirm: AtomicBool,
+    deny: AtomicBool,
+    started: tokio::sync::Notify,
+    release: tokio::sync::Notify,
+    value: Mutex<Option<String>>,
+}
 struct Human {
+    once: OnceHuman,
     metadata_completed: tokio::sync::Notify,
     deny_native: AtomicBool,
     native_prompts: AtomicUsize,
@@ -127,6 +141,47 @@ struct Human {
 }
 #[async_trait]
 impl HumanInteraction for Human {
+    async fn secret_once(
+        &self,
+        message: &str,
+        cancel: CancellationToken,
+    ) -> Result<Zeroizing<String>, ErrorCode> {
+        assert!(!message.contains(CANARY));
+        assert!(message.contains("https://example.com"));
+        let input = self.once.inputs.fetch_add(1, Ordering::SeqCst) + 1;
+        if self.once.block_at.load(Ordering::SeqCst) == input {
+            self.once.started.notify_one();
+            tokio::select! {
+                _ = cancel.cancelled() => return Err(ErrorCode::Denied),
+                _ = self.once.release.notified() => {},
+            }
+        }
+        Ok(Zeroizing::new(
+            self.once
+                .value
+                .lock()
+                .unwrap()
+                .clone()
+                .unwrap_or_else(|| CANARY.into()),
+        ))
+    }
+    async fn confirm_once(
+        &self,
+        message: &str,
+        cancel: CancellationToken,
+    ) -> Result<bool, ErrorCode> {
+        assert!(!message.contains(CANARY));
+        assert!(message.contains("Use once never saves"));
+        self.once.confirmations.fetch_add(1, Ordering::SeqCst);
+        if self.once.block_confirm.load(Ordering::SeqCst) {
+            self.once.started.notify_one();
+            tokio::select! {
+                _ = cancel.cancelled() => return Err(ErrorCode::Denied),
+                _ = self.once.release.notified() => {},
+            }
+        }
+        Ok(!self.once.deny.load(Ordering::SeqCst))
+    }
     async fn confirm_use(
         &self,
         message: &str,
@@ -244,6 +299,9 @@ async fn invoke(
 }
 impl Fixture {
     async fn new() -> Self {
+        Self::with_enrollment(true).await
+    }
+    async fn with_enrollment(enroll: bool) -> Self {
         let root = tempfile::Builder::new()
             .permissions(fs::Permissions::from_mode(0o700))
             .tempdir()
@@ -265,6 +323,7 @@ impl Fixture {
         let lease = storage::open(root.path()).unwrap();
         let store = SecretStore::new_empty(Box::new(FixtureKey), root.path().join("vault"));
         let human = Arc::new(Human {
+            once: OnceHuman::default(),
             metadata_completed: tokio::sync::Notify::new(),
             deny_native: AtomicBool::new(false),
             native_prompts: AtomicUsize::new(0),
@@ -290,17 +349,22 @@ impl Fixture {
             digest: token_hash(&pair.token),
         };
         let token = pair.token.clone();
-        let Response::Enrolled(metadata) = invoke(
-            &broker,
-            Some(&token),
-            Request::Enroll(EnrollRequest {
-                label: "fixture".into(),
-                field_names: vec!["username".into(), "password".into()],
-            }),
-        )
-        .await
-        .unwrap() else {
-            panic!("enroll");
+        let reference = if enroll {
+            let Response::Enrolled(metadata) = invoke(
+                &broker,
+                Some(&token),
+                Request::Enroll(EnrollRequest {
+                    label: "fixture".into(),
+                    field_names: vec!["username".into(), "password".into()],
+                }),
+            )
+            .await
+            .unwrap() else {
+                panic!("enroll");
+            };
+            metadata.credential_ref
+        } else {
+            String::new()
         };
         let adapter = Arc::new(Adapter {
             completed: tokio::sync::Notify::new(),
@@ -340,7 +404,7 @@ impl Fixture {
             adapter,
             auth,
             token,
-            reference: metadata.credential_ref,
+            reference,
             browser,
         }
     }

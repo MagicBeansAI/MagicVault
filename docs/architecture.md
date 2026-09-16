@@ -1,6 +1,6 @@
 # MagicVault architecture
 
-Architecture version: `0.8.3`
+Architecture version: `0.9.0`
 
 Previous immutable baseline tag: `architecture/v0.3.0`. The current reviewed
 source/document baseline is [architecture-baseline.json](architecture-baseline.json).
@@ -15,9 +15,9 @@ and [security](../SECURITY.md) define the product's supported boundary.
 
 ```mermaid
 flowchart TB
-    agent["Agent / model"] -->|"References and locators only"| client["CLI or MCP client"]
+    agent["Agent / model"] -->|"References or one-time field metadata"| client["CLI or MCP client"]
     client -->|"Authenticated local IPC"| broker["Standalone service broker"]
-    human["Human via native UI"] -->|"Pairing, policy, per-use / Always allow"| broker
+    human["Human via native UI"] -->|"Pairing, policy, native input and consent"| broker
     broker -->|"Exact-use grants: persist / revoke"| grants["Private standalone registry"]
     broker -->|"Resolve approved fields"| core["Shared custody core"]
     keychain["OS keychain / host key provider"] --> core
@@ -42,11 +42,12 @@ flowchart TB
     effect -->|"Status, never values"| broker
     broker -->|"Value-free results"| client
     consumer["Embedded application such as Magician"] --> core
+    consumer -->|"Host-owned private HITL and approved material"| effect
     other["Existing browser automation tool"] -->|"Navigation and observations outside this filter"| browser
 ```
 
 The client, broker, custody library and delivery adapter are different authority
-boundaries. CLI/MCP requests contain references, not credential values. Trusted
+boundaries. CLI/MCP requests contain references or one-time field metadata, never credential values. Trusted
 core/effect/native code necessarily handles plaintext. The destination website
 receives it; separate browser tools and unrestricted same-user software are not
 isolated by this integration. New processes and HTTP services receive plaintext
@@ -68,21 +69,28 @@ that an immediate restart can acquire the old instance lock.
 
 | Component | Version | Ownership |
 | --- | --- | --- |
-| `magicvault`, `magicvault-mcp` | `0.8.3` | Human administration, reference-only clients and optional discovery narrowing; CLI builds daemon/native host |
-| `magicvault-service` | `0.8.3` | Native consent/grants and cancellation, bounded discovery, one store writer and private application-bundle installer |
-| `magicvault-protocol` | `0.6.0` | Discovery query/filter types; authentication, policy, consent, profiles, jobs and bounded IPC |
-| `magicvault-effect` | `0.6.1` | Filtered adapter method/native command; CDP/native fills, HTTP and MagicRun integration |
+| `magicvault`, `magicvault-mcp` | `0.9.0` | Human administration, value-free requests including one-time prompt-and-fill; CLI builds daemon/native host |
+| `magicvault-service` | `0.9.0` | Native one-time input, consent/grants and cancellation, bounded discovery, one store writer and private application-bundle installer |
+| `magicvault-protocol` | `0.7.0` | Closed prompt-and-fill request plus existing authentication, policy, consent, profiles, jobs and bounded IPC |
+| `magicvault-effect` | `0.7.0` | Public protocol dependency advances; existing CDP/native fills, HTTP and MagicRun integration unchanged |
 | Chromium extension | `0.6.1` | Permission-aware exact discovery narrowing, site grants/blocks and document-targeted fill; no navigation or submission API |
 | MagicRun `tool-runtime-core` | `0.1.74`, public Git dependency locked to `af348ab5` | Governed process preparation, descriptor-bound native macOS spawn for non-jailed batches, digest-bound dispatch, cancellation, output bounds and owned-child cleanup |
 | `magicvault-core` | `0.1.3` | Encryption, credential references, existing policies, scoped stores and typed audit |
 | `magicvault-primitives` | `0.1.1` | Durable filesystem and stack-safe JSON utilities |
 
-The local agent wire is version **4**; matching standalone clients/daemon are required. The profile-authenticated native
+The local agent wire is version **5**; matching standalone clients/daemon are required. The profile-authenticated native
 handshake is version **2**; bridge framing and host configuration remain version **1**.
 Filtered discovery adds a closed `filtered_targets` bridge command; use matching
 updated components. Old workers refuse it; no broader-query or delivery fallback.
 Wire versions and crate versions are distinct. See the [protocol](protocol.md)
 for framing, message types and bounds, and [versioning](versioning.md) for upgrades.
+
+The wire-5 addition does not modify core custody or MagicRun. Magician's separate
+source integration retains its core custody and adds private HITL through the
+shared browser adapter; it does not consume the standalone wire-5 operation.
+Its runtime/UI rollout and live acceptance remain separate. See
+[embedded consumers](integrations.md#existing-embedded-consumers).
+Native bridge effect schemas remain unchanged.
 
 ## Process launch boundary
 
@@ -120,6 +128,16 @@ hooks, runtime downloads, daemon initialization or native enrollment. The launch
 checks the selected platform/version and binary hash before an argv-preserving,
 shell-free spawn; stdout belongs exclusively to the native protocol.
 
+The npm package also exports a Node client with TypeScript declarations. It uses
+only built-in Node modules, bounds and validates closed requests/results, and
+invokes the matching verified CLI without a shell. Browser request files are
+private temporary metadata files (directory 0700/file 0600), removed after the
+call. No credential value enters the SDK, including for `securePromptFill`.
+Constructor-selected executables are an explicit trusted-host override. The SDK
+retains operation IDs across closed errors, polls status only, never retries an
+effect and never infers daemon cancellation from a local timeout/abort. This
+adds no raw-secret getter, enrollment or grant API.
+
 `~/.magicvault-app` is separate from `~/.magicvault`, with a root-bound ownership
 marker and installer lock. Fixed-path, bounded, no-follow reads stream into private
 version directories; a durable bundle marker follows all file/directory syncs.
@@ -146,8 +164,8 @@ repairing files; it is not browser-extension installation detection or publisher
 verification. Only a live extension connection confirms presence. No connection
 leaves installation unconfirmed; CDP connections never count. Diagnostics neither
 scan browser profiles nor grant authority, and do not gate other delivery surfaces.
-Uninstall preserves the vault/keychain/pairings. No new agent tool or agent wire
-change is introduced; the native handshake requires a coordinated upgrade. Core, primitives, MagicRun and Magician need no source or data
+Uninstall preserves the vault/keychain/pairings. These installation mechanisms introduce no agent tool; the native handshake
+requires a coordinated upgrade. Core, primitives, MagicRun and Magician need no source or data
 migration. [Installation/recovery](distribution.md) covers partial-state behavior.
 
 The architecture gate includes npm launchers, package assembly/qualification,
@@ -320,6 +338,8 @@ The [real transport qualification](qualification/results-native-transport-2026-0
 uses test-only disposable user-data roots, native manifests and synthetic consent;
 none of those helpers or test configuration overrides enter production binaries.
 
+The saved-credential sequence is:
+
 1. A human pairs a client and enrolls values through native hidden inputs. Listing
    metadata does not grant delivery. The human separately authorizes selected
    fields and exact origins for that client.
@@ -342,6 +362,41 @@ none of those helpers or test configuration overrides enter production binaries.
 Detailed results expire; spent IDs remain refused for the daemon epoch. Restart
 invalidates connections/handles/jobs. Missing status is not proof that a fill
 did not happen. [Lifecycle and recovery](browser-usage.md#request-a-fill-and-inspect-its-outcome).
+
+## One-time browser input
+
+`SecurePromptFill` is a closed metadata-only request with operation/browser/target
+UUIDs and 1–8 distinct `{css, field_name}` entries. It uses the same owned browser
+and single-use target discovery as saved fills. Credential enrollment, metadata
+ACLs and credential-origin rules are not consulted for new user-entered values.
+Instead, native collection plus a final **Use once** decision authorizes the exact
+trusted browser, top/frame origins and requested field map. This path neither
+consults nor creates remembered-use consent tickets.
+
+The broker stores a `FillRequest::Prompt` containing metadata only alongside
+saved-fill jobs. Both variants share operation IDs/tombstones, target consumption,
+human/effect admission, completion audit, status and cancellation. Native hidden
+inputs are sequential and bounded to 4096 bytes of nonempty single-line UTF-8.
+Collection and final confirmation share the target's original 180-second deadline;
+expiry/cancellation drains native work before releasing admission. Previously
+collected material is dropped on every early exit. `secret_once` is a separate
+trusted-human trait method that defaults to unavailable for custom hosts; the
+shipped native provider uses fixed Cancel/Continue and Cancel/Use once scripts.
+No input is interpolated into executable code, argv or a model request.
+
+Owned `Zeroizing<String>` inputs move into existing zeroizing `MaterialField`
+buffers without creating a vault entry, credential reference, permission or grant.
+Immediately before dispatch, a serialized transaction revalidates client, browser,
+expiry and cancellation, durably audits authorization and checks expiry/cancel
+again. Existing adapters then revalidate document/origin and field controls. The
+browser receives values through the same CDP/native effect boundary; no new bridge
+command, form submission or fallback is introduced. Completion uses the existing
+typed status-only audit receipt. Denial, failure, partial writes and uncertainty
+retain the same no-replay semantics.
+
+The trusted UI and recipient necessarily handle plaintext. Zeroizing owned buffers
+does not attest erasure of OS dialog memory, transport copies or browser storage.
+[One-time usage](jit-credentials.md) records the API and qualification limits.
 
 ## One new process or HTTP request
 
@@ -370,7 +425,7 @@ validation and single-use operation IDs remain independent requirements.
 The standalone registry adds optional grant records (empty by default), capped at
 16 records of 12 KiB each within a 1.25 MiB file limit. List replies fit the existing
 256 KiB bound. CLI exposes list/revoke/clear only; MCP keeps its existing closed
-catalog. Agent wire is now `4`, native handshake `2` and effect framing `1` are
+catalog without grant tools. Agent wire is now `5`, native handshake `2` and effect framing `1` are
 unchanged. Shared custody/key identity and MagicRun's runtime do not change.
 See [consent semantics and recovery](consent.md).
 

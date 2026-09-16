@@ -12,11 +12,13 @@ to inspect or remove remembered uses. These commands cannot grant approval.
 
 | Operation | MCP tool | CLI command |
 | :--- | :--- | :--- |
+| Enter one-time browser credentials | `secure_prompt_fill` | `magicvault secure-prompt-fill` |
 | Fill an existing browser field | `secure_fill` | `magicvault secure-fill` |
 | Launch a registered new command | `secure_new_process` | `magicvault secure-new-process` |
 | Send a registered new HTTP request | `secure_new_http` | `magicvault secure-new-http` |
 
-After [human setup and enrollment](setup.md), inspect value-free metadata:
+After [human setup](setup.md), inspect value-free metadata. Enrollment is only
+required for saved-reference operations:
 
 ```bash
 magicvault --profile agent status
@@ -28,7 +30,10 @@ export MAGICVAULT_EXAMPLES="$HOME/.magicvault-app/current/examples"
 Source builders can use their checkout's `examples/` instead. Recipient output is
 withheld; capture closed receipts and retain each operation ID for reconciliation.
 
-## Browser fill from the CLI
+For one-time browser input, use `secure-prompt-fill --request-file request.json`
+with field names and selectors. [Complete request and native input flow](jit-credentials.md).
+
+## Saved browser fill from the CLI
 
 ```bash
 magicvault --profile agent list-browsers

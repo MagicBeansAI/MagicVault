@@ -24,6 +24,13 @@ fn dependency_payload_logging_is_compiled_out_of_shipped_binaries() {
 struct FixtureHuman;
 #[async_trait]
 impl HumanInteraction for FixtureHuman {
+    async fn secret_once(
+        &self,
+        message: &str,
+        cancel: CancellationToken,
+    ) -> Result<Zeroizing<String>, ErrorCode> {
+        self.secret(message, cancel).await
+    }
     async fn confirm(&self, _: &str, _: CancellationToken) -> Result<bool, ErrorCode> {
         Ok(true)
     }
@@ -121,6 +128,13 @@ async fn rejected_arguments_never_echo_the_rejected_value() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn actual_cli_secure_fill_reaches_dedicated_cdp_and_returns_no_material() {
+    assert_actual_cli_fill(false).await;
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn actual_cli_prompt_fill_needs_no_enrollment_and_returns_no_material() {
+    assert_actual_cli_fill(true).await;
+}
+async fn assert_actual_cli_fill(prompted: bool) {
     use magicvault_service::{client::Client, protocol::*};
     use magicvault_test_support::CdpFixture;
     let root = tempfile::Builder::new()
@@ -163,24 +177,29 @@ async fn actual_cli_secure_fill_reaches_dedicated_cdp_and_returns_no_material() 
     .await
     .unwrap();
     let client = Client::load(root.path().to_owned(), "default").unwrap();
-    let Response::Enrolled(credential) = client
-        .call(Request::Enroll(EnrollRequest {
-            label: "Fixture".into(),
-            field_names: vec!["password".into()],
-        }))
-        .await
-        .unwrap()
-    else {
-        panic!("enroll");
+    let reference = if !prompted {
+        let Response::Enrolled(credential) = client
+            .call(Request::Enroll(EnrollRequest {
+                label: "Fixture".into(),
+                field_names: vec!["password".into()],
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("enroll");
+        };
+        client
+            .call(Request::ConfigureBrowserCredential(BrowserRule {
+                credential_ref: credential.credential_ref.clone(),
+                origins: vec!["https://example.com".into()],
+                field_names: vec!["password".into()],
+            }))
+            .await
+            .unwrap();
+        credential.credential_ref
+    } else {
+        String::new()
     };
-    client
-        .call(Request::ConfigureBrowserCredential(BrowserRule {
-            credential_ref: credential.credential_ref.clone(),
-            origins: vec!["https://example.com".into()],
-            field_names: vec!["password".into()],
-        }))
-        .await
-        .unwrap();
     let cdp = CdpFixture::start().await;
     let Response::Browser(browser) = client
         .call(Request::RegisterCdp(RegisterCdp {
@@ -204,22 +223,44 @@ async fn actual_cli_secure_fill_reaches_dedicated_cdp_and_returns_no_material() 
     else {
         panic!("targets");
     };
-    let request = SecureFill {
-        operation_id: Uuid::new_v4(),
-        browser_handle: browser.browser_handle,
-        target_handle: targets[0].target_handle,
-        fields: vec![FillField {
-            css: "#password".into(),
-            credential_ref: credential.credential_ref,
-            credential_field: "password".into(),
-        }],
+    let operation_id = Uuid::new_v4();
+    let request = if prompted {
+        serde_json::to_value(SecurePromptFill {
+            operation_id,
+            browser_handle: browser.browser_handle,
+            target_handle: targets[0].target_handle,
+            fields: vec![PromptFillField {
+                css: "#password".into(),
+                field_name: "password".into(),
+            }],
+        })
+        .unwrap()
+    } else {
+        serde_json::to_value(SecureFill {
+            operation_id,
+            browser_handle: browser.browser_handle,
+            target_handle: targets[0].target_handle,
+            fields: vec![FillField {
+                css: "#password".into(),
+                credential_ref: reference,
+                credential_field: "password".into(),
+            }],
+        })
+        .unwrap()
     };
     let request_file = root.path().join("reference-only-fill.json");
     fs::write(&request_file, serde_json::to_vec(&request).unwrap()).unwrap();
     let output = tokio::process::Command::new(cli_binary())
         .arg("--root")
         .arg(root.path())
-        .args(["secure-fill", "--request-file"])
+        .args([
+            if prompted {
+                "secure-prompt-fill"
+            } else {
+                "secure-fill"
+            },
+            "--request-file",
+        ])
         .arg(request_file)
         .output()
         .await
@@ -230,9 +271,7 @@ async fn actual_cli_secure_fill_reaches_dedicated_cdp_and_returns_no_material() 
     let status = tokio::time::timeout(Duration::from_secs(3), async {
         loop {
             let Response::Fill(status) = client
-                .call(Request::FillStatus(FillQuery {
-                    operation_id: request.operation_id,
-                }))
+                .call(Request::FillStatus(FillQuery { operation_id }))
                 .await
                 .unwrap()
             else {
@@ -251,6 +290,13 @@ async fn actual_cli_secure_fill_reaches_dedicated_cdp_and_returns_no_material() 
         cdp.state.lock().unwrap().delivered,
         [vec!["SYNTHETIC-CLI-FLOW-CANARY".to_owned()]]
     );
+    if prompted {
+        let Response::Credentials(rows) = client.call(Request::ListCredentials).await.unwrap()
+        else {
+            panic!("metadata");
+        };
+        assert!(rows.is_empty());
+    }
     broker.shutdown.cancel();
     daemon.await.unwrap().unwrap();
 }

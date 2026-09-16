@@ -1,6 +1,6 @@
 # Security boundary and reporting
 
-MagicVault `0.8.1` is a source alpha, not a production-qualified release.
+MagicVault `0.9.0` is a source alpha, not a production-qualified release.
 Basic installed-browser/native-human/keychain and selected remembered-use,
 permission/recovery and in-flight cancellation cases passed on one host. Broader
 native acceptance and startup/process-delivery reliability remain open. Do not
@@ -9,7 +9,8 @@ use valuable credentials until the relevant [qualification gates](docs/testing.m
 
 ## The supported promise
 
-Supported agent channels use credential references, not enrolled values.
+Supported agent channels use credential references or one-time field metadata,
+never credential values.
 MagicVault's model-facing replies, errors, logs and audit projections do not
 return those values. Trusted custody, browser/HTTP/process adapters and native bridge code
 handle material only to perform an explicitly authorized operation.
@@ -21,13 +22,22 @@ embedders must explicitly address their own dependency logging as described in
 [the integration contract](docs/integrations.md).
 
 Authorization is separate from discovery: pairing and metadata consent do not
-grant browser delivery. Browser use needs per-client field/origin permission and
+grant browser delivery. Saved-reference browser use needs per-client field/origin permission and
 a native per-use decision or an explicitly human-created exact-use grant. Both
 top-page and frame origins are checked on each operation. New-process and HTTP
 delivery requires human-registered fixed recipient profiles plus per-use or
 remembered consent for that exact profile and paired client. Profile literals/labels
 are public configuration, not places for credentials. No model-facing raw read, arbitrary JavaScript, generic
 dispatch, material-delivery or human-grant endpoint is provided.
+
+For one-time browser input, the paired client requests `secure_prompt_fill` for a
+registered browser and one-use discovered target. Hidden native inputs and a final
+**Use once** decision authorize that exact destination/field map without saving
+credentials or granting repeated use. Values remain in temporary zeroizing input
+and delivery buffers; neither custody entries, registry state nor job/audit/status
+records contain them. Cancellation or expiry before dispatch discards the inputs.
+The same document validation, status-only results and no-replay rules apply.
+See [one-time input](docs/jit-credentials.md).
 
 ## What this does not protect against
 
@@ -54,7 +64,7 @@ dispatch, material-delivery or human-grant endpoint is provided.
   enforce its own caller/target policy and model-output boundary; linking a crate
   alone does not confer the product guarantee.
 - Zeroization shortens some in-process lifetimes. Rust transport allocations,
-  browser/JavaScript heaps and recipient DOM storage are not claimed to be
+  native dialog/OS memory, browser/JavaScript heaps and recipient DOM storage are not claimed to be
   completely erased. No “nobody can ever read your credentials” claim is made.
 
 ## Operational safeguards

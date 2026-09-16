@@ -5,6 +5,7 @@ use magicvault_effect::{
     canonical_origin, cdp::CdpBrowser, matches_target_filter, valid_target_filter, BrowserAdapter,
     MaterialField, Outcome, Target,
 };
+mod prompt;
 #[cfg(all(test, unix))]
 mod tests;
 
@@ -77,11 +78,49 @@ struct BoundTarget {
 }
 struct FillJob {
     owner: Uuid,
-    request: SecureFill,
+    request: FillRequest,
     status: FillStatus,
     cancel: CancellationToken,
     retain_until: Instant,
-    consent: ConsentTicket,
+    consent: Option<ConsentTicket>,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+enum FillRequest {
+    Stored(SecureFill),
+    Prompt(SecurePromptFill),
+}
+impl FillRequest {
+    fn browser_handle(&self) -> Uuid {
+        match self {
+            Self::Stored(r) => r.browser_handle,
+            Self::Prompt(r) => r.browser_handle,
+        }
+    }
+    fn operation_id(&self) -> Uuid {
+        match self {
+            Self::Stored(r) => r.operation_id,
+            Self::Prompt(r) => r.operation_id,
+        }
+    }
+    fn target_handle(&self) -> Uuid {
+        match self {
+            Self::Stored(r) => r.target_handle,
+            Self::Prompt(r) => r.target_handle,
+        }
+    }
+    fn field_count(&self) -> usize {
+        match self {
+            Self::Stored(r) => r.fields.len(),
+            Self::Prompt(r) => r.fields.len(),
+        }
+    }
+    fn action(&self) -> &'static str {
+        match self {
+            Self::Stored(_) => "secure_fill",
+            Self::Prompt(_) => "secure_prompt_fill",
+        }
+    }
 }
 
 #[derive(Default)]
@@ -98,11 +137,10 @@ impl BrowserState {
         self.instances.contains_key(&handle)
     }
     pub(super) fn cancel_consents(&self, owner: Uuid, scope: Option<&ConsentScope>) {
-        for job in self
-            .fills
-            .values()
-            .filter(|j| j.owner == owner && scope.is_none_or(|s| *s == j.consent.scope))
-        {
+        for job in self.fills.values().filter(|j| {
+            j.owner == owner
+                && scope.is_none_or(|s| j.consent.as_ref().is_some_and(|c| *s == c.scope))
+        }) {
             job.cancel.cancel();
         }
     }
@@ -111,7 +149,7 @@ impl BrowserState {
         for job in self
             .fills
             .values()
-            .filter(|j| !self.instances.contains_key(&j.request.browser_handle))
+            .filter(|j| !self.instances.contains_key(&j.request.browser_handle()))
         {
             job.cancel.cancel();
         }
@@ -726,7 +764,7 @@ impl Broker {
                 .browsers
                 .fills
                 .values()
-                .filter(|j| j.request.browser_handle == query.browser_handle)
+                .filter(|j| j.request.browser_handle() == query.browser_handle)
             {
                 job.cancel.cancel();
             }
@@ -747,7 +785,7 @@ impl Broker {
                 let peer = b.peer(s, &auth2)?;
                 let label = peer.label.clone();
                 if let Some(job) = s.browsers.fills.get(&req2.operation_id) {
-                    if job.owner != auth2.id || job.request != req2 {
+                    if job.owner != auth2.id || job.request != FillRequest::Stored(req2.clone()) {
                         return Err(ErrorCode::Conflict);
                     }
                     return Ok((job.status.clone(), None));
@@ -828,11 +866,11 @@ impl Broker {
                     req2.operation_id,
                     FillJob {
                         owner: auth2.id,
-                        request: req2,
+                        request: FillRequest::Stored(req2),
                         status: status.clone(),
                         cancel: cancel.clone(),
                         retain_until: Instant::now() + Duration::from_secs(600),
-                        consent: consent.clone(),
+                        consent: Some(consent.clone()),
                     },
                 );
                 Ok((
@@ -846,7 +884,9 @@ impl Broker {
             let broker = Arc::clone(self);
             self.background_jobs.spawn(async move {
                 broker
-                    .run_fill(auth, request, label, bound, adapter, cancel, consent, permit)
+                    .run_fill(
+                        auth, request, label, bound, adapter, cancel, consent, permit,
+                    )
                     .await;
             });
         }
@@ -975,6 +1015,19 @@ impl Broker {
             Ok(fields) => adapter.fill(&bound.target, fields, cancel.clone()).await,
             Err(error) => Outcome::failed(count, error),
         };
+        self.complete_fill(auth, FillRequest::Stored(request), outcome, permit)
+            .await;
+    }
+
+    async fn complete_fill(
+        self: &Arc<Self>,
+        auth: Auth,
+        request: FillRequest,
+        outcome: Outcome,
+        permit: tokio::sync::OwnedSemaphorePermit,
+    ) {
+        let id = request.operation_id();
+        let count = request.field_count();
         let _ = self
             .transaction(move |b, s| {
                 // Hold through native cleanup/audit, but release before this
@@ -1011,8 +1064,8 @@ impl Broker {
                 let receipt = FillReceipt {
                     operation_id: id,
                     client_id: auth.id,
-                    browser_handle: request.browser_handle,
-                    target_handle: request.target_handle,
+                    browser_handle: request.browser_handle(),
+                    target_handle: request.target_handle(),
                     state: status,
                     fields: outcome.fields.clone(),
                     error: outcome.error,
@@ -1022,7 +1075,7 @@ impl Broker {
                     .try_audit_event_durably(
                         magicvault_core::store::AuditEvent::new("standalone_fill_completed")
                             .with_tool("magicvault")
-                            .with_action("secure_fill")
+                            .with_action(request.action())
                             .with_runtime_credential_receipt(receipt),
                     )
                     .map_err(|_| {

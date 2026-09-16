@@ -143,7 +143,8 @@ shell expansion of `$HOME` or `$(...)`. Codex uses its own TOML configuration, s
 use its `codex mcp add` command rather than pasting this JSON into `config.toml`.
 For source builds, use the resolved `$(make -s print-target-dir)/release/magicvault-mcp`
 path instead. Never copy pairing capabilities or credentials into client settings.
-Pair/enroll using the human CLI first. The MCP process is a client of the already
+Pair using the human CLI first. Enrollment is needed only for saved-reference
+operations; [one-time browser input](jit-credentials.md) works with an empty vault. The MCP process is a client of the already
 running daemon, not an alternative store owner or a daemon auto-installer.
 `--profile` selects a MagicVault client pairing, not a Chrome browser profile.
 Two agents using that same pairing share its permissions and handles; use
@@ -160,7 +161,8 @@ unattended CI interface. Client commands/formats are documented by
 [Anthropic](https://code.claude.com/docs/en/mcp).
 
 The advertised tools are `vault_status`, `list_credentials`, `request_approval`,
-`approval_status`, `list_browsers`, `browser_targets`, `secure_fill`, `fill_status`
+`approval_status`, `list_browsers`, `browser_targets`, `secure_fill`,
+`secure_prompt_fill`, `fill_status`
 and `cancel_fill`, plus `list_delivery_profiles`, `secure_new_process`,
 `secure_new_http`, `delivery_status` and `cancel_delivery`. No pairing, enrollment,
 destination-profile registration/removal, browser registration, policy editing,
@@ -196,8 +198,8 @@ access through that capability and does not erase material or revoke providers.
 
 ## Upgrade and recovery
 
-CLI/MCP/service packages use source version `0.8.1`; protocol/effect crates use
-`0.6.0`, with agent wire version `4`. Extension `0.6.1` uses native connection handshake `2`: rebuild/update
+CLI/MCP/service packages use source version `0.9.0`; protocol/effect crates use
+`0.7.0`, with agent wire version `5`. Extension `0.6.1` uses native connection handshake `2`: rebuild/update
 host and daemon together. Effect schemas and host config remain `1`. Normal
 packaged setup now installs the exact bundled native-host identity after pairing;
 install-only does not. See [one-time unpacked migration](browser-usage.md#upgrading-older-unpacked-extensions).

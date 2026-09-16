@@ -62,10 +62,11 @@ export function assemble({ repo, binaryDir, output, scope }) {
   }
   write(path.join(output, 'native/bundle.json'), `${JSON.stringify(manifest, null, 2)}\n`);
   write(path.join(output, 'native/package.json'), `${JSON.stringify({ ...common, name: nativeName, description: 'Prebuilt MagicVault executables and browser extension for macOS Apple Silicon', os: ['darwin'], cpu: ['arm64'], files: ['bin', 'extension', 'examples', 'bundle.json', 'LICENSE-MIT', 'LICENSE-APACHE'] }, null, 2)}\n`);
-  for (const name of ['cli.cjs', 'mcp.cjs', 'launcher.cjs']) write(path.join(output, 'launcher', name), regular(path.join(repo, 'npm', name), 64 * 1024), name === 'launcher.cjs' ? 0o644 : 0o755);
+  const launcherFiles = ['cli.cjs', 'mcp.cjs', 'launcher.cjs', 'sdk.cjs', 'sdk.d.cts'];
+  for (const name of launcherFiles) write(path.join(output, 'launcher', name), regular(path.join(repo, 'npm', name), 64 * 1024), ['cli.cjs', 'mcp.cjs'].includes(name) ? 0o755 : 0o644);
   for (const name of ['LICENSE-MIT', 'LICENSE-APACHE']) write(path.join(output, 'launcher', name), content.get(name));
   write(path.join(output, 'launcher/README.md'), regular(path.join(repo, 'npm/README.md'), 64 * 1024));
-  write(path.join(output, 'launcher/package.json'), `${JSON.stringify({ ...common, name: mainName, description: 'Let agents use credentials without seeing them — reference-only credential delivery', bin: { magicvault: 'cli.cjs', 'magicvault-mcp': 'mcp.cjs' }, files: ['cli.cjs', 'mcp.cjs', 'launcher.cjs', 'LICENSE-MIT', 'LICENSE-APACHE'], optionalDependencies: { [nativeName]: version }, magicvault: { platforms: { 'darwin-arm64': nativeName } } }, null, 2)}\n`);
+  write(path.join(output, 'launcher/package.json'), `${JSON.stringify({ ...common, name: mainName, description: 'Let agents use credentials without seeing them — reference-only credential delivery', bin: { magicvault: 'cli.cjs', 'magicvault-mcp': 'mcp.cjs' }, main: './sdk.cjs', types: './sdk.d.cts', exports: { '.': { types: './sdk.d.cts', default: './sdk.cjs' }, './package.json': './package.json' }, files: [...launcherFiles, 'LICENSE-MIT', 'LICENSE-APACHE'], optionalDependencies: { [nativeName]: version }, magicvault: { platforms: { 'darwin-arm64': nativeName } } }, null, 2)}\n`);
   return { version, mainName, nativeName };
 }
 

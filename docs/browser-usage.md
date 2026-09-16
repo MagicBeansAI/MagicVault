@@ -6,6 +6,10 @@ configuration. The installed-extension/native-human/keychain workflow remains a
 [manual acceptance gate](qualification/extension.md). Begin with synthetic
 credentials and disposable profiles; see [qualification](testing.md).
 
+For a login without saved credentials, use [one-time native input](jit-credentials.md).
+Complete setup/pairing and connect a browser below; skip enrollment and credential
+policy configuration. The remaining saved-reference instructions apply to `secure_fill`.
+
 ## Prepare custody and browser permission
 
 Complete [daemon setup, pairing and enrollment](setup.md) first. Use the same

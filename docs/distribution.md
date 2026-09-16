@@ -1,17 +1,20 @@
 # Installation and distribution
 
-MagicVault has a native Rust application and a thin npm launcher. MCP is a stdio
+MagicVault has a native Rust application, an npm launcher and a typed Node client. MCP is a stdio
 protocol, not a requirement to implement custody in JavaScript. The npm package
 exposes `magicvault` and `magicvault-mcp`; its exact-version optional dependency
 contains the three compiled executables, unpacked extension, reference-only
 examples and licenses. There are no installation scripts, runtime downloads,
-Rust compilation, shell-command construction or credential handling in Node.
+Rust compilation, shell-command construction or raw credential handling in Node.
+The package also exports a [Node/TypeScript SDK](typescript.md) that invokes the
+native CLI with reference-only requests and validates its closed replies. npm
+`main`, `types` and `exports` metadata expose the SDK alongside both CLI commands.
 
 ## Availability
 
 | Surface | Implemented distribution | Current limit |
 | --- | --- | --- |
-| CLI and MCP | Local npm tarballs with prebuilt native executables | macOS Apple Silicon; Node 22+; not published to npm yet |
+| CLI, MCP and Node/TypeScript SDK | Local npm tarballs with prebuilt native executables | macOS Apple Silicon; Node 22+; not published to npm yet |
 | Daemon | Explicit native `setup`, private stable install and user LaunchAgent | Interactive macOS desktop for consent/keychain; not started by npm/MCP |
 | Chromium extension and native host | Assets bundled; normal `setup` registers the fixed ID; independent automatic profile connections | Load unpacked manually; Chrome/Chromium only; no Web Store listing |
 | Rust embedders | Existing core/primitives and standalone crate sources | Core API/format unchanged; no dependency on npm or managed setup |

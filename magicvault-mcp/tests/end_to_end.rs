@@ -34,6 +34,13 @@ fn dependency_payload_logging_is_compiled_out_of_shipped_mcp() {
 struct FixtureHuman;
 #[async_trait]
 impl HumanInteraction for FixtureHuman {
+    async fn secret_once(
+        &self,
+        message: &str,
+        cancel: CancellationToken,
+    ) -> Result<Zeroizing<String>, ErrorCode> {
+        self.secret(message, cancel).await
+    }
     async fn confirm(&self, _: &str, _: CancellationToken) -> Result<bool, ErrorCode> {
         Ok(true)
     }
@@ -57,6 +64,7 @@ fn catalog_is_closed_and_has_no_administration_or_unimplemented_effects() {
             "list_browsers",
             "browser_targets",
             "secure_fill",
+            "secure_prompt_fill",
             "fill_status",
             "cancel_fill",
             "list_delivery_profiles",
@@ -134,7 +142,7 @@ async fn sdk_mcp_to_shared_client_to_real_ipc_to_core_returns_only_metadata() {
     let read = server.stdout.take().unwrap();
     let write = server.stdin.take().unwrap();
     let peer = FixtureClient.serve((read, write)).await.unwrap();
-    assert_eq!(peer.list_tools(None).await.unwrap().tools.len(), 14);
+    assert_eq!(peer.list_tools(None).await.unwrap().tools.len(), 15);
     // Inspect a single response rather than letting the SDK drive continuation
     // rounds: this foundation must return Complete and never request more input.
     let response = peer
@@ -259,6 +267,145 @@ async fn sdk_mcp_to_shared_client_to_real_ipc_to_core_returns_only_metadata() {
         cdp.state.lock().unwrap().delivered,
         [vec!["SYNTHETIC-MCP-TRANSPORT-CANARY".to_owned()]]
     );
+    // A second login needs no stored credential or origin rule. Native JIT
+    // inputs cross only the real CDP transport, never MCP requests/responses.
+    client
+        .call(Request::ConfigureBrowserCredential(BrowserRule {
+            credential_ref: credential.credential_ref.clone(),
+            origins: vec![],
+            field_names: vec!["password".into()],
+        }))
+        .await
+        .unwrap();
+    let Response::BrowserTargets(fresh) = client
+        .call(Request::BrowserTargets(
+            BrowserQuery {
+                browser_handle: browser.browser_handle,
+            }
+            .into(),
+        ))
+        .await
+        .unwrap()
+    else {
+        panic!("targets");
+    };
+    let jit_id = Uuid::new_v4();
+    let jit = serde_json::json!({"operation_id":jit_id,"browser_handle":browser.browser_handle,
+        "target_handle":fresh[0].target_handle,"fields":[{"css":"#password","field_name":"password"}]});
+    let CallToolResponse::Complete(result) = peer
+        .call_tool_once(
+            CallToolRequestParams::new("secure_prompt_fill")
+                .with_arguments(jit.as_object().unwrap().clone()),
+        )
+        .await
+        .unwrap()
+    else {
+        panic!("complete JIT result");
+    };
+    assert_ne!(result.is_error, Some(true));
+    assert!(!serde_json::to_string(&result)
+        .unwrap()
+        .contains("SYNTHETIC-MCP-TRANSPORT-CANARY"));
+    tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            let CallToolResponse::Complete(result) = peer
+                .call_tool_once(
+                    CallToolRequestParams::new("fill_status").with_arguments(
+                        serde_json::json!({"operation_id":jit_id})
+                            .as_object()
+                            .unwrap()
+                            .clone(),
+                    ),
+                )
+                .await
+                .unwrap()
+            else {
+                panic!("complete JIT status");
+            };
+            let wire = serde_json::to_value(result).unwrap();
+            assert!(!wire.to_string().contains("SYNTHETIC-MCP-TRANSPORT-CANARY"));
+            let Response::Fill(status) =
+                serde_json::from_str(wire["content"][0]["text"].as_str().unwrap()).unwrap()
+            else {
+                panic!("JIT status");
+            };
+            if !matches!(status.state, FillState::Pending | FillState::Filling) {
+                assert_eq!(status.state, FillState::Filled);
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(cdp.state.lock().unwrap().delivered.len(), 2);
+    assert_eq!(
+        cdp.state.lock().unwrap().delivered[1],
+        ["SYNTHETIC-MCP-TRANSPORT-CANARY"]
+    );
+    let Response::Credentials(after) = client.call(Request::ListCredentials).await.unwrap() else {
+        panic!("metadata");
+    };
+    assert_eq!(after.len(), 1); // JIT created no additional enrollment.
+    for key in ["value", "approved", "remember", "save"] {
+        let mut bad = jit.clone();
+        bad[key] = serde_json::json!("REJECTED-CANARY");
+        let CallToolResponse::Complete(result) = peer
+            .call_tool_once(
+                CallToolRequestParams::new("secure_prompt_fill")
+                    .with_arguments(bad.as_object().unwrap().clone()),
+            )
+            .await
+            .unwrap()
+        else {
+            panic!("closed rejection");
+        };
+        assert_eq!(result.is_error, Some(true));
+        assert!(!serde_json::to_string(&result)
+            .unwrap()
+            .contains("REJECTED-CANARY"));
+    }
+    // Navigation after discovery invalidates JIT too: no value reaches the new document.
+    let Response::BrowserTargets(fresh) = client
+        .call(Request::BrowserTargets(
+            BrowserQuery {
+                browser_handle: browser.browser_handle,
+            }
+            .into(),
+        ))
+        .await
+        .unwrap()
+    else {
+        panic!("targets");
+    };
+    cdp.state.lock().unwrap().navigated = true;
+    let stale_id = Uuid::new_v4();
+    let CallToolResponse::Complete(result) = peer.call_tool_once(CallToolRequestParams::new("secure_prompt_fill")
+        .with_arguments(serde_json::json!({"operation_id":stale_id,"browser_handle":browser.browser_handle,
+            "target_handle":fresh[0].target_handle,"fields":[{"css":"#password","field_name":"password"}]}).as_object().unwrap().clone()))
+        .await.unwrap() else { panic!("complete request"); };
+    assert_ne!(result.is_error, Some(true));
+    tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            let Response::Fill(status) = client
+                .call(Request::FillStatus(FillQuery {
+                    operation_id: stale_id,
+                }))
+                .await
+                .unwrap()
+            else {
+                panic!("status");
+            };
+            if !matches!(status.state, FillState::Pending | FillState::Filling) {
+                assert_eq!(status.error, Some(ErrorCode::StaleTarget));
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(cdp.state.lock().unwrap().delivered.len(), 2);
     // The same shipped MCP subprocess reaches both new adapters. Human
     // registration remains outside the tool catalog and binds exact recipients.
     use magicvault_service::protocol::{

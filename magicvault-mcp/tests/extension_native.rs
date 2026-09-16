@@ -351,7 +351,7 @@ async fn real_extension_mcp_fill_denial_profiles_pause_and_reconnect() {
         .serve((child.stdout.take().unwrap(), child.stdin.take().unwrap()))
         .await
         .unwrap();
-    assert_eq!(peer.list_tools(None).await.unwrap().tools.len(), 14);
+    assert_eq!(peer.list_tools(None).await.unwrap().tools.len(), 15);
     let invoke = |name: &'static str, args: Value| {
         let peer = &peer;
         async move {
@@ -676,7 +676,7 @@ async fn real_extension_mcp_fill_denial_profiles_pause_and_reconnect() {
     extension_progress::finish_observed(scenario, async {
         let (mcp, daemon, primary, secondary) = tokio::join!(
             extension_progress::observe(async {
-                peer.list_tools(None).await.is_ok_and(|r| r.tools.len() == 14)
+                peer.list_tools(None).await.is_ok_and(|r| r.tools.len() == 15)
             }),
             extension_progress::observe(async {
                 client.status().await.is_ok_and(|s| s.ready)

@@ -9,9 +9,10 @@ alpha with scoped CDP/CLI evidence and remaining native acceptance gates;
 If you want an agent to **use** MagicVault, start with the
 [MCP quick start](../README.md#quick-start). For shell-based agents or scripts,
 use the [CLI](../README.md#cli-for-agents-and-scripts). This guide is for developers
-building integrations, not a prerequisite for either user-facing path. Dedicated
-Python/Node SDKs are not shipped; those applications can use the CLI or implement
-the authenticated local protocol. All standalone deliveries retain native consent.
+building integrations, not a prerequisite for either user-facing path. The
+[Node/TypeScript SDK](typescript.md) wraps the reference-only CLI in local npm
+candidates. Python applications can use the CLI or implement the authenticated
+local protocol. All standalone deliveries retain native consent.
 
 ## Rust application or browser-tool builders
 
@@ -70,20 +71,22 @@ worked around by re-enabling payload logging.
 
 ## Application and SDK builders in other languages
 
-Prefer the reference-only local protocol on `rpc.sock`, documented in
-[protocol.md](protocol.md). CLI and MCP are optional: a local Python/Node/other
+For Node/TypeScript, start with the [SDK](typescript.md); it delegates authentication
+and local peer checks to the native CLI. For a direct client, use the reference-only
+local protocol on `rpc.sock`, documented in [protocol.md](protocol.md).
+CLI and MCP are optional: a local Python/Node/other
 client can pair through the human setup flow, authenticate with its privately
 stored capability, inspect status/epoch, discover handles, and request fills.
 The capability is machine authentication data, not a value to put in chat.
 
 Implement bounded length-prefixed frames and closed schemas. Use protocol version
-3, verify local peer identity, and never retry a mutation because a reply was lost.
+5, verify local peer identity, and never retry a mutation because a reply was lost.
 Use a fresh operation UUID once for any secure operation and retain it for status lookup.
 After a daemon restart, discard old handles; missing status is not safe retry.
 Do not make an administrative command into an implicit human-approval bypass.
 
 The shipped CLI is a convenient reference-only client for languages without a
-dedicated SDK. Dedicated Python/Node packages and automatic bindings are not
+dedicated SDK. Python packages and raw Rust-to-JavaScript bindings are not
 currently provided. Setup examples are in [browser usage](browser-usage.md).
 
 ## Existing extension builders
@@ -117,7 +120,7 @@ sites and recheck it before dispatch, fail closed on policy errors, and explain
 that a behavioral blocklist is not browser-enforced permission revocation.
 
 Native handshake version 2 is separate from unchanged effect schemas (v1) and
-agent protocol version 4. Custom builders must implement the profile handshake;
+agent protocol version 5. Custom builders must implement the profile handshake;
 there is no insecure v1 fallback. Explicit `--extension-id ID` remains supported. See
 [the native channel](protocol.md#native-integration-channel) and its Rust
 `BridgeCommand`, `BridgeReply`, `BridgeRequest` and `BridgeResult` definitions.
@@ -148,18 +151,39 @@ or protection against arbitrary programmable consumers.
 
 ## Existing embedded consumers
 
-Standalone `0.6.0` adds profile-specific automatic browser connections and retains
-the existing process/HTTP adapters; core
+Standalone `0.9.0` adds one-time native prompt-and-fill in the service, CLI, MCP
+and Node SDK. The browser adapters and process/HTTP runtime are retained; core
 `0.1.3` and primitives `0.1.1` remain unchanged. Magician keeps its direct core integration,
 existing store identity and browser execution owner. It does not consume the new
 standalone registry, CLI, MCP, extension or native host. The effect crate now
-depends on public MagicRun `tool-runtime-core 0.1.73` and invokes its existing
+depends on public MagicRun `tool-runtime-core 0.1.74` and invokes its existing
 coordinator for new processes, with no MagicRun runtime source change. Browser
 fills do not invoke that coordinator. The Git dependency evolves normally within
 its declared requirement; the committed Cargo lockfile records the exact source
 used for reproducible standalone builds. Shared custody does not acquire this
 dependency. Future shared-core changes require deliberate compatibility review rather
 than a frozen fork or an implicit runtime migration.
+
+Magician's separate source integration implements `browser__secure_prompt_fill`
+through its private HITL/material channel and this library's trusted browser
+adapter. It collects hidden inputs, obtains final **Use once** approval and
+returns only status, without saving values in the vault or request history.
+The integration is merged locally into Magician's `meetable_bot`; deployment
+and real-site acceptance remain pending. It requires the matching runtime, UI,
+Magicutor scoped-CDP support and browser skill 0.5.2.
+
+That integration pins `magicvault-effect` 0.6.1 and `magicvault-protocol` 0.6.0
+to public revision `150e3511096d584b3669919c8b81c24bd1155475`. Its adapter
+implementation is identical to this candidate's adapter; the standalone wire-5
+request types are unnecessary when Magician owns the human interaction. Existing
+core/primitives pins remain at `05acd8f4fce2529e4efeea6cf00f9a567f8bd854`, whose
+core/primitives source is unchanged at `150e351`. It uses no local checkout path
+or standalone MCP connection. A core dependency update alone does not add HITL.
+
+MCP consumers can discover the new tool after upgrading the matching
+standalone bundle and reconnecting. No MagicRun change is needed. Custom
+`HumanInteraction` hosts must opt into `secret_once`; its default fails closed
+with `unavailable` instead of silently reusing an enrollment UI.
 
 A standalone version bump alone does not require an embedded consumer to update
 its shared-library dependency. Compare the actual shared source/API/format and

@@ -82,6 +82,53 @@ pub struct SecureFill {
     pub fields: Vec<FillField>,
 }
 
+/// Metadata for a native, hidden one-time input. Never carries a value or a
+/// credential reference. The name and locator are untrusted display metadata.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct PromptFillField {
+    pub css: String,
+    pub field_name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct SecurePromptFill {
+    /// Shared single-use namespace and status/cancellation API with secure_fill.
+    pub operation_id: Uuid,
+    pub browser_handle: Uuid,
+    pub target_handle: Uuid,
+    pub fields: Vec<PromptFillField>,
+}
+
+impl SecurePromptFill {
+    pub fn valid(&self) -> bool {
+        !self.operation_id.is_nil()
+            && !self.browser_handle.is_nil()
+            && !self.target_handle.is_nil()
+            && !self.fields.is_empty()
+            && self.fields.len() <= MAX_FIELDS
+            && self
+                .fields
+                .iter()
+                .all(|f| valid_css(&f.css) && valid_name(&f.field_name))
+            && self
+                .fields
+                .iter()
+                .map(|f| &f.css)
+                .collect::<std::collections::BTreeSet<_>>()
+                .len()
+                == self.fields.len()
+            && self
+                .fields
+                .iter()
+                .map(|f| &f.field_name)
+                .collect::<std::collections::BTreeSet<_>>()
+                .len()
+                == self.fields.len()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct FillQuery {

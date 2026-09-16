@@ -18,6 +18,13 @@ const CANARY: &str = "SYNTHETIC-CLI-DELIVERY-CANARY";
 struct Human;
 #[async_trait]
 impl HumanInteraction for Human {
+    async fn secret_once(
+        &self,
+        message: &str,
+        cancel: CancellationToken,
+    ) -> Result<Zeroizing<String>, ErrorCode> {
+        self.secret(message, cancel).await
+    }
     async fn confirm(&self, message: &str, _: CancellationToken) -> Result<bool, ErrorCode> {
         assert!(!message.contains(CANARY));
         Ok(true)
@@ -136,6 +143,103 @@ async fn register(root: &Path, profile: Value) -> String {
     response["data"]["profile_id"].as_str().unwrap().to_owned()
 }
 
+// Explicit Node lane so Rust-only consumers do not acquire a Node prerequisite.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "run with make test-sdk-native; requires Node 22+"]
+async fn node_sdk_reaches_real_cli_ipc_and_all_three_effects() {
+    use magicvault_service::client::Client;
+    let (root, broker, daemon, reference) = setup().await;
+    let _stop = broker.shutdown.clone().drop_guard();
+    let client = Client::load(root.path().to_owned(), "default").unwrap();
+    client
+        .call(Request::ConfigureBrowserCredential(BrowserRule {
+            credential_ref: reference.clone(),
+            origins: vec!["https://example.com".into()],
+            field_names: vec!["token".into()],
+        }))
+        .await
+        .unwrap();
+    let cdp = magicvault_test_support::CdpFixture::start().await;
+    client
+        .call(Request::RegisterCdp(RegisterCdp {
+            label: "SDK synthetic browser".into(),
+            endpoint: cdp.endpoint.clone(),
+        }))
+        .await
+        .unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    register(root.path(), json!({"label":"SDK HTTP","destination":{"kind":"http","config":{
+        "url":format!("http://{}/", listener.local_addr().unwrap()),"method":"POST",
+        "headers":[{"name":"Authorization","value":value(&reference)}],"query":[],"body":null,"timeout_secs":5}}})).await;
+    let server = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let mut bytes = Vec::new();
+        let mut chunk = [0; 4096];
+        while !bytes.windows(4).any(|w| w == b"\r\n\r\n") {
+            let n = stream.read(&mut chunk).await.unwrap();
+            assert!(n > 0);
+            bytes.extend_from_slice(&chunk[..n]);
+            assert!(bytes.len() < 16384);
+        }
+        assert!(String::from_utf8_lossy(&bytes).contains(CANARY));
+        stream
+            .write_all(
+                format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{CANARY}",
+                    CANARY.len()
+                )
+                .as_bytes(),
+            )
+            .await
+            .unwrap();
+    });
+    let executable = root.path().join("sdk-recipient");
+    fs::write(&executable, "#!/bin/sh\n[ -n \"$MV_TOKEN\" ] || exit 1\nprintf '%s' \"$MV_TOKEN\"\nprintf '%s' \"$MV_TOKEN\" >&2\nprintf x >> sdk-marker\n").unwrap();
+    fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
+    register(root.path(), json!({"label":"SDK process","destination":{"kind":"process","config":{
+        "executable":executable,"arguments":[],"working_directory":root.path(),
+        "environment":[{"name":"MV_TOKEN","value":value(&reference)}],"stdin":null,"timeout_secs":5}}})).await;
+    let output = tokio::time::timeout(
+        Duration::from_secs(45),
+        tokio::process::Command::new("node")
+            .arg(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../scripts/tests/sdk-native-smoke.mjs"
+            ))
+            .arg(
+                std::env::var_os("MAGICVAULT_TEST_CLI")
+                    .unwrap_or_else(|| env!("CARGO_BIN_EXE_magicvault").into()),
+            )
+            .arg(root.path())
+            .kill_on_drop(true)
+            .output(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert!(!String::from_utf8_lossy(&output.stdout).contains(CANARY));
+    assert!(!String::from_utf8_lossy(&output.stderr).contains(CANARY));
+    assert!(
+        output.status.success(),
+        "Node SDK failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        fs::read_to_string(root.path().join("sdk-marker")).unwrap(),
+        "x"
+    );
+    assert_eq!(
+        cdp.state.lock().unwrap().delivered.as_slice(),
+        &[vec![CANARY.to_owned()], vec![CANARY.to_owned()]]
+    );
+    tokio::time::timeout(Duration::from_secs(5), server)
+        .await
+        .unwrap()
+        .unwrap();
+    broker.shutdown.cancel();
+    daemon.await.unwrap().unwrap();
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn actual_cli_to_daemon_to_magicrun_executes_without_echoing_material() {
     let (root, broker, daemon, reference) = setup().await;
@@ -148,9 +252,10 @@ async fn actual_cli_to_daemon_to_magicrun_executes_without_echoing_material() {
         "executable":executable,"arguments":[],"working_directory":root.path(),"environment":[{"name":"MV_TOKEN","value":value(&reference)}],"stdin":null,"timeout_secs":2}}})).await;
     let operation = Uuid::new_v4().to_string();
     #[cfg(magicvault_test_diagnostics)]
-    let observation =
-        magicvault_effect::test_diagnostics::Capture::register(Uuid::parse_str(&operation).unwrap())
-            .unwrap();
+    let observation = magicvault_effect::test_diagnostics::Capture::register(
+        Uuid::parse_str(&operation).unwrap(),
+    )
+    .unwrap();
     cli(
         root.path(),
         &[
@@ -172,7 +277,9 @@ async fn actual_cli_to_daemon_to_magicrun_executes_without_echoing_material() {
                 snapshot.runtime_entered && snapshot.adapter_returned,
                 "exact process path did not publish its diagnostic stages: {snapshot:?}"
             );
-            let child = snapshot.process.expect("exact path must capture the owned process");
+            let child = snapshot
+                .process
+                .expect("exact path must capture the owned process");
             assert_eq!(child.spawned_children, 1);
             #[cfg(target_os = "macos")]
             assert_eq!(

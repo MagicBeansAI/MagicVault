@@ -109,6 +109,12 @@ enum Command {
         #[arg(long)]
         request_file: PathBuf,
     },
+    /// Collect one-time values in native hidden prompts and fill once. The JSON
+    /// file contains field names/locators only. No enrollment or saved grant.
+    SecurePromptFill {
+        #[arg(long)]
+        request_file: PathBuf,
+    },
     FillStatus {
         #[arg(long)]
         operation_id: Uuid,
@@ -371,49 +377,25 @@ async fn run(cli: Cli) -> Result<serde_json::Value, ErrorCode> {
                     origins,
                 }),
                 Command::SecureFill { request_file } => {
-                    let request = tokio::task::spawn_blocking(move || {
-                        use std::io::Read;
-                        let mut options = std::fs::OpenOptions::new();
-                        options.read(true);
-                        #[cfg(unix)]
-                        {
-                            use std::os::unix::fs::OpenOptionsExt;
-                            options.custom_flags(
-                                libc::O_NONBLOCK | libc::O_NOFOLLOW | libc::O_CLOEXEC,
-                            );
-                        }
-                        let file = options
-                            .open(request_file)
-                            .map_err(|_| ErrorCode::InvalidRequest)?;
-                        if !file
-                            .metadata()
-                            .map_err(|_| ErrorCode::InvalidRequest)?
-                            .is_file()
-                        {
-                            return Err(ErrorCode::InvalidRequest);
-                        }
-                        let mut bytes = zeroize::Zeroizing::new(Vec::new());
-                        file.take((MAX_FRAME_BYTES + 1) as u64)
-                            .read_to_end(&mut bytes)
-                            .map_err(|_| ErrorCode::InvalidRequest)?;
-                        if bytes.len() > MAX_FRAME_BYTES {
-                            return Err(ErrorCode::Capacity);
-                        }
-                        serde_json::from_slice::<SecureFill>(&bytes)
-                            .map_err(|_| ErrorCode::InvalidRequest)
-                    })
-                    .await
-                    .map_err(|_| ErrorCode::Unavailable)??;
+                    let bytes = read_request_file(request_file).await?;
+                    let request =
+                        serde_json::from_slice(&bytes).map_err(|_| ErrorCode::InvalidRequest)?;
                     Request::SecureFill(request)
                 }
                 Command::FillStatus { operation_id } => {
                     Request::FillStatus(FillQuery { operation_id })
                 }
+                Command::SecurePromptFill { request_file } => {
+                    let bytes = read_request_file(request_file).await?;
+                    Request::SecurePromptFill(
+                        serde_json::from_slice(&bytes).map_err(|_| ErrorCode::InvalidRequest)?,
+                    )
+                }
                 Command::CancelFill { operation_id } => {
                     Request::CancelFill(FillQuery { operation_id })
                 }
                 Command::RegisterDeliveryProfile { request_file } => {
-                    let bytes = read_delivery_profile(request_file).await?;
+                    let bytes = read_request_file(request_file).await?;
                     Request::RegisterDeliveryProfile(
                         serde_json::from_slice(&bytes).map_err(|_| ErrorCode::InvalidRequest)?,
                     )
@@ -467,7 +449,7 @@ async fn run(cli: Cli) -> Result<serde_json::Value, ErrorCode> {
     }
 }
 
-async fn read_delivery_profile(path: PathBuf) -> Result<zeroize::Zeroizing<Vec<u8>>, ErrorCode> {
+async fn read_request_file(path: PathBuf) -> Result<zeroize::Zeroizing<Vec<u8>>, ErrorCode> {
     tokio::task::spawn_blocking(move || {
         use std::io::Read;
         let mut options = std::fs::OpenOptions::new();

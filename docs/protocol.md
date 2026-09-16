@@ -35,7 +35,7 @@ After SDK completion the MCP client bounds runtime teardown to 250 ms so an
 uncancellable Tokio stdio task cannot indefinitely hold the process open. This
 client owns no store writes; the custody daemon does not use bounded teardown.
 
-Envelope fields: `version: 4`, UUID `request_id`, daemon `epoch` (from status),
+Envelope fields: `version: 5`, UUID `request_id`, daemon `epoch` (from status),
 optional pairing `token`, and a tagged `request` with `method` / optional `params`.
 Every non-status request binds the current epoch. No caller sends a grant decision
 or plaintext vault field through this protocol. Parse/OS/keychain errors use
@@ -43,7 +43,7 @@ closed codes; raw diagnostic text and process output are never replies.
 
 | Request | Caller/result |
 | --- | --- |
-| `status` | Same-user health; with valid token also own client ID; effects contains `secure_fill`, `secure_new_process`, `secure_new_http` |
+| `status` | Same-user health; with valid token also own client ID; effects contains `secure_prompt_fill`, `secure_fill`, `secure_new_process`, `secure_new_http` |
 | `pair {label}` | Human CLI bootstrap; native consent; private pairing capability saved by client, never printed |
 | `enroll {label, field_names}` | Paired human CLI; native consent and hidden inputs; metadata-only result |
 | `list_credentials` | Paired client; only explicitly permitted credential metadata |
@@ -57,6 +57,7 @@ closed codes; raw diagnostic text and process output are never replies.
 | `browser_targets {browser_handle, top_origin?, tab_id?}` | Paired client; optional exact top-page origin/backend-tab narrowing, safe origins/IDs and single-use document-bound handles. Filters grant no authority |
 | `disconnect_browser {browser_handle}` | Owning paired client; cancels jobs, closes integration only |
 | `secure_fill {operation_id, browser_handle, target_handle, fields}` | Paired client; consumes target, returns pending status; daemon-owned exact-use consent then delivery |
+| `secure_prompt_fill {operation_id, browser_handle, target_handle, fields}` | Paired client; consumes target, native hidden inputs and final Use once; no enrollment or grant, pending/closed fill status |
 | `fill_status {operation_id}` | Only owning paired client; metadata-only status, also available after persistence uncertainty |
 | `cancel_fill {operation_id}` | Owning paired client; cancellation request, never a rollback claim |
 | `register_delivery_profile {label, destination}` | Paired human CLI; full bounded reference-only profile, native consent and process digest capture; no effect |
@@ -135,7 +136,7 @@ See [coverage and qualification](testing.md).
 
 ## Browser effects
 
-The fixed `fields` entries contain `css`, `credential_ref` and
+For saved `secure_fill`, the fixed `fields` entries contain `css`, `credential_ref` and
 `credential_field`, never values. Request parsing rejects unknown fields, caller
 decisions and JavaScript. CSS selectors are bounded to 512 printable ASCII bytes
 (use CSS escapes for Unicode identifiers); at most eight
@@ -169,7 +170,7 @@ lock while waiting on human/browser I/O. Browser I/O has a 30-second operation
 deadline. The CDP connection caps messages/frames at 512 KiB and command waits at
 five seconds. No protocol or library transport diagnostics are model results.
 
-Browser permission matches exact origins for **both** top page and selected
+Saved-credential browser permission matches exact origins for **both** top page and selected
 frame, and the selected credential fields. It starts absent for existing entries.
 The native decision then covers one requested effect; the service revalidates
 caller, permission, deadline, cancellation, references and browser existence after
@@ -188,6 +189,28 @@ No selector, raw URL, value, page dump or browser diagnostic is journaled.
 If post-effect audit fails, the final state is `uncertain`, new work is blocked,
 and authenticated `fill_status` remains available for reconciliation while that
 result is retained. A receipt describes delivery, not successful authentication.
+
+## One-time prompt-and-fill
+
+`secure_prompt_fill` uses `SecurePromptFill`; each field is `{css, field_name}`.
+Selectors and names must be distinct. It accepts no values, credential references,
+consent decisions or save flags. The paired client and registered browser/target
+are required; enrollment and credential-origin rules are not. Native hidden input
+followed by **Use once** authorizes exactly the captured top/frame origins and
+field map. It cannot reuse or create a remembered-use grant.
+
+The broker shares the saved-fill job/operation namespace, target consumption,
+human/effect admission, completion audit, `fill_status` and `cancel_fill`. All
+input and confirmation must complete within the target's original 180-second
+lifetime. The final transaction rechecks client, browser, cancellation and expiry
+before handing temporary material to the existing document-bound adapter.
+
+Temporary inputs are held in owned zeroizing buffers, never enrolled or stored
+in the registry/job/receipt. Native input is bounded, hidden, nonempty single-line
+UTF-8. Failure, denial or cancellation drops collected fields; partial or lost
+browser outcomes retain existing uncertainty semantics. Only metadata is audited.
+No new native bridge command or effect schema is introduced. See
+[one-time usage and limits](jit-credentials.md).
 
 ## Process and HTTP effects
 
@@ -244,4 +267,4 @@ extension page. Its trusted local storage includes a profile-pairing capability,
 not enrolled credentials. Independent profiles coexist; simultaneous duplicate
 identities fail closed. Reconnect gets fresh handles. `disconnect_browser` now
 also revokes an extension profile's remembered reconnection grant; CDP semantics
-are unchanged; local agent wire 4 adds closed consent management. Host configuration remains version 1.
+are unchanged; local agent wire 5 adds one-time prompt-and-fill to the closed catalog. Host configuration remains version 1.

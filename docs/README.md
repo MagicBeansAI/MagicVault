@@ -12,9 +12,12 @@ The standalone application is a macOS Apple Silicon source alpha; see
 | --- | --- |
 | Install a candidate, upgrade, diagnose or uninstall | [Installation and distribution](distribution.md) |
 | Build from source or configure local MCP | [Setup](setup.md) |
+| Request one-time browser credentials during automation | [Just-in-time input](jit-credentials.md) |
 | Fill credentials through CDP or a Chromium extension | [Browser usage](browser-usage.md) |
 | Deliver credentials to a new process or HTTP request | [Process and HTTP usage](delivery-usage.md) |
 | Use the CLI from an agent or script | [CLI recipes](cli-usage.md) |
+| Use MagicVault in Node or TypeScript | [SDK quick start](typescript.md) |
+| Watch the workflow or record a live Codex demo | [Demo guide](demo.md) |
 | Choose per-use approval, remember an exact use, or revoke consent | [Consent](consent.md) |
 
 ## Understand and integrate

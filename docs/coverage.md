@@ -6,6 +6,7 @@ invocation. They do not offer arbitrary secret-bearing commands or URLs.
 
 | Destination / use case | Available today? | Connection, conditions and limits |
 | :--- | :--- | :--- |
+| **One-time browser login without saved credentials** | **Yes — `secure_prompt_fill` (source candidate)** | Connected CDP/extension browser, native hidden input and final Use once. No enrollment or remembered grant. Automated coverage; new native UI acceptance pending. |
 | **Existing browser/session (stateful), headed or modern headless** | **Yes — direct CDP fills** | Chrome/Chromium must expose a supported **loopback browser debugging websocket**. MagicVault opens a second connection; no extension or proxy is needed. The existing tool keeps the browser/session. |
 | **Already-running headed browser without CDP** | **Yes — extension; basic native acceptance on one host** | Install the MagicVault Chromium extension **and native host**, run the daemon, and grant the target sites. No debugging port needed. Native keychain/allow/deny delivery qualified on one macOS/Chrome setup; broader recovery/permission cases remain open. |
 | **Browser accessible only through a driver's private pipe, or a remote CDP endpoint** | **Not directly** | Configure an accessible local browser websocket, or use the headed extension path where installation is possible. An arbitrary browser/driver cannot be attached automatically. |
@@ -17,8 +18,10 @@ invocation. They do not offer arbitrary secret-bearing commands or URLs.
 | **Native application password fields / non-Chromium browsers** | **Not implemented** | No accessibility, OS-level secure typing, Firefox or Safari adapter is provided. |
 | **Other tools' DOM reads, screenshots, cookies and session output** | **Not filtered** | Browser delivery does not prevent a separate tool from observing secrets afterward. Password masking is not an observation filter. |
 
-Browser fills require a supported writable input, a current document-bound
-target, explicit field/origin permission and human approval for each use.
+Browser fills require a supported writable input and a current document-bound
+target. Saved fills require explicit field/origin permission plus per-use or
+remembered exact-use consent. [One-time input](jit-credentials.md) uses a native
+Use once decision for the captured origins and fields without enrollment.
 Headless Chrome still needs the daemon's interactive human-approval host.
 A new browser follows the same rules once your tool launches it; MagicVault
 does not launch or take ownership of browsers.
@@ -29,7 +32,8 @@ See [browser conditions and supported controls](browser-usage.md).
 
 MCP is the recommended local agent interface; [CLI recipes](cli-usage.md) cover
 shell-based agents and scripts. Both use the same paired daemon and native per-use or explicitly remembered
-consent. No dedicated Python/Node SDK or remote hosted MCP endpoint is shipped.
+consent. The [Node/TypeScript SDK](typescript.md) ships in local npm candidates.
+No dedicated Python SDK or remote hosted MCP endpoint is shipped.
 
 Application builders can embed trusted Rust custody/effect crates, implement the
 authenticated local protocol, or add the native bridge to an existing Chromium

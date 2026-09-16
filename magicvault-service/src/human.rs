@@ -33,6 +33,23 @@ pub trait HumanInteraction: Send + Sync {
         message: &str,
         cancel: CancellationToken,
     ) -> Result<Zeroizing<String>, ErrorCode>;
+    /// One-time collection is an explicit opt-in for trusted custom hosts.
+    /// Never silently reuse an enrollment UI that promises to save the input.
+    async fn secret_once(
+        &self,
+        _message: &str,
+        _cancel: CancellationToken,
+    ) -> Result<Zeroizing<String>, ErrorCode> {
+        Err(ErrorCode::Unavailable)
+    }
+    /// One operation only; cannot create or reuse an Always allow grant.
+    async fn confirm_once(
+        &self,
+        message: &str,
+        cancel: CancellationToken,
+    ) -> Result<bool, ErrorCode> {
+        self.confirm(message, cancel).await
+    }
 }
 
 pub struct NativeHuman;
@@ -42,10 +59,18 @@ pub struct NativeHuman;
 pub(crate) const MAX_PROMPT_BYTES: usize = 16 * 1024;
 
 #[cfg(target_os = "macos")]
+enum DialogKind {
+    Confirm,
+    Secret,
+    Use,
+    SecretOnce,
+    ConfirmOnce,
+}
+
+#[cfg(target_os = "macos")]
 async fn dialog(
     message: &str,
-    secret: bool,
-    remember: bool,
+    kind: DialogKind,
     cancel: CancellationToken,
 ) -> Result<Zeroizing<String>, ErrorCode> {
     use std::{process::Stdio, time::Duration};
@@ -61,14 +86,16 @@ async fn dialog(
     const CONFIRM: &str = "on run argv\nset r to display dialog (item 1 of argv) with title \"MagicVault — human decision\" buttons {\"Deny\", \"Allow\"} default button \"Deny\" cancel button \"Deny\" giving up after 120\nif gave up of r then error number -128\nreturn button returned of r\nend run";
     const SECRET: &str = "on run argv\nset r to display dialog (item 1 of argv) with title \"MagicVault — enroll credential\" default answer \"\" with hidden answer buttons {\"Cancel\", \"Save\"} default button \"Cancel\" cancel button \"Cancel\" giving up after 120\nif gave up of r then error number -128\nreturn text returned of r\nend run";
     const USE: &str = "on run argv\nset r to display dialog (item 1 of argv) with title \"MagicVault — credential use\" buttons {\"Deny\", \"Allow once\", \"Always allow\"} default button \"Deny\" cancel button \"Deny\" giving up after 120\nif gave up of r then error number -128\nreturn button returned of r\nend run";
+    const SECRET_ONCE: &str = "on run argv\nset r to display dialog (item 1 of argv) with title \"MagicVault — one-time input\" default answer \"\" with hidden answer buttons {\"Cancel\", \"Continue\"} default button \"Cancel\" cancel button \"Cancel\" giving up after 120\nif gave up of r then error number -128\nreturn text returned of r\nend run";
+    const CONFIRM_ONCE: &str = "on run argv\nset r to display dialog (item 1 of argv) with title \"MagicVault — use once\" buttons {\"Cancel\", \"Use once\"} default button \"Cancel\" cancel button \"Cancel\" giving up after 120\nif gave up of r then error number -128\nreturn button returned of r\nend run";
     let mut child = tokio::process::Command::new("/usr/bin/osascript")
         .arg("-e")
-        .arg(if secret {
-            SECRET
-        } else if remember {
-            USE
-        } else {
-            CONFIRM
+        .arg(match kind {
+            DialogKind::Secret => SECRET,
+            DialogKind::Use => USE,
+            DialogKind::Confirm => CONFIRM,
+            DialogKind::SecretOnce => SECRET_ONCE,
+            DialogKind::ConfirmOnce => CONFIRM_ONCE,
         })
         .arg("--")
         .arg(message)
@@ -121,7 +148,7 @@ impl HumanInteraction for NativeHuman {
     async fn confirm(&self, message: &str, cancel: CancellationToken) -> Result<bool, ErrorCode> {
         #[cfg(target_os = "macos")]
         {
-            return dialog(message, false, false, cancel)
+            return dialog(message, DialogKind::Confirm, cancel)
                 .await
                 .map(|v| &*v == "Allow");
         }
@@ -138,7 +165,7 @@ impl HumanInteraction for NativeHuman {
     ) -> Result<UseDecision, ErrorCode> {
         #[cfg(target_os = "macos")]
         {
-            return dialog(message, false, true, cancel)
+            return dialog(message, DialogKind::Use, cancel)
                 .await
                 .and_then(|v| match v.as_str() {
                     "Allow once" => Ok(UseDecision::AllowOnce),
@@ -160,7 +187,41 @@ impl HumanInteraction for NativeHuman {
     ) -> Result<Zeroizing<String>, ErrorCode> {
         #[cfg(target_os = "macos")]
         {
-            return dialog(message, true, false, cancel).await;
+            return dialog(message, DialogKind::Secret, cancel).await;
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = (message, cancel);
+            Err(ErrorCode::Unavailable)
+        }
+    }
+
+    async fn secret_once(
+        &self,
+        message: &str,
+        cancel: CancellationToken,
+    ) -> Result<Zeroizing<String>, ErrorCode> {
+        #[cfg(target_os = "macos")]
+        {
+            return dialog(message, DialogKind::SecretOnce, cancel).await;
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = (message, cancel);
+            Err(ErrorCode::Unavailable)
+        }
+    }
+
+    async fn confirm_once(
+        &self,
+        message: &str,
+        cancel: CancellationToken,
+    ) -> Result<bool, ErrorCode> {
+        #[cfg(target_os = "macos")]
+        {
+            return dialog(message, DialogKind::ConfirmOnce, cancel)
+                .await
+                .map(|v| &*v == "Use once");
         }
         #[cfg(not(target_os = "macos"))]
         {

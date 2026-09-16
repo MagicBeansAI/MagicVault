@@ -2,43 +2,39 @@
 
 ## Current component versions
 
-**0.8.3 — macOS process launch correction, 2026-09-08.**
-The [native-spawn record](qualification/results-native-spawn-2026-09-08.md)
-identifies the changed launch path and its exact qualification evidence.
-The [changelog](../CHANGELOG.md) describes the supported functionality and
-[discovery qualification](qualification/results-discovery-2026-09-08.md) records
-prior `0.7.0` evidence, not acceptance of the new [consent policy](consent.md).
-The [consent acceptance record](qualification/results-consent-2026-09-08.md)
-records actual `0.8.0` native selections; the
-[cancellation record](qualification/results-cancellation-2026-09-08.md) covers
-the subsequent fix and its own qualification boundaries.
+**0.9.0 — one-time browser credentials, 2026-09-16 (source candidate).**
+The [one-time input guide](jit-credentials.md) documents native collection without
+saving credentials and the automated validation boundary. Existing native
+[consent](qualification/results-consent-2026-09-08.md),
+[cancellation](qualification/results-cancellation-2026-09-08.md) and
+[process-launch](qualification/results-native-spawn-2026-09-08.md) records describe
+their dated builds, not acceptance of the new one-time windows.
 A public source repository is not a registry publication,
 binary release, extension store listing or production-safety certification.
 
 | Component | Source version / contract | Compatibility responsibility |
 | --- | --- | --- |
-| `magicvault` CLI, daemon and native-host executable | Package `0.8.3` | Matching wire-4 bundle; CLI-only consent inspection/revocation; native-host forwarding |
-| `magicvault-mcp` | Package `0.8.3` | Matching reference-only client; no tool can grant consent |
-| `magicvault-service` | `0.8.3` | Exact-use native consent, bounded durable grants and revocation; destination, installation and custody checks retained |
-| `magicvault-effect` | `0.6.1` | Updated MagicRun process backend; protocol and bounded extension/CDP discovery retained |
-| `magicvault-protocol` | `0.6.0` | Closed consent scopes/list/revoke/reset variants; existing fill/delivery requests and byte framing retained |
+| `magicvault` CLI, daemon and native-host executable | Package `0.9.0` | Matching wire-5 bundle; CLI-only consent inspection/revocation; native-host forwarding |
+| `magicvault-mcp` | Package `0.9.0` | Matching value-free client; no tool can grant consent |
+| `magicvault-service` | `0.9.0` | One-time native input, exact-use consent, bounded durable grants and revocation; destination, installation and custody checks retained |
+| `magicvault-effect` | `0.7.0` | Public protocol dependency advances; runtime adapters retained |
+| `magicvault-protocol` | `0.7.0` | Closed prompt-and-fill request; existing request framing and receipts retained |
 | Chromium extension | Manifest `0.6.1` | Permission-filtered, loaded-tab discovery with exact narrowing; document binding, fixed identity, reconnect/backoff, pause and site controls retained |
-| Local agent protocol | Wire version `4` | Version mismatches fail closed; not the package version |
+| Local agent protocol | Wire version `5` | Version mismatches fail closed; not the package version |
 | Native connection | Handshake `2`; effect/config schemas `1` | Matching extension/host/daemon required; no silent downgrade |
 | `magicvault-core` | `0.1.3`, unchanged | Existing embedded custody/API/vault format/key identity retained |
 | `magicvault-primitives` | `0.1.1`, unchanged | Existing utility contract retained |
 | MagicRun `tool-runtime-core` | Public Git dependency `0.1.74` | Public coordinator unchanged; non-jailed macOS launch uses descriptor-bound native spawn; exact source in Cargo.lock |
 | `magicvault-test-support` | `0.4.0`, `publish = false` | Test-only, not a production surface |
 
-The preceding source version was `0.8.2`, also using wire `4`. This patch changes
-the macOS non-jailed process launch backend, not consent authority, browser/native
-transport, custody APIs or persisted formats. `0.8.2` fixed completion/admission
-ordering; `0.8.1` fixed pending process/HTTP cancellation receipts. Version
-`0.8.0` introduced wire `4` (replacing `0.7.0` wire `3`) for closed consent
-list/revoke/reset requests. No agent request can
-create a grant. Existing registries load with no grants; saved grant fields
-require the newer standalone reader. Persistent extension/profile grants and
-connection-only CDP grants have different lifetimes, documented in the consent guide.
+The preceding source version was `0.8.3`, using local agent wire `4`. The new
+closed prompt-and-fill request advances wire to `5`; mismatched clients and
+daemons fail closed. Upgrade the standalone bundle together. Protocol/effect
+minor versions mark the public type addition and dependency change. Native
+bridge schemas, registry/vault formats, key identity, extension, core, primitives
+and the pinned MagicRun source are unchanged. Custom `HumanInteraction` hosts
+compile with the new default method but must explicitly implement `secret_once`
+to support one-time collection; the default returns `unavailable`.
 
 The retained discovery narrowing was introduced by `0.7.0`:
 The new optional discovery fields preserve unfiltered JSON requests; Rust callers
@@ -59,6 +55,9 @@ daemon, extension, HTTP or MagicRun adapter dependencies by importing custody
 core. No Magician dependency update is required solely for this standalone
 release. Compare actual shared source/API/format/dependency changes when advancing
 a consumer's reviewed Git revision; do not freeze a separate core fork.
+The separate Magician JIT source integration explicitly adds the shared browser
+adapter and private HITL. Its reviewed pins and rollout boundary are documented
+under [embedded consumers](integrations.md#existing-embedded-consumers).
 
 ## Installing and upgrading
 
@@ -70,7 +69,7 @@ release or store listing is asserted.
 
 For managed installations, update matching npm packages and explicitly run
 `magicvault upgrade`; npm itself never replaces a daemon. For manual installations,
-stop the daemon, use matching 0.8.x CLI/MCP/native-host binaries and extension 0.6.x,
+stop the daemon, use matching 0.9.x CLI/MCP/native-host binaries and extension 0.6.x,
 then restart and rediscover fresh handles. Run `magicvault setup` (or source
 `extension install`) to select the fixed bundled identity. The old path-derived
 extension may need removal/reloading and explicit restoration of grants/blocks;

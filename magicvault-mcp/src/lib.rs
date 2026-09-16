@@ -54,6 +54,9 @@ impl MagicVaultMcp {
             "secure_fill" => Request::SecureFill(
                 serde_json::from_value(Value::Object(arguments)).map_err(|_| invalid)?,
             ),
+            "secure_prompt_fill" => Request::SecurePromptFill(
+                serde_json::from_value(Value::Object(arguments)).map_err(|_| invalid)?,
+            ),
             "fill_status" => Request::FillStatus(
                 serde_json::from_value(Value::Object(arguments)).map_err(|_| invalid)?,
             ),
@@ -82,7 +85,10 @@ impl MagicVaultMcp {
             | ("request_approval" | "approval_status", Response::Approval(_))
             | ("list_browsers", Response::Browsers(_))
             | ("browser_targets", Response::BrowserTargets(_))
-            | ("secure_fill" | "fill_status" | "cancel_fill", Response::Fill(_))
+            | (
+                "secure_fill" | "secure_prompt_fill" | "fill_status" | "cancel_fill",
+                Response::Fill(_),
+            )
             | ("list_delivery_profiles", Response::DeliveryProfiles(_))
             | (
                 "secure_new_process" | "secure_new_http" | "delivery_status" | "cancel_delivery",
@@ -111,6 +117,14 @@ pub fn catalog() -> Vec<Tool> {
         "operation_id":{"type":"string","format":"uuid","maxLength":36},
         "profile_id":{"type":"string","format":"uuid","maxLength":36}
     }});
+    let prompt_fill = json!({"type":"object","additionalProperties":false,"required":["operation_id","browser_handle","target_handle","fields"],"properties":{
+        "operation_id":{"type":"string","format":"uuid","maxLength":36},
+        "browser_handle":{"type":"string","format":"uuid","maxLength":36},
+        "target_handle":{"type":"string","format":"uuid","maxLength":36},
+        "fields":{"type":"array","minItems":1,"maxItems":8,"items":{"type":"object","additionalProperties":false,"required":["css","field_name"],"properties":{
+            "css":{"type":"string","minLength":1,"maxLength":512},"field_name":{"type":"string","minLength":1,"maxLength":64,"pattern":"^[A-Za-z0-9_-]+$"}
+        }}}
+    }});
     [
         ("vault_status", "Inspect standalone MagicVault readiness, pairing and implemented browser, new-process and HTTP credential-delivery effects.", empty.clone()),
         ("list_credentials", "List only credential references, labels and field names permitted for this paired client. Never returns values.", empty.clone()),
@@ -119,6 +133,7 @@ pub fn catalog() -> Vec<Tool> {
         ("list_browsers", "List browsers connected for your paired profile. If none, request human CDP/extension setup. Never ask for credentials or debugging capabilities in chat.", empty.clone()),
         ("browser_targets", "Discover value-free, short-lived document/frame handles in a registered browser. Prefer top_origin for the intended page; optionally narrow by backend tab_id. On capacity, narrow discovery rather than changing grants or closing tabs. Both filters must match when supplied. Rediscovery replaces unused handles. Inspect origin and top_origin; no page dump or field values are returned. Filters never authorize delivery.", browser),
         ("secure_fill", "Fill credential fields using stored references instead of ordinary typing. Requires browser permission and native consent or an existing human-created exact-use Always allow grant. Only the human can create that grant. Supply strict CSS locators, never values or another tool's snapshot refs. Choose a fresh operation UUID once, retain it, and poll fill_status. The target handle is single-use. Does not submit or claim login success. Never retry with a new ID after uncertainty; never fall back to retrieving/pasting secrets on denial. Other browser tools' later observations are not filtered by this tool.", fill),
+        ("secure_prompt_fill", "Use when a login needs credentials that are not saved. MagicVault collects each value in a native hidden dialog, then asks the human to Use once for the exact browser/page/frame and selectors. Values are temporary and never enrolled or returned. Requires a paired profile and connected browser, but no saved credential or credential-specific origin rule. Supply only field names and CSS locators; never ask for values in chat. Choose one fresh operation UUID and target handle, then poll fill_status or cancel_fill. No remembered permission, form submission or automatic retry after uncertainty. Other browser tools may observe delivered values.", prompt_fill),
         ("fill_status", "Inspect your browser fill operation. Pending may require human action; filling requires waiting. Filled means delivery only, not login. Partial/uncertain means some writes may have happened; do not automatically repeat. Missing after restart is not success or safe-to-retry evidence.", operation.clone()),
         ("cancel_fill", "Request cancellation of your pending or running fill. Poll fill_status for the actual outcome. Cancellation cannot recall values already delivered to the browser.", operation.clone()),
         ("list_delivery_profiles", "List this client's human-registered process/HTTP destination IDs, labels and kinds. If missing, ask the human to register a profile through the CLI; never ask for raw credentials or invent destinations.", empty),
@@ -133,7 +148,7 @@ impl ServerHandler for MagicVaultMcp {
     fn get_info(&self) -> ServerInfo {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(Implementation::new("magicvault-mcp", env!("CARGO_PKG_VERSION")))
-            .with_instructions("Reference-only credential delivery. Browser fields use secure_fill; navigation/submission stay with the existing browser tool. New commands and HTTP requests use secure_new_process/secure_new_http with human-registered destination profiles and native per-use or explicit remembered exact-use consent. Enrollment, pairing and destination policy are human CLI/native flows, never model tools. No material-read, human-grant, arbitrary command/URL override or raw recipient-output tool is exposed. Other tools' observations remain outside this boundary.")
+            .with_instructions("Value-free credential requests. Browser fields use secure_fill for saved credentials or secure_prompt_fill for native one-time input without enrollment. Both return status only; navigation/submission stay with the existing browser tool. New commands and HTTP requests use secure_new_process/secure_new_http with human-registered destination profiles and native per-use or explicit remembered exact-use consent. Enrollment, pairing and destination policy are human CLI/native flows, never model tools. No material-read, human-grant, arbitrary command/URL override or raw recipient-output tool is exposed. Other tools' observations remain outside this boundary.")
     }
     fn get_tool(&self, name: &str) -> Option<Tool> {
         catalog().into_iter().find(|tool| tool.name == name)

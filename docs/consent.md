@@ -1,6 +1,6 @@
 # Consent every time or Always allow
 
-The daemon-owned credential-use dialog offers **Deny**, **Allow once**, and
+For saved credentials, the daemon-owned credential-use dialog offers **Deny**, **Allow once**, and
 **Always allow**. Per-use consent is the default; Deny remains the default/cancel
 button. Neither CLI nor MCP can submit an allow decision.
 
@@ -16,6 +16,10 @@ all HTTPS websites**—never creates credential-use consent.
 macOS Keychain's **Always Allow** is separate too: it permits the application to
 access its Keychain item. It does not create a MagicVault credential-use grant or
 approve a browser, process or HTTP destination.
+
+[One-time browser input](jit-credentials.md) always asks for hidden input followed
+by **Use once**. It does not save values, reuse a remembered grant or offer Always
+allow. The following grant scopes apply to saved credentials only.
 
 ## Exact scope and lifetime
 

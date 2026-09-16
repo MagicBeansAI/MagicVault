@@ -188,6 +188,13 @@ test('assembly includes only explicit assets and exact platform dependency, with
   assert.equal(main.description, 'Let agents use credentials without seeing them — reference-only credential delivery');
   assert.match(fs.readFileSync(path.join(f.output, 'launcher/README.md'), 'utf8'), /\*\*Let agents use credentials without seeing them\*\*/);
   assert.equal(main.optionalDependencies[native.name], native.version);
+  assert.equal(main.main, './sdk.cjs');
+  assert.equal(main.types, './sdk.d.cts');
+  assert.deepEqual(main.exports['.'], {types:'./sdk.d.cts', default:'./sdk.cjs'});
+  assert(main.files.includes('sdk.cjs') && main.files.includes('sdk.d.cts'));
+  const sdk = require(path.join(f.output, 'launcher'));
+  assert.equal(typeof sdk.MagicVault, 'function');
+  assert.equal(typeof sdk.createOperationId, 'function');
   assert.equal(main.scripts, undefined); assert.equal(native.scripts, undefined);
   assert.deepEqual(native.os, ['darwin']); assert.deepEqual(native.cpu, ['arm64']);
   const manifest = JSON.parse(fs.readFileSync(path.join(f.output, 'native/bundle.json')));

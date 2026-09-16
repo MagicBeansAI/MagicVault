@@ -11,11 +11,48 @@ Authorized recipients receive the secret; separate browser tools can still read
 it afterward. [Security boundary](https://github.com/MagicBeansAI/MagicVault/blob/main/SECURITY.md).
 
 **Start with MCP for Codex, Claude Code or another local agent.** The agent can
-discover references, request `secure_fill`, `secure_new_process` or
+request one-time input with `secure_prompt_fill`, discover saved references,
+request `secure_fill`, `secure_new_process` or
 `secure_new_http`, and poll status. Use the CLI for shell-based agents/scripts;
-Rust crates and the local protocol are for developers embedding MagicVault.
-No dedicated Python/Node SDK is shipped. This npm package launches native binaries;
-it is not a JavaScript credential SDK or a hosted MCP service.
+the included Node/TypeScript SDK is for applications. The package launches native
+binaries and exports a reference-only client with TypeScript declarations.
+It does not expose raw credentials or provide a hosted MCP service.
+
+## Use in a Node or TypeScript project
+
+The SDK is included in local candidate tarballs; **this is not a published npm
+install command**. Install both matching trusted tarballs into your project:
+
+```bash
+npm install --ignore-scripts ./magicvault-local-magicvault-darwin-arm64-0.9.0.tgz \
+  ./magicvault-local-magicvault-0.9.0.tgz
+./node_modules/.bin/magicvault --profile agent setup
+```
+
+For one-time browser use, `vault.securePromptFill` requests native hidden input
+and a **Use once** decision without saving values. See the
+[one-time credential guide](https://github.com/MagicBeansAI/MagicVault/blob/main/docs/jit-credentials.md).
+
+For saved HTTP credentials, after human enrollment and destination setup:
+
+```ts
+import { MagicVault, createOperationId } from '@magicvault-local/magicvault';
+
+const vault = new MagicVault({ profile: 'agent' });
+const profiles = await vault.listDeliveryProfiles();
+const profile = profiles.find(p => p.label === 'Demo API' && p.kind === 'http');
+if (!profile) throw new Error('Register the Demo API destination first.');
+const operation_id = createOperationId(); // Retain before sending; never auto-retry.
+await vault.secureNewHttp({ profile_id: profile.profile_id, operation_id });
+const receipt = await vault.waitForDelivery(operation_id);
+console.log(receipt.state); // Inspect this: completion does not prove API success.
+```
+
+`require('@magicvault-local/magicvault')` also works. Browser fill, HTTP/process
+delivery, discovery, status and cancellation pass only metadata or references. Native errors
+are closed; interrupted calls retain their operation ID. Polling repeats status
+reads only. No enrollment, approval-grant or raw-secret getter is exposed.
+[SDK guide](https://github.com/MagicBeansAI/MagicVault/blob/main/docs/typescript.md).
 
 This is early-access software. Use synthetic credentials first. Packaging does
 not certify secret isolation from unrestricted same-user software, recipient
@@ -31,10 +68,9 @@ installation has no lifecycle hooks and does not start services or create a vaul
 magicvault --version
 magicvault --profile agent setup
 magicvault --profile agent doctor
-magicvault --profile agent enroll --label 'Demo account' --field password
 ```
 
-Enter values only in the native hidden prompt. Setup installs into a private,
+One-time browser input needs no enrollment. Enter values only in native hidden prompts. Setup installs into a private,
 stable app directory separate from the credential vault and prints an absolute-path
 `mcpServers` configuration without capability tokens. Prefer that stable MCP
 command over a cache-dependent npx command. `magicvault-mcp` is also provided.

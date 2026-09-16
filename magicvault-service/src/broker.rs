@@ -439,6 +439,7 @@ impl Broker {
                         ready: !state.faulted && !broker.shutdown.is_cancelled(),
                         effects: vec![
                             "secure_fill".into(),
+                            "secure_prompt_fill".into(),
                             "secure_new_process".into(),
                             "secure_new_http".into(),
                         ],
@@ -497,6 +498,9 @@ impl Broker {
                         self.configure_browser_credential(auth, id, rule).await
                     }
                     Request::SecureFill(request) => self.secure_fill(auth, request).await,
+                    Request::SecurePromptFill(request) => {
+                        self.secure_prompt_fill(auth, request).await
+                    }
                     Request::FillStatus(query) => self.fill_status(auth, query, false).await,
                     Request::CancelFill(query) => self.fill_status(auth, query, true).await,
                     Request::RegisterDeliveryProfile(profile) => {

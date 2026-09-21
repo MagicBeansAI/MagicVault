@@ -5,6 +5,19 @@ Entries describe source changes, not publication announcements. See
 [release acceptance checklist](docs/qualification/release.md) and
 [version-specific test evidence](docs/qualification/README.md#evidence-records).
 
+## Shared core 0.1.5 — a receipt names its bound destination — 2026-09-22
+
+Source change to `magicvault-core` only; no standalone package, wire, vault
+format or key-identity change, and no npm release. Written for Magician's
+authenticated dispatch (secure-HITL P4).
+
+- `OneTimeReceipt` gains `destination`: the destination the registration
+  bound, if any — value-free, like the rest of the receipt. An adapter that
+  is about to deliver to exactly that destination reads it from
+  `one_time_state` and treats the binding as the user's consent for that
+  delivery; `reserve_one_time` still refuses any claim that names another.
+  Serialized receipts written before this field load with it absent.
+
 ## Shared core 0.1.4 — one-time credential custody — 2026-09-21
 
 Source change to `magicvault-core` only; no standalone package, wire, vault

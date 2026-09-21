@@ -138,6 +138,11 @@ pub struct OneTimeReceipt {
     pub input_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub challenge_id: Option<String>,
+    /// The destination the registration bound, if any: an adapter that is
+    /// about to deliver to exactly that destination can treat the binding as
+    /// the user's consent for it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub destination: Option<String>,
     /// The transition that produced `state` — for a state read, the last one.
     pub transition: OneTimeTransition,
     pub state: OneTimeState,
@@ -216,6 +221,7 @@ impl OneTimeEntry {
             scope_id: self.scope_id.clone(),
             input_id: self.input_id.clone(),
             challenge_id: self.binding.challenge_id.clone(),
+            destination: self.binding.destination.clone(),
             transition,
             state: self.state,
             reservation_id: self.reservation_id.clone(),

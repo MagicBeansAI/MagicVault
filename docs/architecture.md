@@ -77,7 +77,7 @@ that an immediate restart can acquire the old instance lock.
 | `magicvault-prompt` | `0.9.2` | Shared desktop window; bounded private metadata/input pipe; no vault or agent API |
 | Chromium extension | `0.6.1` | Permission-aware exact discovery narrowing, site grants/blocks and document-targeted fill; no navigation or submission API |
 | MagicRun `tool-runtime-core` | `0.1.74`, public Git dependency locked to `af348ab5` | Governed process preparation, descriptor-bound native macOS spawn for non-jailed batches, digest-bound dispatch, cancellation, output bounds and owned-child cleanup |
-| `magicvault-core` | `0.1.4` | Encryption, credential references, existing policies, scoped stores, typed audit, injectable clock, bounded ephemeral entries and one-time custody |
+| `magicvault-core` | `0.1.5` | Encryption, credential references, existing policies, scoped stores, typed audit, injectable clock, bounded ephemeral entries and one-time custody (receipts name their bound destination) |
 | `magicvault-primitives` | `0.1.2` | Filesystem/JSON helpers plus private Windows ACL and shared local-stream primitives |
 
 The local agent wire is version **5**; matching standalone clients/daemon are required. The profile-authenticated native

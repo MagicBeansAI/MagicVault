@@ -29,12 +29,20 @@ secure-HITL integration, which consumes it at a reviewed Git revision.
   (`one_time_*` events) carry no value; a transition stands even when its
   journal append fails. Nothing in this partition persists: a restart loses
   the code and fails closed. One-time material is never a placeholder read and
-  is included in the redaction snapshot; `clear_ephemeral` retires it with the
-  scope and `ephemeral_scope_holds_user_typed_secret` counts it while live.
+  is included in the redaction snapshot while live; `clear_ephemeral` retires
+  it with the scope (its count now includes one-time entries) and
+  `ephemeral_scope_holds_user_typed_secret` counts it while live and unexpired.
+  A claim names its operation, destination and challenge; destination and
+  (when both sides know it) challenge must match the registration. A state
+  read never returns the reservation id. `SecretStoreError::DeadlinePassed`
+  is new: a bounded registration whose deadline has already passed is refused.
 - Tests: deterministic clock, replay, release-then-reuse, expiry while
-  available and while reserved, retention clamp, destination mismatch,
-  supersede, cancel, sweep, scope isolation, 16-thread reservation race,
-  restart, value-free journal, and a failed journal append.
+  available and while reserved, retention clamp, destination and challenge
+  mismatch, supersede (including by a refused registration), cancel, sweep,
+  scope isolation, an untouched-past-deadline entry no longer pinning its run,
+  a state read without the reservation id, a 16-thread reservation race whose
+  losers all see `AlreadyReserved`, restart, value-free journal, and a journal
+  append proven to fail.
 
 ## 0.9.2 — npm description and legacy removal — 2026-09-16
 

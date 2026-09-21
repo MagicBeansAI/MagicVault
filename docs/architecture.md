@@ -533,13 +533,22 @@ timestamps on the store's injectable clock (`CustodyClock`), rechecked at the
 moment of every transition, so a code that expired while an attempt was queued
 expires at `consume` instead of being submitted. Retention is capped at ten
 minutes after registration whatever the caller asked for; the cap bounds local
-exposure and asserts nothing about issuer validity. Only a caller-named
-`PreDispatchFailure` returns a reservation to `Available`; a rejection, a
-timeout after submission, an uncertain delivery or a lost worker consumes,
-because no local ledger can prove an external service did not accept the code.
+exposure and asserts nothing about issuer validity. Ten minutes is a ceiling,
+not a typical hold: consumers pass the earliest of the challenge's own expiry
+and their receipt-time bound, and common issuers expire codes in 5–10 minutes,
+so a longer local hold could only outlive the code's usefulness. Only a
+caller-named `PreDispatchFailure` returns a reservation to `Available`; a
+rejection, a timeout after submission or an uncertain delivery must consume,
+because no local ledger can prove an external service did not accept the code;
+a lost worker's reservation stays `Reserved` — nobody else can claim it — until
+the deadline expires it. A claim must name the registered destination exactly
+and, when both sides know it, the registered challenge.
 
-Receipts and the `one_time_*` audit lines are value-free; a transition applies
-before its journal line and stands if the append fails. Nothing in this
+Receipts and the `one_time_*` audit lines are value-free (a state read never
+carries the reservation id, which is a capability only the reserving attempt
+holds); a transition applies before its journal line and stands if the append
+fails. Spent entries stay, value-free, until the scope is cleared, so a late
+caller gets the exact refusal. Nothing in this
 partition persists — a restart loses the code and the consumer fails closed to
 a fresh ask. One-time material is never a placeholder read, is part of the
 redaction snapshot while live, retires with `clear_ephemeral`, and counts for

@@ -8,7 +8,8 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/MagicBeansAI/MagicVault"
 
 [features]
-# Only scoped-store seeding is shared with downstream tests; no keychain fallback.
+# Scoped-store seeding and the manual custody clock are shared with downstream
+# tests; no keychain fallback.
 test-fixtures = []
 
 [dependencies]

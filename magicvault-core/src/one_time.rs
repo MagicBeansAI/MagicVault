@@ -57,6 +57,25 @@ pub struct OneTimeClaim {
     /// when one was bound.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub destination: Option<String>,
+    /// The challenge this attempt answers. Must equal the registered challenge
+    /// when both are known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub challenge_id: Option<String>,
+}
+
+impl OneTimeBinding {
+    /// Whether `claim` is an exact match for what was registered. A bound
+    /// destination must be named exactly; a challenge is compared only when
+    /// both sides carry one.
+    fn admits(&self, claim: &OneTimeClaim) -> bool {
+        let destination_ok =
+            self.destination.is_none() || self.destination == claim.destination;
+        let challenge_ok = match (&self.challenge_id, &claim.challenge_id) {
+            (Some(bound), Some(claimed)) => bound == claimed,
+            _ => true,
+        };
+        destination_ok && challenge_ok
+    }
 }
 
 /// The only reason a reservation returns to `Available`. Naming the type at
@@ -110,8 +129,9 @@ impl OneTimeTransition {
     }
 }
 
-/// Value-free record of one transition. Safe to log, serialize, and return
-/// to a model-facing caller.
+/// Value-free record of one transition. Safe to log and serialize. The
+/// reservation id is a capability the reserving adapter keeps: only the
+/// receipt `reserve` returns carries it, never a state read.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OneTimeReceipt {
     pub scope_id: String,
@@ -231,6 +251,10 @@ impl OneTimeEntry {
 /// write lock. A reservation id resolves to `(key, generation)` so an id
 /// issued against a superseded registration answers `Superseded` instead of
 /// acting on the newer code.
+///
+/// Terminal entries and their reservation ids are kept (value-free) so a late
+/// caller gets the right refusal, and are dropped by [`Self::retire_scope`]
+/// when the run ends — the same lifetime as plain ephemeral entries.
 #[derive(Default)]
 pub(crate) struct OneTimeTable {
     entries: HashMap<String, OneTimeEntry>,
@@ -273,10 +297,8 @@ impl OneTimeTable {
         now_ms: i64,
     ) -> Transitioned<OneTimeReceipt> {
         let mut journal = Vec::new();
-        if deadline_ms <= now_ms {
-            drop(Zeroizing::new(value));
-            return Transitioned { outcome: Err(OneTimeError::Expired), journal };
-        }
+        // A registration attempt always retires its predecessor, even when it
+        // is itself refused: a new challenge invalidates the previous code.
         let key = key(scope_id, input_id);
         if let Some(previous) = self.entries.remove(&key) {
             if previous.state.is_live() {
@@ -292,6 +314,10 @@ impl OneTimeTable {
             }
             // A reservation id issued against the removed generation now
             // answers `Superseded`; the index entry is kept so it can.
+        }
+        if deadline_ms <= now_ms {
+            drop(Zeroizing::new(value));
+            return Transitioned { outcome: Err(OneTimeError::Expired), journal };
         }
         self.next_generation += 1;
         let entry = OneTimeEntry {
@@ -330,7 +356,7 @@ impl OneTimeTable {
         if entry.state == OneTimeState::Reserved {
             return Transitioned { outcome: Err(OneTimeError::AlreadyReserved), journal };
         }
-        if entry.binding.destination.is_some() && entry.binding.destination != claim.destination {
+        if !entry.binding.admits(&claim) {
             return Transitioned { outcome: Err(OneTimeError::BindingMismatch), journal };
         }
         let Some(value) = entry.value.as_ref().map(|value| Zeroizing::new(value.to_string())) else {
@@ -428,7 +454,9 @@ impl OneTimeTable {
             return (None, Vec::new());
         };
         let journal: Vec<_> = entry.expire_if_due(now_ms).into_iter().collect();
-        (Some(entry.receipt(entry.last, now_ms)), journal)
+        let mut receipt = entry.receipt(entry.last, now_ms);
+        receipt.reservation_id = None;
+        (Some(receipt), journal)
     }
 
     /// Expire every due entry now rather than on its next touch.
@@ -457,10 +485,12 @@ impl OneTimeTable {
         live
     }
 
-    pub(crate) fn scope_holds_live(&self, scope_id: &str) -> bool {
-        self.entries
-            .values()
-            .any(|entry| entry.scope_id == scope_id && entry.state.is_live())
+    /// Whether the scope holds a code that is live *now*: an entry nobody has
+    /// touched since its deadline is expired by the spec, not by the next call.
+    pub(crate) fn scope_holds_live(&self, scope_id: &str, now_ms: i64) -> bool {
+        self.entries.values().any(|entry| {
+            entry.scope_id == scope_id && entry.state.is_live() && now_ms < entry.deadline_ms
+        })
     }
 
     pub(crate) fn live_values(&self) -> impl Iterator<Item = &str> {
@@ -518,6 +548,7 @@ mod tests {
         OneTimeClaim {
             operation: "browser:submit_login".into(),
             destination: Some("https://login.example.test".into()),
+            challenge_id: Some("challenge-1".into()),
         }
     }
 
@@ -683,21 +714,31 @@ mod tests {
         register(&store);
 
         let elsewhere = OneTimeClaim {
-            operation: "browser:submit_login".into(),
             destination: Some("https://attacker.example.test".into()),
+            ..claim()
         };
         assert_eq!(
             store.reserve_one_time("execution:run-1", "otp", elsewhere).unwrap_err(),
             OneTimeError::BindingMismatch
         );
-        let unclaimed = OneTimeClaim { operation: "browser:submit_login".into(), destination: None };
+        let unclaimed = OneTimeClaim { operation: "browser:submit_login".into(), destination: None, challenge_id: None };
         assert_eq!(
             store.reserve_one_time("execution:run-1", "otp", unclaimed).unwrap_err(),
             OneTimeError::BindingMismatch,
             "a registration bound to a destination is not claimable without one"
         );
+        let other_challenge = OneTimeClaim { challenge_id: Some("challenge-2".into()), ..claim() };
+        assert_eq!(
+            store.reserve_one_time("execution:run-1", "otp", other_challenge).unwrap_err(),
+            OneTimeError::BindingMismatch,
+            "a code answers the challenge it was registered for"
+        );
         assert_eq!(store.one_time_state("execution:run-1", "otp").unwrap().state, OneTimeState::Available);
-        assert!(store.reserve_one_time("execution:run-1", "otp", claim()).is_ok());
+        let unnamed_challenge = OneTimeClaim { challenge_id: None, ..claim() };
+        assert!(
+            store.reserve_one_time("execution:run-1", "otp", unnamed_challenge).is_ok(),
+            "a claim that names no challenge is admitted; the challenge is compared only when both sides carry one"
+        );
 
         let events: Vec<String> = journal(temp.path()).into_iter().map(|event| event.event).collect();
         assert_eq!(events, ["one_time_registered", "one_time_reserved"], "a refused claim is not a transition");
@@ -726,6 +767,41 @@ mod tests {
 
         let events: Vec<String> = journal(temp.path()).into_iter().map(|event| event.event).collect();
         assert!(events.contains(&"one_time_superseded".to_string()));
+    }
+
+    #[test]
+    fn a_refused_registration_still_retires_the_previous_code() {
+        let temp = tempfile::tempdir().unwrap();
+        let clock = Arc::new(ManualClock::new(T0));
+        let store = store(temp.path(), &clock);
+        register(&store);
+        assert_eq!(
+            store
+                .register_one_time("execution:run-1", "otp", "stale-challenge".to_string(), T0 - 1, binding())
+                .unwrap_err(),
+            OneTimeError::Expired
+        );
+        assert!(
+            store.one_time_state("execution:run-1", "otp").is_none(),
+            "a new challenge invalidates the previous code even when its own deadline has passed"
+        );
+        assert_eq!(
+            store.reserve_one_time("execution:run-1", "otp", claim()).unwrap_err(),
+            OneTimeError::NotFound
+        );
+    }
+
+    #[test]
+    fn a_state_read_never_hands_out_the_reservation() {
+        let temp = tempfile::tempdir().unwrap();
+        let clock = Arc::new(ManualClock::new(T0));
+        let store = store(temp.path(), &clock);
+        register(&store);
+        let reservation = store.reserve_one_time("execution:run-1", "otp", claim()).unwrap();
+        assert!(reservation.receipt.reservation_id.is_some());
+        let read = store.one_time_state("execution:run-1", "otp").unwrap();
+        assert_eq!(read.state, OneTimeState::Reserved);
+        assert!(read.reservation_id.is_none(), "the id is a capability only the reserving attempt holds");
     }
 
     #[test]
@@ -827,6 +903,23 @@ mod tests {
         assert!(store.ephemeral_scope_holds_user_typed_secret("execution:run-1"), "reserved material still pins");
         store.consume_one_time(reservation.receipt.reservation_id.as_deref().unwrap()).unwrap();
         assert!(!store.ephemeral_scope_holds_user_typed_secret("execution:run-1"));
+
+        store
+            .register_one_time("execution:run-2", "otp", CANARY.to_string(), T0 + 1_000, binding())
+            .unwrap();
+        assert!(store.ephemeral_scope_holds_user_typed_secret("execution:run-2"));
+        clock.set(T0 + 1_000);
+        assert!(
+            !store.ephemeral_scope_holds_user_typed_secret("execution:run-2"),
+            "an untouched code past its deadline is expired, not merely not-yet-noticed"
+        );
+
+        clock.set(T0);
+        store
+            .register_one_time("execution:run-3", "otp", CANARY.to_string(), T0 + 60_000, binding())
+            .unwrap();
+        store.cancel_one_time("execution:run-3", "otp").unwrap();
+        assert!(!store.ephemeral_scope_holds_user_typed_secret("execution:run-3"));
     }
 
     #[test]
@@ -844,12 +937,17 @@ mod tests {
                 let barrier = Arc::clone(&barrier);
                 thread::spawn(move || {
                     barrier.wait();
-                    store.reserve_one_time("execution:run-1", "otp", claim()).is_ok()
+                    store.reserve_one_time("execution:run-1", "otp", claim()).map(|_| ())
                 })
             })
             .collect();
-        let wins = handles.into_iter().map(|handle| handle.join().unwrap()).filter(|won| *won).count();
-        assert_eq!(wins, 1);
+        let outcomes: Vec<_> = handles.into_iter().map(|handle| handle.join().unwrap()).collect();
+        assert_eq!(outcomes.iter().filter(|outcome| outcome.is_ok()).count(), 1);
+        assert_eq!(
+            outcomes.iter().filter(|outcome| **outcome == Err(OneTimeError::AlreadyReserved)).count(),
+            racers - 1,
+            "every loser saw the winner's reservation, not a missing entry"
+        );
     }
 
     #[test]
@@ -887,6 +985,10 @@ mod tests {
         let journal_path = temp.path().join("scopes/owner/default/secrets").join(SECRET_AUDIT_FILENAME);
         std::fs::remove_file(&journal_path).unwrap();
         std::fs::create_dir(&journal_path).unwrap();
+        assert!(
+            store.try_audit_event(SecretAuditEvent::new_at("probe", 0)).is_err(),
+            "the sabotage must actually break the journal"
+        );
 
         let consumed = store.consume_one_time(&id).unwrap();
         assert_eq!(consumed.state, OneTimeState::Consumed);

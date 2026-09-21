@@ -700,6 +700,9 @@ pub enum SecretStoreError {
         feature: SecretSourceKind,
         reason: String,
     },
+
+    #[error("the deadline has already passed")]
+    DeadlinePassed,
 }
 
 impl SecretStore {
@@ -818,7 +821,10 @@ impl SecretStore {
         Arc::clone(&self.clock.read().expect("secret store clock lock poisoned"))
     }
 
-    pub fn set_clock(&self, clock: Arc<dyn CustodyClock>) {
+    /// The resolver installs its clock here; nothing outside the crate can
+    /// move a store's clock after construction — a deadline is only as good as
+    /// the clock it is checked against.
+    pub(crate) fn set_clock(&self, clock: Arc<dyn CustodyClock>) {
         *self.clock.write().expect("secret store clock lock poisoned") = clock;
     }
 
@@ -1425,6 +1431,9 @@ impl SecretStore {
         };
         let key = scoped_ephemeral_key(task_id, input_id);
         let now_ms = self.now_ms();
+        if expires_at_ms.is_some_and(|deadline| deadline <= now_ms) {
+            return Err(SecretStoreError::DeadlinePassed);
+        }
         let mut guard = self.state.write().expect("secret store state lock poisoned");
         reap_expired_ephemeral(&mut guard, now_ms);
         match expires_at_ms {
@@ -1439,6 +1448,10 @@ impl SecretStore {
         Ok(SecretRef::Placeholder(input_id.to_string()))
     }
 
+    /// A plain read of a run-scoped secret by input id across scopes; `None`
+    /// when the id is ambiguous. Takes the write lock (not the read lock it
+    /// used to) so a bounded entry found past its deadline is dropped by the
+    /// read that finds it; concurrent placeholder resolution serializes here.
     pub fn get_ephemeral(&self, input_id: &str) -> Option<String> {
         if !self
             .feature_status(SecretSourceKind::Ephemeral)
@@ -1542,9 +1555,11 @@ impl SecretStore {
             };
             same_scope && !ephemeral_entry_expired(&guard, key, now_ms)
         });
-        holds_plain || guard.one_time.scope_holds_live(task_id)
+        holds_plain || guard.one_time.scope_holds_live(task_id, now_ms)
     }
 
+    /// Drop every ephemeral entry of the scope — plain and one-time, whatever
+    /// its state. The count is how many held a value.
     pub fn clear_ephemeral(&self, task_id: &str) -> usize {
         if !self
             .feature_status(SecretSourceKind::Ephemeral)
@@ -1629,22 +1644,20 @@ impl SecretStore {
         binding: OneTimeBinding,
     ) -> Result<OneTimeReceipt, OneTimeError> {
         self.one_time_feature()?;
+        let mut guard = self.state.write().expect("secret store state lock poisoned");
         let now_ms = self.now_ms();
-        let transitioned = self
-            .state
-            .write()
-            .expect("secret store state lock poisoned")
-            .one_time
-            .register(scope_id, input_id, value, deadline_ms, binding, now_ms);
+        let transitioned = guard.one_time.register(scope_id, input_id, value, deadline_ms, binding, now_ms);
+        drop(guard);
         self.journal_one_time(transitioned.journal, None);
         transitioned.outcome
     }
 
-    /// Claim the code for exactly one attempt. The value travels only in the
-    /// returned reservation; the store keeps no second copy for the caller.
-    /// Refused while another attempt holds it, after it was spent, cancelled,
-    /// or expired, and when the claim names a destination other than the one
-    /// the registration bound (which changes nothing).
+    /// Claim the code for exactly one attempt. The value travels in the
+    /// returned reservation and has no other read path; the store keeps it
+    /// only so a released reservation can be claimed again. Refused while
+    /// another attempt holds it, after it was spent, cancelled, or expired,
+    /// and when the claim names a destination or challenge other than the
+    /// one the registration bound (which changes nothing).
     pub fn reserve_one_time(
         &self,
         scope_id: &str,
@@ -1652,13 +1665,10 @@ impl SecretStore {
         claim: OneTimeClaim,
     ) -> Result<OneTimeReservation, OneTimeError> {
         self.one_time_feature()?;
+        let mut guard = self.state.write().expect("secret store state lock poisoned");
         let now_ms = self.now_ms();
-        let transitioned = self
-            .state
-            .write()
-            .expect("secret store state lock poisoned")
-            .one_time
-            .reserve(scope_id, input_id, claim, now_ms);
+        let transitioned = guard.one_time.reserve(scope_id, input_id, claim, now_ms);
+        drop(guard);
         self.journal_one_time(transitioned.journal, None);
         transitioned.outcome
     }
@@ -1668,13 +1678,10 @@ impl SecretStore {
     /// instead and the caller must not submit it.
     pub fn consume_one_time(&self, reservation_id: &str) -> Result<OneTimeReceipt, OneTimeError> {
         self.one_time_feature()?;
+        let mut guard = self.state.write().expect("secret store state lock poisoned");
         let now_ms = self.now_ms();
-        let transitioned = self
-            .state
-            .write()
-            .expect("secret store state lock poisoned")
-            .one_time
-            .consume(reservation_id, now_ms);
+        let transitioned = guard.one_time.consume(reservation_id, now_ms);
+        drop(guard);
         self.journal_one_time(transitioned.journal, None);
         transitioned.outcome
     }
@@ -1689,13 +1696,10 @@ impl SecretStore {
         failure: PreDispatchFailure,
     ) -> Result<OneTimeReceipt, OneTimeError> {
         self.one_time_feature()?;
+        let mut guard = self.state.write().expect("secret store state lock poisoned");
         let now_ms = self.now_ms();
-        let transitioned = self
-            .state
-            .write()
-            .expect("secret store state lock poisoned")
-            .one_time
-            .release(reservation_id, now_ms);
+        let transitioned = guard.one_time.release(reservation_id, now_ms);
+        drop(guard);
         self.journal_one_time(transitioned.journal, Some(&failure.reason));
         transitioned.outcome
     }
@@ -1705,26 +1709,20 @@ impl SecretStore {
     /// cancellation cannot undo a submission.
     pub fn cancel_one_time(&self, scope_id: &str, input_id: &str) -> Result<OneTimeReceipt, OneTimeError> {
         self.one_time_feature()?;
+        let mut guard = self.state.write().expect("secret store state lock poisoned");
         let now_ms = self.now_ms();
-        let transitioned = self
-            .state
-            .write()
-            .expect("secret store state lock poisoned")
-            .one_time
-            .cancel(scope_id, input_id, now_ms);
+        let transitioned = guard.one_time.cancel(scope_id, input_id, now_ms);
+        drop(guard);
         self.journal_one_time(transitioned.journal, None);
         transitioned.outcome
     }
 
     /// Value-free state of a registration, applying the deadline first.
     pub fn one_time_state(&self, scope_id: &str, input_id: &str) -> Option<OneTimeReceipt> {
+        let mut guard = self.state.write().expect("secret store state lock poisoned");
         let now_ms = self.now_ms();
-        let (receipt, journal) = self
-            .state
-            .write()
-            .expect("secret store state lock poisoned")
-            .one_time
-            .state(scope_id, input_id, now_ms);
+        let (receipt, journal) = guard.one_time.state(scope_id, input_id, now_ms);
+        drop(guard);
         self.journal_one_time(journal, None);
         receipt
     }
@@ -1732,13 +1730,10 @@ impl SecretStore {
     /// Expire every due code now rather than on its next touch. Returns how
     /// many expired in this sweep.
     pub fn sweep_expired_one_time(&self) -> usize {
+        let mut guard = self.state.write().expect("secret store state lock poisoned");
         let now_ms = self.now_ms();
-        let journal = self
-            .state
-            .write()
-            .expect("secret store state lock poisoned")
-            .one_time
-            .sweep(now_ms);
+        let journal = guard.one_time.sweep(now_ms);
+        drop(guard);
         let count = journal.len();
         self.journal_one_time(journal, None);
         count
@@ -3932,6 +3927,13 @@ mod tests {
             .register_ephemeral("execution:a", "username", "plain".to_string())
             .unwrap();
 
+        assert!(
+            matches!(
+                store.register_ephemeral_bounded("execution:a", "dead", "x".to_string(), 10_000),
+                Err(SecretStoreError::DeadlinePassed)
+            ),
+            "a deadline already reached registers nothing, as one-time material does"
+        );
         clock.set(10_499);
         assert_eq!(
             store.get_ephemeral_scoped("execution:a", "password").as_deref(),

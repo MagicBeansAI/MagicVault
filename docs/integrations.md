@@ -153,7 +153,11 @@ or protection against arbitrary programmable consumers.
 
 Standalone `0.9.0` adds one-time native prompt-and-fill in the service, CLI, MCP
 and Node SDK. The browser adapters and process/HTTP runtime are retained; core
-`0.1.3` and primitives `0.1.1` remain unchanged. Magician keeps its direct core integration,
+`0.1.3` and primitives `0.1.1` remain unchanged. Core `0.1.4` (2026-09-21)
+adds the injectable clock, bounded ephemeral entries and the
+[one-time custody state machine](architecture.md#one-time-custody-in-the-shared-core)
+for Magician's secure-HITL integration; the standalone surfaces do not call
+it yet, and every existing core API is unchanged. Magician keeps its direct core integration,
 existing store identity and browser execution owner. It does not consume the new
 standalone registry, CLI, MCP, extension or native host. The effect crate now
 depends on public MagicRun `tool-runtime-core 0.1.74` and invokes its existing

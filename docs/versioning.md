@@ -27,7 +27,7 @@ binary release, extension store listing or production-safety certification.
 | Chromium extension | Manifest `0.6.1` | Permission-filtered, loaded-tab discovery with exact narrowing; document binding, fixed identity, reconnect/backoff, pause and site controls retained |
 | Local agent protocol | Wire version `5` | Version mismatches fail closed; not the package version |
 | Native connection | Handshake `2`; effect/config schemas `1` | Matching extension/host/daemon required; no silent downgrade |
-| `magicvault-core` | `0.1.3`, unchanged | Existing embedded custody/API/vault format/key identity retained |
+| `magicvault-core` | `0.1.4` | Adds injectable clock, bounded ephemeral entries and one-time custody (see [CHANGELOG](../CHANGELOG.md)); existing embedded custody/API/vault format/key identity retained |
 | `magicvault-primitives` | `0.1.2` | Add owner-only Windows filesystem and shared local-stream helpers; existing Unix durability retained |
 | MagicRun `tool-runtime-core` | Public Git dependency `0.1.74` | Public coordinator unchanged; non-jailed macOS launch uses descriptor-bound native spawn; exact source in Cargo.lock |
 | `magicvault-test-support` | `0.4.0`, `publish = false` | Test-only, not a production surface |

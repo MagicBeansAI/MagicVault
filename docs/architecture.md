@@ -77,7 +77,7 @@ that an immediate restart can acquire the old instance lock.
 | `magicvault-prompt` | `0.9.2` | Shared desktop window; bounded private metadata/input pipe; no vault or agent API |
 | Chromium extension | `0.6.1` | Permission-aware exact discovery narrowing, site grants/blocks and document-targeted fill; no navigation or submission API |
 | MagicRun `tool-runtime-core` | `0.1.74`, public Git dependency locked to `af348ab5` | Governed process preparation, descriptor-bound native macOS spawn for non-jailed batches, digest-bound dispatch, cancellation, output bounds and owned-child cleanup |
-| `magicvault-core` | `0.1.3` | Encryption, credential references, existing policies, scoped stores and typed audit |
+| `magicvault-core` | `0.1.4` | Encryption, credential references, existing policies, scoped stores, typed audit, injectable clock, bounded ephemeral entries and one-time custody |
 | `magicvault-primitives` | `0.1.2` | Filesystem/JSON helpers plus private Windows ACL and shared local-stream primitives |
 
 The local agent wire is version **5**; matching standalone clients/daemon are required. The profile-authenticated native
@@ -510,6 +510,44 @@ The trusted UI and recipient necessarily handle plaintext. Zeroizing owned buffe
 does not attest erasure of OS dialog memory, transport copies or browser storage.
 [One-time usage](jit-credentials.md) records the API and qualification limits.
 
+## One-time custody in the shared core
+
+Embedded consumers that collect a one-time code (an OTP) hold it in the core's
+in-memory ephemeral partition, not in a vault file, and drive it through a
+state machine the core arbitrates:
+
+```text
+register ──▶ Available ──reserve──▶ Reserved ──consume──▶ Consumed
+                ▲                      │
+                └────── release ───────┘   proven pre-dispatch failure only
+  Available | Reserved ──deadline──▶ Expired
+  Available | Reserved ──cancel────▶ Cancelled
+  register again ──▶ the previous code and its reservation are superseded
+```
+
+Registration binds the code to a scope (the consumer's execution), an
+optional challenge id and an optional destination; a reservation names the
+exact operation and destination claiming one use, and a claim for another
+destination is refused without changing state. Deadlines are absolute
+timestamps on the store's injectable clock (`CustodyClock`), rechecked at the
+moment of every transition, so a code that expired while an attempt was queued
+expires at `consume` instead of being submitted. Retention is capped at ten
+minutes after registration whatever the caller asked for; the cap bounds local
+exposure and asserts nothing about issuer validity. Only a caller-named
+`PreDispatchFailure` returns a reservation to `Available`; a rejection, a
+timeout after submission, an uncertain delivery or a lost worker consumes,
+because no local ledger can prove an external service did not accept the code.
+
+Receipts and the `one_time_*` audit lines are value-free; a transition applies
+before its journal line and stands if the append fails. Nothing in this
+partition persists — a restart loses the code and the consumer fails closed to
+a fresh ask. One-time material is never a placeholder read, is part of the
+redaction snapshot while live, retires with `clear_ephemeral`, and counts for
+`ephemeral_scope_holds_user_typed_secret`. The same clock bounds plain
+ephemeral entries registered with `register_ephemeral_bounded`. The standalone
+daemon does not yet use this path; Magician's secure-HITL integration is its
+first consumer.
+
 ## One new process or HTTP request
 
 ### Exact-use consent state
@@ -624,6 +662,7 @@ Magician need no API, source or storage migration for these standalone additions
 | Native installation and executable | `magicvault-service/src/native.rs`, `magicvault/src/bin/magicvault-native-host.rs` |
 | Browser extension | `extension/worker.js`, `options.js`, `manifest.json` |
 | Shared custody and utilities | `magicvault-core/src`, `magicvault-primitives/src` |
+| One-time custody state machine | `magicvault-core/src/one_time.rs`, `store.rs` (`*_one_time`, `register_ephemeral_bounded`, `CustodyClock`) |
 
 ## Detecting architectural drift
 

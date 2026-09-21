@@ -5,6 +5,37 @@ Entries describe source changes, not publication announcements. See
 [release acceptance checklist](docs/qualification/release.md) and
 [version-specific test evidence](docs/qualification/README.md#evidence-records).
 
+## Shared core 0.1.4 — one-time credential custody — 2026-09-21
+
+Source change to `magicvault-core` only; no standalone package, wire, vault
+format or key-identity change, and no npm release. Written for Magician's
+secure-HITL integration, which consumes it at a reviewed Git revision.
+
+- Add an injectable store clock (`CustodyClock`, `SystemClock`,
+  `SecretStoreResolver::with_clock`; `ManualClock` behind `test-fixtures`).
+  Every deadline the store enforces is an absolute timestamp compared against
+  that clock at the moment of the operation.
+- Add bounded ephemeral entries: `register_ephemeral_bounded` takes an absolute
+  deadline; reads at or past it return nothing and drop the value, placeholders
+  naming it stay unresolved, `sweep_expired_ephemeral` drops due entries early.
+  `register_ephemeral` and every existing reader keep their behavior.
+- Add one-time custody (`one_time` module): `register_one_time` → `Available`,
+  `reserve_one_time` → `Reserved` for exactly one claim bound to the registered
+  destination, `consume_one_time` when submission starts, `release_one_time`
+  only for a caller-named `PreDispatchFailure`, `cancel_one_time`, lazy and
+  swept expiry, `one_time_state`. A same-input registration supersedes the
+  previous code and its reservation. Retention is capped at ten minutes after
+  registration whatever deadline was requested. Receipts and audit lines
+  (`one_time_*` events) carry no value; a transition stands even when its
+  journal append fails. Nothing in this partition persists: a restart loses
+  the code and fails closed. One-time material is never a placeholder read and
+  is included in the redaction snapshot; `clear_ephemeral` retires it with the
+  scope and `ephemeral_scope_holds_user_typed_secret` counts it while live.
+- Tests: deterministic clock, replay, release-then-reuse, expiry while
+  available and while reserved, retention clamp, destination mismatch,
+  supersede, cancel, sweep, scope isolation, 16-thread reservation race,
+  restart, value-free journal, and a failed journal append.
+
 ## 0.9.2 — npm description and legacy removal — 2026-09-16
 
 - Explain the npm package in plain language: secure credentials for AI agents
@@ -441,7 +472,10 @@ See the [version and distribution policy](docs/versioning.md),
 
 ## Shared-library compatibility
 
-Core `0.1.3` adds opt-in durable typed audit append behavior. Existing consumer
+Core `0.1.4` adds the injectable clock, bounded ephemeral entries and one-time
+custody above; every existing API keeps its signature and behavior, and a
+consumer that does not call `with_clock` runs on the system clock. Core `0.1.3`
+added opt-in durable typed audit append behavior. Existing consumer
 append-only APIs retain their previous behavior. Primitives `0.1.1` preserve
 private staging-file permissions and relative-path durability. Browser delivery
 does not require embedded consumers to adopt the standalone surfaces.

@@ -10,6 +10,10 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
+use crate::one_time::{
+    JournalLine, OneTimeBinding, OneTimeClaim, OneTimeError, OneTimeReceipt, OneTimeReservation,
+    OneTimeTable, PreDispatchFailure,
+};
 use crate::session::{SessionContext, SessionCookie};
 
 use super::encryption::{decrypt, encrypt, MasterKeyProvider, SecretEncryptionError};
@@ -35,6 +39,53 @@ const MCP_OAUTH_DIGEST_HEX_BYTES: usize = 64;
 const MCP_OAUTH_CREDENTIAL_PREFIX: &str = "credentials:";
 const MCP_OAUTH_STATE_PREFIX: &str = "authorization-state:";
 const MCP_OAUTH_PENDING_PREFIX: &str = "pending-authorization:";
+
+/// The store's notion of now, in Unix milliseconds.
+///
+/// Every deadline the store enforces — bounded ephemeral entries and one-time
+/// custody — is an absolute timestamp compared against this clock at the
+/// moment of the operation, never a duration remembered at registration. The
+/// default is the system clock; tests inject [`ManualClock`] so expiry is a
+/// deterministic assertion rather than a sleep.
+pub trait CustodyClock: Send + Sync {
+    fn now_ms(&self) -> i64;
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+pub struct SystemClock;
+
+impl CustodyClock for SystemClock {
+    fn now_ms(&self) -> i64 {
+        Utc::now().timestamp_millis()
+    }
+}
+
+/// A clock that moves only when a test moves it.
+#[cfg(any(test, feature = "test-fixtures"))]
+#[derive(Debug)]
+pub struct ManualClock(std::sync::atomic::AtomicI64);
+
+#[cfg(any(test, feature = "test-fixtures"))]
+impl ManualClock {
+    pub fn new(now_ms: i64) -> Self {
+        Self(std::sync::atomic::AtomicI64::new(now_ms))
+    }
+
+    pub fn set(&self, now_ms: i64) {
+        self.0.store(now_ms, Ordering::SeqCst);
+    }
+
+    pub fn advance(&self, by_ms: i64) {
+        self.0.fetch_add(by_ms, Ordering::SeqCst);
+    }
+}
+
+#[cfg(any(test, feature = "test-fixtures"))]
+impl CustodyClock for ManualClock {
+    fn now_ms(&self) -> i64 {
+        self.0.load(Ordering::SeqCst)
+    }
+}
 
 /// Non-secret metadata about captured browser auth state.
 #[derive(Debug, Clone, Serialize, Default, PartialEq, Eq)]
@@ -380,11 +431,15 @@ struct McpOAuthPersistFailure {
     commit_state_unknown: bool,
 }
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 struct SecretStoreState {
     provisioned: HashMap<String, SecretEntry>,
     captured: HashMap<String, SecretEntry>,
     ephemeral: HashMap<String, SecretEntry>,
+    /// Absolute deadlines for bounded ephemeral entries, by the same scoped
+    /// key. An entry absent here keeps the run-scoped lifetime.
+    ephemeral_deadlines: HashMap<String, i64>,
+    one_time: OneTimeTable,
     mcp_oauth: HashMap<String, McpOAuthVaultRecord>,
     mcp_oauth_status: McpOAuthPartitionStatus,
     provisioned_status: SecretPartitionStatus,
@@ -487,6 +542,7 @@ pub struct SecretStore {
     /// Serializes durable writes of the captured partition. See
     /// [`SecretStore::provisioned_write_lock`].
     captured_write_lock: Mutex<()>,
+    clock: RwLock<Arc<dyn CustodyClock>>,
 }
 
 /// Take a persist lock, clearing poison rather than propagating it.
@@ -585,6 +641,7 @@ pub struct SecretStoreResolver<Layout: SecretScopeLayout> {
     key_provider: Arc<dyn MasterKeyProvider>,
     capabilities: SecretRuntimeCapabilities,
     captured_max_origins: Arc<AtomicUsize>,
+    clock: Arc<dyn CustodyClock>,
     stores: Arc<Mutex<HashMap<(String, String), Arc<ScopeStoreSlot>>>>,
 }
 
@@ -657,9 +714,10 @@ impl SecretStore {
             .chain(state.captured.values())
             .chain(state.ephemeral.values())
             .flat_map(|entry| entry.fields.values())
+            .map(String::as_str)
+            .chain(state.one_time.live_values())
             .filter(|value| value.len() >= 4)
-            .cloned()
-            .map(Zeroizing::new)
+            .map(|value| Zeroizing::new(value.to_string()))
             .collect()
     }
 
@@ -752,7 +810,20 @@ impl SecretStore {
             flush_in_flight: AtomicBool::new(false),
             provisioned_write_lock: Mutex::new(()),
             captured_write_lock: Mutex::new(()),
+            clock: RwLock::new(Arc::new(SystemClock)),
         }
+    }
+
+    pub fn clock(&self) -> Arc<dyn CustodyClock> {
+        Arc::clone(&self.clock.read().expect("secret store clock lock poisoned"))
+    }
+
+    pub fn set_clock(&self, clock: Arc<dyn CustodyClock>) {
+        *self.clock.write().expect("secret store clock lock poisoned") = clock;
+    }
+
+    fn now_ms(&self) -> i64 {
+        self.clock().now_ms()
     }
 
     /// Whether the durable partition behind `source` was readable at load.
@@ -1307,11 +1378,38 @@ impl SecretStore {
         Ok(())
     }
 
+    /// Register a run-scoped secret that lives until `clear_ephemeral`.
     pub fn register_ephemeral(
         &self,
         task_id: &str,
         input_id: &str,
         value: String,
+    ) -> Result<SecretRef, SecretStoreError> {
+        self.register_ephemeral_inner(task_id, input_id, value, None)
+    }
+
+    /// Register a run-scoped secret that is also gone at `expires_at_ms`
+    /// (Unix milliseconds on the store's clock), whichever comes first.
+    ///
+    /// A read at or past the deadline returns nothing and drops the value; a
+    /// placeholder naming it stays unresolved. The bound is local exposure
+    /// only — it does not extend or assert the credential's validity anywhere.
+    pub fn register_ephemeral_bounded(
+        &self,
+        task_id: &str,
+        input_id: &str,
+        value: String,
+        expires_at_ms: i64,
+    ) -> Result<SecretRef, SecretStoreError> {
+        self.register_ephemeral_inner(task_id, input_id, value, Some(expires_at_ms))
+    }
+
+    fn register_ephemeral_inner(
+        &self,
+        task_id: &str,
+        input_id: &str,
+        value: String,
+        expires_at_ms: Option<i64>,
     ) -> Result<SecretRef, SecretStoreError> {
         self.ensure_feature_enabled(SecretSourceKind::Ephemeral)?;
         let entry = SecretEntry {
@@ -1325,11 +1423,19 @@ impl SecretStore {
             policy: None,
             created_at: Utc::now().timestamp(),
         };
-        self.state
-            .write()
-            .expect("secret store state lock poisoned")
-            .ephemeral
-            .insert(scoped_ephemeral_key(task_id, input_id), entry);
+        let key = scoped_ephemeral_key(task_id, input_id);
+        let now_ms = self.now_ms();
+        let mut guard = self.state.write().expect("secret store state lock poisoned");
+        reap_expired_ephemeral(&mut guard, now_ms);
+        match expires_at_ms {
+            Some(deadline) => {
+                guard.ephemeral_deadlines.insert(key.clone(), deadline);
+            },
+            None => {
+                guard.ephemeral_deadlines.remove(&key);
+            },
+        }
+        guard.ephemeral.insert(key, entry);
         Ok(SecretRef::Placeholder(input_id.to_string()))
     }
 
@@ -1340,7 +1446,9 @@ impl SecretStore {
         {
             return None;
         }
-        let guard = self.state.read().expect("secret store state lock poisoned");
+        let now_ms = self.now_ms();
+        let mut guard = self.state.write().expect("secret store state lock poisoned");
+        reap_expired_ephemeral(&mut guard, now_ms);
         let mut matches = guard
             .ephemeral
             .values()
@@ -1361,13 +1469,22 @@ impl SecretStore {
         {
             return None;
         }
-        self.state
-            .read()
-            .expect("secret store state lock poisoned")
+        let now_ms = self.now_ms();
+        let mut guard = self.state.write().expect("secret store state lock poisoned");
+        reap_expired_ephemeral(&mut guard, now_ms);
+        guard
             .ephemeral
             .get(&scoped_ephemeral_key(task_id, input_id))
             .and_then(|entry| entry.fields.get("value"))
             .cloned()
+    }
+
+    /// Drop every bounded ephemeral entry whose deadline has passed, now
+    /// rather than on its next read. Returns how many were dropped.
+    pub fn sweep_expired_ephemeral(&self) -> usize {
+        let now_ms = self.now_ms();
+        let mut guard = self.state.write().expect("secret store state lock poisoned");
+        reap_expired_ephemeral(&mut guard, now_ms)
     }
 
     /// Whether this scope currently holds a user-typed secret.
@@ -1414,17 +1531,18 @@ impl SecretStore {
     /// map rather than the flag is what makes that a property of this function
     /// instead of a property of a field somewhere else.
     pub fn ephemeral_scope_holds_user_typed_secret(&self, task_id: &str) -> bool {
-        self.state
-            .read()
-            .expect("secret store state lock poisoned")
-            .ephemeral
-            .values()
-            .any(|entry| match &entry.source {
+        let now_ms = self.now_ms();
+        let guard = self.state.read().expect("secret store state lock poisoned");
+        let holds_plain = guard.ephemeral.iter().any(|(key, entry)| {
+            let same_scope = match &entry.source {
                 SecretSource::Ephemeral {
                     task_id: entry_task_id,
                 } => entry_task_id == task_id,
                 _ => false,
-            })
+            };
+            same_scope && !ephemeral_entry_expired(&guard, key, now_ms)
+        });
+        holds_plain || guard.one_time.scope_holds_live(task_id)
     }
 
     pub fn clear_ephemeral(&self, task_id: &str) -> usize {
@@ -1445,7 +1563,185 @@ impl SecretStore {
             } => entry_task_id != task_id,
             _ => true,
         });
-        before.saturating_sub(guard.ephemeral.len())
+        let plain = before.saturating_sub(guard.ephemeral.len());
+        let SecretStoreState {
+            ephemeral,
+            ephemeral_deadlines,
+            one_time,
+            ..
+        } = &mut *guard;
+        ephemeral_deadlines.retain(|key, _| ephemeral.contains_key(key));
+        plain + one_time.retire_scope(task_id)
+    }
+
+    // ---- one-time custody -------------------------------------------------
+    //
+    // See `crate::one_time` for the lifecycle. Each method applies its
+    // transition under the state write lock, releases it, then journals the
+    // transition — so a slow disk never blocks the store, and a journal that
+    // cannot be written never resurrects material the transition already
+    // spent. The receipts carry no value.
+
+    fn one_time_feature(&self) -> Result<(), OneTimeError> {
+        self.ensure_feature_enabled(SecretSourceKind::Ephemeral)
+            .map_err(|error| OneTimeError::FeatureUnavailable(error.to_string()))
+    }
+
+    fn journal_one_time(&self, lines: Vec<JournalLine>, detail: Option<&str>) {
+        for line in lines {
+            let receipt = &line.receipt;
+            let mut event = SecretAuditEvent::new_at(receipt.transition.audit_event(), receipt.at_ms.div_euclid(1000))
+                .with_secret_id(receipt.input_id.clone())
+                .with_detail(match detail {
+                    Some(detail) => format!("{}: {detail}", receipt.scope_id),
+                    None => receipt.scope_id.clone(),
+                });
+            if let Some(challenge_id) = &receipt.challenge_id {
+                event = event.with_challenge_id(challenge_id.clone());
+            }
+            if let Some(claim) = &line.claim {
+                let (tool, action) = match claim.operation.split_once(':') {
+                    Some((tool, action)) => (tool.to_string(), Some(action.to_string())),
+                    None => (claim.operation.clone(), None),
+                };
+                event = event.with_tool(tool).with_optional_domain(claim.destination.as_deref());
+                if let Some(action) = action {
+                    event = event.with_action(action);
+                }
+            }
+            self.audit_event(event);
+        }
+    }
+
+    /// Hold `value` for one bound authentication attempt in `scope_id`.
+    ///
+    /// `deadline_ms` is clamped to [`crate::one_time::ONE_TIME_MAX_RETENTION_MS`]
+    /// after now; the receipt reports the effective deadline. A deadline that
+    /// has already passed registers nothing. Registering the same input again
+    /// supersedes the previous code: its reservation, if any, can no longer
+    /// consume or release.
+    pub fn register_one_time(
+        &self,
+        scope_id: &str,
+        input_id: &str,
+        value: String,
+        deadline_ms: i64,
+        binding: OneTimeBinding,
+    ) -> Result<OneTimeReceipt, OneTimeError> {
+        self.one_time_feature()?;
+        let now_ms = self.now_ms();
+        let transitioned = self
+            .state
+            .write()
+            .expect("secret store state lock poisoned")
+            .one_time
+            .register(scope_id, input_id, value, deadline_ms, binding, now_ms);
+        self.journal_one_time(transitioned.journal, None);
+        transitioned.outcome
+    }
+
+    /// Claim the code for exactly one attempt. The value travels only in the
+    /// returned reservation; the store keeps no second copy for the caller.
+    /// Refused while another attempt holds it, after it was spent, cancelled,
+    /// or expired, and when the claim names a destination other than the one
+    /// the registration bound (which changes nothing).
+    pub fn reserve_one_time(
+        &self,
+        scope_id: &str,
+        input_id: &str,
+        claim: OneTimeClaim,
+    ) -> Result<OneTimeReservation, OneTimeError> {
+        self.one_time_feature()?;
+        let now_ms = self.now_ms();
+        let transitioned = self
+            .state
+            .write()
+            .expect("secret store state lock poisoned")
+            .one_time
+            .reserve(scope_id, input_id, claim, now_ms);
+        self.journal_one_time(transitioned.journal, None);
+        transitioned.outcome
+    }
+
+    /// Mark the reserved code spent because submission is starting. This is
+    /// the pre-dispatch recheck: at or past the deadline the code expires
+    /// instead and the caller must not submit it.
+    pub fn consume_one_time(&self, reservation_id: &str) -> Result<OneTimeReceipt, OneTimeError> {
+        self.one_time_feature()?;
+        let now_ms = self.now_ms();
+        let transitioned = self
+            .state
+            .write()
+            .expect("secret store state lock poisoned")
+            .one_time
+            .consume(reservation_id, now_ms);
+        self.journal_one_time(transitioned.journal, None);
+        transitioned.outcome
+    }
+
+    /// Return a reserved code to `Available` because the attempt provably
+    /// failed before the code left the process. Any other outcome — a
+    /// rejection, a timeout after submission, an uncertain delivery, a lost
+    /// worker — consumes instead.
+    pub fn release_one_time(
+        &self,
+        reservation_id: &str,
+        failure: PreDispatchFailure,
+    ) -> Result<OneTimeReceipt, OneTimeError> {
+        self.one_time_feature()?;
+        let now_ms = self.now_ms();
+        let transitioned = self
+            .state
+            .write()
+            .expect("secret store state lock poisoned")
+            .one_time
+            .release(reservation_id, now_ms);
+        self.journal_one_time(transitioned.journal, Some(&failure.reason));
+        transitioned.outcome
+    }
+
+    /// Revoke an unspent code. A reserved code is revoked too — its holder's
+    /// `consume` then fails — but a consumed code stays consumed, because
+    /// cancellation cannot undo a submission.
+    pub fn cancel_one_time(&self, scope_id: &str, input_id: &str) -> Result<OneTimeReceipt, OneTimeError> {
+        self.one_time_feature()?;
+        let now_ms = self.now_ms();
+        let transitioned = self
+            .state
+            .write()
+            .expect("secret store state lock poisoned")
+            .one_time
+            .cancel(scope_id, input_id, now_ms);
+        self.journal_one_time(transitioned.journal, None);
+        transitioned.outcome
+    }
+
+    /// Value-free state of a registration, applying the deadline first.
+    pub fn one_time_state(&self, scope_id: &str, input_id: &str) -> Option<OneTimeReceipt> {
+        let now_ms = self.now_ms();
+        let (receipt, journal) = self
+            .state
+            .write()
+            .expect("secret store state lock poisoned")
+            .one_time
+            .state(scope_id, input_id, now_ms);
+        self.journal_one_time(journal, None);
+        receipt
+    }
+
+    /// Expire every due code now rather than on its next touch. Returns how
+    /// many expired in this sweep.
+    pub fn sweep_expired_one_time(&self) -> usize {
+        let now_ms = self.now_ms();
+        let journal = self
+            .state
+            .write()
+            .expect("secret store state lock poisoned")
+            .one_time
+            .sweep(now_ms);
+        let count = journal.len();
+        self.journal_one_time(journal, None);
+        count
     }
 
     pub fn store_captured(
@@ -2738,8 +3034,16 @@ impl<Layout: SecretScopeLayout> SecretStoreResolver<Layout> {
             captured_max_origins: Arc::new(AtomicUsize::new(
                 StoreConfig::default().captured_max_origins,
             )),
+            clock: Arc::new(SystemClock),
             stores: Arc::new(Mutex::new(HashMap::new())),
         }
+    }
+
+    /// Every store this resolver hands out reads deadlines against `clock`.
+    /// Stores already resolved keep the clock they were given.
+    pub fn with_clock(mut self, clock: Arc<dyn CustodyClock>) -> Self {
+        self.clock = clock;
+        self
     }
 
     pub fn resolve_for_scope(
@@ -2774,6 +3078,7 @@ impl<Layout: SecretScopeLayout> SecretStoreResolver<Layout> {
             self.capabilities.clone(),
         ));
         store.set_captured_max_origins(self.captured_max_origins.load(Ordering::SeqCst));
+        store.set_clock(Arc::clone(&self.clock));
         if let Err(error) = store.load_from_disk_lenient() {
             // Dropping the store on any failure used to make corruption read as
             // "one 500, then silently empty forever": the quarantine already
@@ -3035,6 +3340,30 @@ fn build_session_cookies(
 
 fn scoped_ephemeral_key(scope_id: &str, input_id: &str) -> String {
     format!("{scope_id}::{input_id}")
+}
+
+fn ephemeral_entry_expired(state: &SecretStoreState, key: &str, now_ms: i64) -> bool {
+    state
+        .ephemeral_deadlines
+        .get(key)
+        .is_some_and(|deadline| now_ms >= *deadline)
+}
+
+/// Drop bounded entries at or past their deadline. Called under the write
+/// lock by every ephemeral operation, so an expired value never outlives the
+/// first touch after its deadline.
+fn reap_expired_ephemeral(state: &mut SecretStoreState, now_ms: i64) -> usize {
+    let due: Vec<String> = state
+        .ephemeral_deadlines
+        .iter()
+        .filter(|(_, deadline)| now_ms >= **deadline)
+        .map(|(key, _)| key.clone())
+        .collect();
+    for key in &due {
+        state.ephemeral_deadlines.remove(key);
+        state.ephemeral.remove(key);
+    }
+    due.len()
 }
 
 fn cookies_to_specs(cookies: &[CookieWithMetadata]) -> Vec<CookieSpec> {
@@ -3567,6 +3896,98 @@ mod tests {
         assert_eq!(store.get_ephemeral("input-1"), Some("secret".to_string()));
         assert_eq!(store.clear_ephemeral("task-1"), 1);
         assert_eq!(store.get_ephemeral("input-1"), None);
+    }
+
+    #[test]
+    fn a_resolver_hands_every_store_the_injected_clock() {
+        let root = tempfile::tempdir().unwrap();
+        let clock = Arc::new(ManualClock::new(1_000));
+        let resolver = SecretStoreResolver::new_with_capabilities(
+            Box::new(InMemoryKeyProvider::new()),
+            root.path().to_path_buf(),
+            SecretRuntimeCapabilities::fully_available("in_memory"),
+        )
+        .with_clock(clock.clone());
+        let store = resolver.resolve_for_scope("owner", "default").unwrap();
+        assert_eq!(store.clock().now_ms(), 1_000);
+        clock.advance(250);
+        assert_eq!(store.clock().now_ms(), 1_250);
+        let other = resolver.resolve_for_scope("owner", "other").unwrap();
+        assert_eq!(other.clock().now_ms(), 1_250, "one clock per resolver, not per scope");
+
+        let wall = store_with_path(temp_store_path());
+        let before = chrono::Utc::now().timestamp_millis();
+        assert!(wall.clock().now_ms() >= before, "the default clock is the system clock");
+    }
+
+    #[test]
+    fn a_bounded_ephemeral_entry_is_gone_at_its_deadline() {
+        let clock = Arc::new(ManualClock::new(10_000));
+        let store = store_with_path(temp_store_path());
+        store.set_clock(clock.clone());
+        store
+            .register_ephemeral_bounded("execution:a", "password", "bounded-secret".to_string(), 10_500)
+            .unwrap();
+        store
+            .register_ephemeral("execution:a", "username", "plain".to_string())
+            .unwrap();
+
+        clock.set(10_499);
+        assert_eq!(
+            store.get_ephemeral_scoped("execution:a", "password").as_deref(),
+            Some("bounded-secret")
+        );
+        clock.set(10_500);
+        assert_eq!(store.get_ephemeral_scoped("execution:a", "password"), None);
+        assert_eq!(store.get_ephemeral("password"), None);
+        assert_eq!(
+            store.get_ephemeral_scoped("execution:a", "username").as_deref(),
+            Some("plain"),
+            "an unbounded entry keeps today's lifetime"
+        );
+        assert!(
+            !store.redaction_values().iter().any(|value| value.as_str() == "bounded-secret"),
+            "the read that found it expired dropped the value"
+        );
+        assert!(store.ephemeral_scope_holds_user_typed_secret("execution:a"), "the plain entry still pins");
+
+        store
+            .register_ephemeral_bounded("execution:b", "otp", "other-secret".to_string(), 10_600)
+            .unwrap();
+        assert!(store.ephemeral_scope_holds_user_typed_secret("execution:b"));
+        clock.set(10_600);
+        assert!(
+            !store.ephemeral_scope_holds_user_typed_secret("execution:b"),
+            "an expired entry no longer pins its run"
+        );
+        assert_eq!(store.sweep_expired_ephemeral(), 1);
+        assert_eq!(store.sweep_expired_ephemeral(), 0);
+        assert_eq!(store.clear_ephemeral("execution:a"), 1, "only the live entry remains to clear");
+    }
+
+    #[test]
+    fn a_placeholder_never_resolves_an_expired_bounded_entry() {
+        let clock = Arc::new(ManualClock::new(0));
+        let store = store_with_path(temp_store_path());
+        store.set_clock(clock.clone());
+        store
+            .register_ephemeral_bounded("execution:a", "password", "bounded-secret".to_string(), 100)
+            .unwrap();
+        let (resolved, known) = crate::injection::resolve_inline_placeholders(
+            "pw=[REF:password]",
+            &store,
+            Some("execution:a"),
+        );
+        assert_eq!(resolved, "pw=bounded-secret");
+        assert_eq!(known.len(), 1);
+        clock.set(100);
+        let (resolved, known) = crate::injection::resolve_inline_placeholders(
+            "pw=[REF:password]",
+            &store,
+            Some("execution:a"),
+        );
+        assert_eq!(resolved, "pw=[REF:password]");
+        assert!(known.is_empty());
     }
 
     #[test]

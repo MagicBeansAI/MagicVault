@@ -2,12 +2,31 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use crate::{policy::SecretPolicy, injection::SameSite};
 
+/// Dropping an entry WIPES its plaintext.
+///
+/// Every path that frees an entry — a `remove` from the state map, a
+/// registration that superseded the previous one, a clone going out of scope
+/// after its fields were read — used to hand the allocator a buffer that still
+/// held a provider key, a session cookie or a password. One `Drop` on the type
+/// covers all of them, including the ones nobody has written yet. A field moved
+/// OUT of the struct would skip it, so a partial move is now a compile error
+/// (take it instead, as `issue_grant_with_binding` does).
+impl Drop for SecretEntry {
+    fn drop(&mut self) {
+        use zeroize::Zeroize;
+        for value in self.fields.values_mut() {
+            value.zeroize();
+        }
+    }
+}
+
 /// A stored secret record shared by provisioned, captured, and ephemeral flows.
 ///
 /// `Debug` is written by hand — see the impl below. Deriving it puts the
 /// plaintext of every provider key, bearer header and session cookie one
 /// `{:?}` away, and the entry is reachable from a `Debug` store state, so the
-/// `{:?}` need not even name it.
+/// `{:?}` need not even name it. It wipes its own fields on drop (the `Drop`
+/// impl above).
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SecretEntry {
     pub id: String,

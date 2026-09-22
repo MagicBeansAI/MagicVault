@@ -64,12 +64,31 @@ pub struct OneTimeClaim {
 }
 
 impl OneTimeBinding {
-    /// Whether `claim` is an exact match for what was registered. A bound
-    /// destination must be named exactly; a challenge is compared only when
-    /// both sides carry one.
+    /// Whether `claim` is an exact match for what was registered.
+    ///
+    /// A registration that named a DESTINATION must have it named back: an
+    /// unbound registration admits anything its holder asks — that is what
+    /// being unbound means — but a bound one is never satisfied by a claim
+    /// that simply omits the destination, because the omission would make the
+    /// binding advisory. The CHALLENGE half is compared only against what the
+    /// claim actually asserts; see the comment on it for why an omitted
+    /// challenge is admitted and what naming one buys.
     fn admits(&self, claim: &OneTimeClaim) -> bool {
-        let destination_ok =
-            self.destination.is_none() || self.destination == claim.destination;
+        let destination_ok = match (&self.destination, &claim.destination) {
+            (None, _) => true,
+            (Some(bound), Some(claimed)) => bound == claimed,
+            (Some(_), None) => false,
+        };
+        // The challenge half compares only what the claim actually asserts. A
+        // caller names a challenge when it holds a live observation of one at
+        // this destination — the run's own 401, its program's own prompt — and
+        // then a code bound to the challenge that destination raised BEFORE is
+        // refused against the one standing now, which the destination alone
+        // cannot tell apart. A claim that names none is admitted on purpose:
+        // the only id such a caller could offer is a copy of this registration,
+        // which asserts nothing, so demanding it would buy no safety and refuse
+        // every bound code whose delivery follows a resume (where the run's
+        // in-memory observation is gone).
         let challenge_ok = match (&self.challenge_id, &claim.challenge_id) {
             (Some(bound), Some(claimed)) => bound == claimed,
             _ => true,
@@ -655,6 +674,44 @@ mod tests {
         assert_eq!(released.challenge_id.as_deref(), Some("challenge-1"));
     }
 
+    /// `expire_if_due` is what drops a code's plaintext, and it only runs on the
+    /// entry something touches. With no sweep caller, a code nobody reserved
+    /// kept its value until the scope was retired at the end of the run — hours,
+    /// against a ten-minute retention bound. The store's own one-time traffic
+    /// sweeps every entry now.
+    #[test]
+    fn an_expired_code_is_wiped_by_the_stores_own_traffic() {
+        let temp = tempfile::tempdir().unwrap();
+        let clock = Arc::new(ManualClock::new(T0));
+        let store = store(temp.path(), &clock);
+
+        register(&store);
+        assert!(
+            store.redaction_values().iter().any(|value| value.as_str() == CANARY),
+            "a live code is part of the run's redaction set"
+        );
+
+        clock.set(T0 + 60_000);
+        // Nothing touches `otp` itself: a DIFFERENT key is registered.
+        store
+            .register_one_time("execution:run-1", "otp2", "p2-second-canary-778811".to_string(), T0 + 90_000, binding())
+            .unwrap();
+        assert!(
+            !store.redaction_values().iter().any(|value| value.as_str() == CANARY),
+            "the expired code's plaintext is gone, not waiting for someone to ask for it"
+        );
+        assert_eq!(
+            store.one_time_state("execution:run-1", "otp").unwrap().state,
+            OneTimeState::Expired
+        );
+        let events: Vec<String> = journal(temp.path()).into_iter().map(|event| event.event).collect();
+        assert_eq!(
+            events,
+            ["one_time_registered", "one_time_expired", "one_time_registered"],
+            "the sweep journals the expiry exactly once, before the registration that found it"
+        );
+    }
+
     #[test]
     fn a_code_expires_while_available_and_while_reserved() {
         let temp = tempfile::tempdir().unwrap();
@@ -743,7 +800,7 @@ mod tests {
         let unnamed_challenge = OneTimeClaim { challenge_id: None, ..claim() };
         assert!(
             store.reserve_one_time("execution:run-1", "otp", unnamed_challenge).is_ok(),
-            "a claim that names no challenge is admitted; the challenge is compared only when both sides carry one"
+            "a claim that names no challenge is admitted: the only id such a caller could offer is a copy of this registration, which asserts nothing"
         );
 
         let events: Vec<String> = journal(temp.path()).into_iter().map(|event| event.event).collect();

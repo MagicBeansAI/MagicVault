@@ -1273,7 +1273,7 @@ impl SecretStore {
         binding: GrantBinding,
         ttl_secs: Option<i64>,
     ) -> Result<String, SecretStoreError> {
-        let entry = self
+        let mut entry = self
             .get_provisioned(secret_id)
             .ok_or_else(|| SecretStoreError::SecretNotFound(secret_id.to_string()))?;
         let ttl_secs = ttl_secs.unwrap_or_else(|| {
@@ -1283,10 +1283,12 @@ impl SecretStore {
                 .default_grant_ttl_secs
         });
 
+        // Taken, not moved out: `SecretEntry` wipes its own fields on drop, and
+        // a struct with a `Drop` cannot be partially moved.
         let grant_id = self.grant_table.issue_grant(
             secret_id,
-            entry.fields,
-            entry.injection,
+            std::mem::take(&mut entry.fields),
+            entry.injection.clone(),
             binding,
             ttl_secs,
         );
@@ -1349,7 +1351,7 @@ impl SecretStore {
                 secret_id: challenge.secret_id.clone(),
                 secret_label: self
                     .get_provisioned(&challenge.secret_id)
-                    .map(|entry| entry.label)
+                    .map(|entry| entry.label.clone())
                     .unwrap_or_else(|| challenge.secret_id.clone()),
                 tool: challenge.tool,
                 action: challenge.action,
@@ -1646,9 +1648,16 @@ impl SecretStore {
         self.one_time_feature()?;
         let mut guard = self.state.write().expect("secret store state lock poisoned");
         let now_ms = self.now_ms();
+        // Every entry past its deadline is expired HERE, on the store's own
+        // traffic, not only when something happens to touch that entry.
+        // `expire_if_due` is what drops the plaintext, and nothing called the
+        // sweep, so a code nobody reserved kept its value for the run's whole
+        // life — a parked run is hours, the retention bound is ten minutes.
+        let mut journal = guard.one_time.sweep(now_ms);
         let transitioned = guard.one_time.register(scope_id, input_id, value, deadline_ms, binding, now_ms);
         drop(guard);
-        self.journal_one_time(transitioned.journal, None);
+        journal.extend(transitioned.journal);
+        self.journal_one_time(journal, None);
         transitioned.outcome
     }
 
@@ -1667,9 +1676,11 @@ impl SecretStore {
         self.one_time_feature()?;
         let mut guard = self.state.write().expect("secret store state lock poisoned");
         let now_ms = self.now_ms();
+        let mut journal = guard.one_time.sweep(now_ms);
         let transitioned = guard.one_time.reserve(scope_id, input_id, claim, now_ms);
         drop(guard);
-        self.journal_one_time(transitioned.journal, None);
+        journal.extend(transitioned.journal);
+        self.journal_one_time(journal, None);
         transitioned.outcome
     }
 

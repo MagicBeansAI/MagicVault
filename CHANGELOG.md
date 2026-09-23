@@ -5,6 +5,27 @@ Entries describe source changes, not publication announcements. See
 [release acceptance checklist](docs/qualification/release.md) and
 [version-specific test evidence](docs/qualification/README.md#evidence-records).
 
+## 0.9.3 — one-time custody in the standalone packages — 2026-09-23
+
+- Carry the shared core's one-time custody work (core 0.1.5) into the standalone
+  packages. A `SecretEntry` now wipes its own plaintext on drop, so a removal, a
+  superseding registration or a dropped clone is covered by the type rather than
+  by each call site remembering to.
+- Fix the two `magicvault-service` call sites that still moved `entry.fields`
+  out of the struct — `broker/browser.rs` and `broker/delivery.rs`. A partial
+  move skips `Drop`, so those paths handed the allocator a buffer still holding
+  a provider key, session cookie or password. They now take the field, leaving
+  an empty map for the wipe to run over. The `Drop` impl made this a compile
+  error (E0509), which is how it surfaced.
+- Expiry no longer waits to be touched: `register_one_time` and
+  `reserve_one_time` sweep every due entry on the store's own traffic, and
+  `sweep_expired_one_time` does it on demand. A code nobody reserved used to
+  hold its value for the run's whole life — hours for a parked run, against a
+  ten-minute retention bound.
+- Record all of the above in `docs/architecture.md` and refresh the architecture
+  baseline, which the final core commit had left stale.
+- Wire, vault format and key identity are unchanged.
+
 ## Shared core 0.1.5 — a receipt names its bound destination — 2026-09-22
 
 Source change to `magicvault-core` only; no standalone package, wire, vault

@@ -960,11 +960,18 @@ impl Broker {
                         // Core returns an owned trusted entry. Erase every
                         // cloned field, including unselected fields, on exit.
                         if !entries.contains_key(&field.credential_ref) {
-                            let entry = b
+                            let mut entry = b
                                 .store
                                 .get_provisioned(&field.credential_ref)
                                 .ok_or(ErrorCode::Denied)?;
-                            entries.insert(field.credential_ref.clone(), SecretInput(entry.fields));
+                            // Take rather than move out: `SecretEntry` zeroizes
+                            // its fields on drop, and a partial move would skip
+                            // that wipe. Taking leaves an empty map behind for
+                            // the drop to run over.
+                            entries.insert(
+                                field.credential_ref.clone(),
+                                SecretInput(std::mem::take(&mut entry.fields)),
+                            );
                         }
                         let value = entries
                             .get(&field.credential_ref)

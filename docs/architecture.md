@@ -1,6 +1,6 @@
 # MagicVault architecture
 
-Architecture version: `0.9.2`
+Architecture version: `0.9.3`
 
 Previous immutable baseline tag: `architecture/v0.3.0`. The current reviewed
 source/document baseline is [architecture-baseline.json](architecture-baseline.json).
@@ -70,11 +70,11 @@ that an immediate restart can acquire the old instance lock.
 
 | Component | Version | Ownership |
 | --- | --- | --- |
-| `magicvault`, `magicvault-mcp` | `0.9.2` | Human administration, value-free requests including one-time prompt-and-fill; CLI builds daemon/native host |
-| `magicvault-service` | `0.9.2` | Native one-time input, consent/grants and cancellation, bounded discovery, one store writer and private application-bundle installer |
+| `magicvault`, `magicvault-mcp` | `0.9.3` | Human administration, value-free requests including one-time prompt-and-fill; CLI builds daemon/native host |
+| `magicvault-service` | `0.9.3` | Native one-time input, consent/grants and cancellation, bounded discovery, one store writer and private application-bundle installer |
 | `magicvault-protocol` | `0.7.0` | Closed prompt-and-fill request plus existing authentication, policy, consent, profiles, jobs and bounded IPC |
 | `magicvault-effect` | `0.7.1` | Shared Unix/Windows native bridge; existing CDP/HTTP adapters and Unix MagicRun execution; Windows process use refused |
-| `magicvault-prompt` | `0.9.2` | Shared desktop window; bounded private metadata/input pipe; no vault or agent API |
+| `magicvault-prompt` | `0.9.3` | Shared desktop window; bounded private metadata/input pipe; no vault or agent API |
 | Chromium extension | `0.6.1` | Permission-aware exact discovery narrowing, site grants/blocks and document-targeted fill; no navigation or submission API |
 | MagicRun `tool-runtime-core` | `0.1.74`, public Git dependency locked to `af348ab5` | Governed process preparation, descriptor-bound native macOS spawn for non-jailed batches, digest-bound dispatch, cancellation, output bounds and owned-child cleanup |
 | `magicvault-core` | `0.1.5` | Encryption, credential references, existing policies, scoped stores, typed audit, injectable clock, bounded ephemeral entries and one-time custody (receipts name their bound destination) |
@@ -552,8 +552,16 @@ caller gets the exact refusal. Nothing in this
 partition persists — a restart loses the code and the consumer fails closed to
 a fresh ask. One-time material is never a placeholder read, is part of the
 redaction snapshot while live, retires with `clear_ephemeral`, and counts for
-`ephemeral_scope_holds_user_typed_secret`. The same clock bounds plain
-ephemeral entries registered with `register_ephemeral_bounded`. The standalone
+`ephemeral_scope_holds_user_typed_secret`. An entry wipes its own plaintext when
+it is freed: `SecretEntry` zeroizes its fields on drop, so a removal, a
+superseding registration and a dropped clone are covered by the type rather than
+by each call site remembering to (a field moved out of the struct would skip it,
+so a partial move is a compile error). Expiry does not wait to be touched —
+`register_one_time` and `reserve_one_time` sweep every due entry on the store's
+own traffic, and `sweep_expired_one_time` does it on demand — so a code nobody
+reserved stops holding its value for the run's whole life, which a parked run
+measures in hours against a ten-minute retention bound. The same clock bounds
+plain ephemeral entries registered with `register_ephemeral_bounded`. The standalone
 daemon does not yet use this path; Magician's secure-HITL integration is its
 first consumer.
 

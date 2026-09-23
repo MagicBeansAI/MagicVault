@@ -421,11 +421,17 @@ impl Broker {
                     let mut entries = HashMap::<String, SecretInput>::new();
                     for (reference, field) in selected_fields(&entry2.profile) {
                         if !entries.contains_key(&reference) {
-                            let entry = b
+                            let mut entry = b
                                 .store
                                 .get_provisioned(&reference)
                                 .ok_or(ErrorCode::Denied)?;
-                            entries.insert(reference.clone(), SecretInput(entry.fields));
+                            // Take rather than move out: see browser.rs — the
+                            // entry zeroizes its fields on drop and a partial
+                            // move would skip it.
+                            entries.insert(
+                                reference.clone(),
+                                SecretInput(std::mem::take(&mut entry.fields)),
+                            );
                         }
                         let value = entries
                             .get(&reference)

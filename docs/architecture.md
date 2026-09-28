@@ -76,7 +76,7 @@ that an immediate restart can acquire the old instance lock.
 | `magicvault-effect` | `0.7.1` | Shared Unix/Windows native bridge; existing CDP/HTTP adapters and Unix MagicRun execution; Windows process use refused |
 | `magicvault-prompt` | `0.9.3` | Shared desktop window; bounded private metadata/input pipe; no vault or agent API |
 | Chromium extension | `0.6.1` | Permission-aware exact discovery narrowing, site grants/blocks and document-targeted fill; no navigation or submission API |
-| MagicRun `tool-runtime-core` | `0.1.74`, public Git dependency locked to `af348ab5` | Governed process preparation, descriptor-bound native macOS spawn for non-jailed batches, digest-bound dispatch, cancellation, output bounds and owned-child cleanup |
+| MagicRun `tool-runtime-core` | Requires `0.1.74`; public Git dependency locked to `0.1.81` at `c65fbbaa` (the source Magician ships) | Governed process preparation, descriptor-bound native macOS spawn for non-jailed batches, digest-bound dispatch, cancellation, output bounds and owned-child cleanup |
 | `magicvault-core` | `0.1.6` | Encryption, credential references, existing policies (domain scoping by single host, host set or all sites), scoped stores, typed audit, injectable clock, bounded ephemeral entries and one-time custody (receipts name their bound destination) |
 | `magicvault-primitives` | `0.1.2` | Filesystem/JSON helpers plus private Windows ACL and shared local-stream primitives |
 
@@ -173,8 +173,15 @@ file actions exclude unrelated descriptors. Original deadline, cancellation,
 resource/output bounds, wait/cleanup and receipt uncertainty rules remain intact.
 No retry, shell fallback or process/HTTP serialization is added. The required
 macOS cwd action must exist or the operation fails closed. See
-[MagicRun's reviewed boundary](https://github.com/MagicBeansAI/MagicRun/blob/af348ab566cbf495f59d155a328bf2cac6afa09d/docs/architecture.md#macos-non-jailed-batch-launch)
+[MagicRun's reviewed boundary](https://github.com/MagicBeansAI/MagicRun/blob/c65fbbaac46a70f8a1247307fc7daa5ded018275/docs/architecture.md#macos-non-jailed-batch-launch)
 and [qualification](qualification/results-native-spawn-2026-09-08.md).
+The lock now selects MagicRun `0.1.81` (`c65fbbaa`), the source Magician resolves,
+so standalone tests exercise the same runtime. Between `0.1.74` and `0.1.81`
+MagicRun changed its jail (brokered egress, interpreter mode, staged inputs,
+declared exec roots) and, for the non-native launch path, marks every inherited
+descriptor from 3 up close-on-exec before exec. MagicVault uses neither the jail
+nor any new API; the macOS native spawn above is unchanged, and the manifest
+still requires `0.1.74`.
 Shared custody, protocol, browser/extension behavior and persisted state do not
 change. MagicRun's jailed and PTY paths retain their existing backends; Magician
 is not upgraded here. Its future dependency/source review will see changed

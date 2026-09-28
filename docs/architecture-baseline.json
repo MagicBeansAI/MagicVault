@@ -3,7 +3,7 @@
   "project": "MagicVault",
   "architecture_version": "0.9.3",
   "document": "docs/architecture.md",
-  "document_sha256": "337fe94433a4f0c58a51f8b663e7b1efa2168cb0a43c63fb314b5b6806e1d690",
+  "document_sha256": "95c3520f29bba1cd4e95f7428150eefe5a2ae99a554c991dbc2ddd7873115561",
   "component_versions": {
     "extension": "0.6.1",
     "magicvault": "0.9.3",
@@ -23,7 +23,7 @@
     ".github/workflows/npm-release.yml": "69079be75f7575d773f57d1fdadbafc8f387173170843f19b6f32bc559b20a67",
     ".github/workflows/process-investigation.yml": "cf0fa5b99d58a3393b6371a449dedbe6bac2707c1c3ee261ed44e41330ce7730",
     ".github/workflows/qualification.yml": "30c7320e100240fd08c7be430ffb7f09bcb220b4511858bbd16bcdc266bb9942",
-    "Cargo.lock": "8bf7760f7db4c32f680a9704c3fe5c3ba394af8211e0fe694c2b6b05ce152a89",
+    "Cargo.lock": "cdef2d69a67742205fd14686444a687d7907240b26f8e7df8925a317f7658de6",
     "Cargo.toml": "2a361d48edf7fc808e135b2bab8935141eba296c7b9a8a5f31b2e9aa43613203",
     "extension/manifest.json": "bcc73a79017ffa7c9e8c73716b6537e0cc2aeeba62786c7414100924b5e3bf51",
     "extension/options.css": "529df3a87d0985c60068454c32d85363f72fb9bf0628de894b4329830acd9028",

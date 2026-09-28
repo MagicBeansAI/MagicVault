@@ -5,6 +5,53 @@ Entries describe source changes, not publication announcements. See
 [release acceptance checklist](docs/qualification/release.md) and
 [version-specific test evidence](docs/qualification/README.md#evidence-records).
 
+## Shared core 0.1.6 — domain sets and all-sites secret scoping — 2026-09-28
+
+Source change to `magicvault-core` only; no standalone package, agent wire, vault
+format or key-identity change, and no npm release. Written for Magician's app
+layer, where one jailed tool call may reach several hosts (e.g.
+`oauth.reddit.com` and `www.reddit.com`), or any host when the owner allowed
+that.
+
+- `SecretPolicy::allowed_domains` accepts a bare `*`, meaning every domain.
+  **Behavior change for stored policies:** a `*` entry already in a policy used
+  to match only a request whose domain was the literal text `*`; it now admits
+  every domain (and all-sites requests). Review stored policies that list `*`
+  before upgrading. An empty list is still unrestricted.
+- **Behavior change for domain-scoped secrets:** policy patterns now match
+  without regard to ASCII case (`API.example.com` admits `api.example.com`),
+  and a single `domain` is lowercased and must be a DNS host name — text such
+  as `evil.test/.example.com`, a URL or `host:port` is denied with
+  "not a DNS host name" instead of being suffix-matched. Unrestricted policies
+  still ignore the domain.
+- `Any` means every host the caller names; the vault does no public/private
+  filtering. Blocking loopback, link-local and private addresses (SSRF) remains
+  the consumer's job.
+- Add `RequestedDomains { None, One, Set(DomainSet), Any }`.
+  `RequestedDomains::hosts` lowercases, validates (DNS host names only — no
+  scheme, port, path or `*`), sorts and dedupes up to `MAX_REQUESTED_DOMAINS`
+  (16); one distinct host becomes `One`. A set is allowed only if every host
+  matches some pattern; `Any` only if the policy is unrestricted or lists `*`
+  (`*.suffix` alone does not admit it).
+- `AccessRequest`, `ApprovalChallenge`, `GrantBinding`, `PendingSecretApproval`
+  and `AuditEvent` gain `domains`: the sorted set, or `["*"]` for all sites,
+  omitted when empty. Records written before it load unchanged, and no-domain
+  and single-domain values serialize byte for byte as before.
+- Add `evaluate_access_scoped`, `issue_grant_scoped`,
+  `issue_delegated_grant_scoped` and `approve_request_scoped` on the store,
+  `AccessRequest::scoped`, `GrantBinding::{matches_domains,
+  matches_delegated_domains}` and `GrantBindingExpectation::{SecretScoped,
+  DelegatedScoped}`. A grant or approval for a set or all sites redeems only
+  for exactly that canonical set or `Any`; the legacy `matches` never accepts
+  such a binding, and `matches_domains` is exact (a no-domain binding matches
+  only `None`). The approval fingerprint for no-domain and single-domain
+  requests is the same string as before.
+- **Behavior change for bound batches:** `GrantBindingExpectation::Secret` and
+  `SecretScoped` no longer redeem a delegated grant; only `Delegated` /
+  `DelegatedScoped` naming its authority do.
+- Host text echoed in `DomainScopeError::InvalidHost` and deny reasons is
+  truncated to 128 bytes and has control characters escaped.
+
 ## 0.9.3 — one-time custody in the standalone packages — 2026-09-23
 
 - Carry the shared core's one-time custody work (core 0.1.5) into the standalone
@@ -28,7 +75,7 @@ Entries describe source changes, not publication announcements. See
 
 ## Shared core 0.1.5 — a receipt names its bound destination — 2026-09-22
 
-Source change to `magicvault-core` only; no standalone package, wire, vault
+Source change to `magicvault-core` only; no standalone package, agent wire, vault
 format or key-identity change, and no npm release. Written for Magician's
 authenticated dispatch (secure-HITL P4).
 
@@ -41,7 +88,7 @@ authenticated dispatch (secure-HITL P4).
 
 ## Shared core 0.1.4 — one-time credential custody — 2026-09-21
 
-Source change to `magicvault-core` only; no standalone package, wire, vault
+Source change to `magicvault-core` only; no standalone package, agent wire, vault
 format or key-identity change, and no npm release. Written for Magician's
 secure-HITL integration, which consumes it at a reviewed Git revision.
 

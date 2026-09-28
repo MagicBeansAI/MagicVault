@@ -21,7 +21,7 @@ use super::injection::{detect_jwt_expiry, filter_cookies_for_url, CookieWithMeta
 use super::policy::{
     check_policy, AccessRequest, ApprovalTable, BoundGrantRedemption, BoundGrantRedemptionError,
     DelegatedGrantAuthority, GrantBinding, GrantTable, PolicyResult, RedemptionPayload,
-    SecretPolicy, UsageTracker,
+    RequestedDomains, SecretPolicy, UsageTracker,
 };
 use super::{
     cookie_field_value, CookieSpec, InjectionTarget, SameSite, SecretEntry, SecretRef, SecretSource,
@@ -157,6 +157,9 @@ pub struct PendingSecretApproval {
     pub action: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub domain: Option<String>,
+    /// A domain set, or `["*"]` for all sites (see `AccessRequest::domains`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub domains: Vec<String>,
     pub expires_at: i64,
 }
 
@@ -186,6 +189,10 @@ pub struct AuditEvent<Receipt> {
     pub action: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub domain: Option<String>,
+    /// A domain set, or `["*"]` for all sites; omitted otherwise, so
+    /// single-domain and no-domain events serialize as before.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub domains: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub challenge_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -204,6 +211,7 @@ impl<Receipt: std::fmt::Debug> std::fmt::Debug for AuditEvent<Receipt> {
             .field("tool", &self.tool)
             .field("action", &self.action)
             .field("domain", &self.domain)
+            .field("domains", &self.domains)
             .field("challenge_id", &self.challenge_id)
             .field("detail", &self.detail)
             .field("runtime_credential_receipt", &self.runtime_credential_receipt)
@@ -224,6 +232,7 @@ impl<Receipt> AuditEvent<Receipt> {
             tool: None,
             action: None,
             domain: None,
+            domains: Vec::new(),
             challenge_id: None,
             detail: None,
             runtime_credential_receipt: None,
@@ -264,6 +273,13 @@ impl<Receipt> AuditEvent<Receipt> {
 
     pub fn with_optional_domain(mut self, domain: Option<&str>) -> Self {
         self.domain = domain.map(ToString::to_string);
+        self
+    }
+
+    /// Record the target domain scope: `domain` for one domain, `domains` for
+    /// a set or `["*"]` for all sites.
+    pub fn with_requested_domains(mut self, domains: &RequestedDomains) -> Self {
+        (self.domain, self.domains) = domains.to_wire();
         self
     }
 
@@ -1170,16 +1186,24 @@ impl SecretStore {
         action: &str,
         domain: Option<&str>,
     ) -> Result<PolicyResult, SecretStoreError> {
+        self.evaluate_access_scoped(secret_id, tool, action, &RequestedDomains::from_legacy(domain))
+    }
+
+    /// `evaluate_access` for a domain set or all sites. A set is allowed only
+    /// when every host matches the secret's `allowed_domains`; all sites only
+    /// when that list is empty or contains `*`.
+    pub fn evaluate_access_scoped(
+        &self,
+        secret_id: &str,
+        tool: &str,
+        action: &str,
+        domains: &RequestedDomains,
+    ) -> Result<PolicyResult, SecretStoreError> {
         self.ensure_feature_enabled(SecretSourceKind::Provisioned)?;
         let entry = self
             .get_provisioned(secret_id)
             .ok_or_else(|| SecretStoreError::SecretNotFound(secret_id.to_string()))?;
-        let request = AccessRequest::new(
-            secret_id,
-            tool,
-            action,
-            domain.map(|value| value.to_string()),
-        );
+        let request = AccessRequest::scoped(secret_id, tool, action, domains);
 
         let result = match entry.policy.as_ref() {
             Some(policy) => {
@@ -1223,8 +1247,28 @@ impl SecretStore {
         domain: Option<&str>,
         ttl_secs: Option<i64>,
     ) -> Result<SecretRef, SecretStoreError> {
+        self.issue_grant_scoped(
+            secret_id,
+            tool,
+            action,
+            &RequestedDomains::from_legacy(domain),
+            ttl_secs,
+        )
+    }
+
+    /// `issue_grant` for a domain set or all sites. The grant is bound to
+    /// exactly `domains`: `GrantBindingExpectation::SecretScoped` with the same
+    /// value redeems it, a different set does not.
+    pub fn issue_grant_scoped(
+        &self,
+        secret_id: &str,
+        tool: &str,
+        action: &str,
+        domains: &RequestedDomains,
+        ttl_secs: Option<i64>,
+    ) -> Result<SecretRef, SecretStoreError> {
         self.ensure_feature_enabled(SecretSourceKind::Provisioned)?;
-        match self.evaluate_access(secret_id, tool, action, domain)? {
+        match self.evaluate_access_scoped(secret_id, tool, action, domains)? {
             PolicyResult::Allowed => {},
             PolicyResult::Denied { reason } => return Err(SecretStoreError::PolicyDenied(reason)),
             PolicyResult::NeedsApproval { challenge } => {
@@ -1232,12 +1276,7 @@ impl SecretStore {
             },
         }
 
-        let request = AccessRequest::new(
-            secret_id,
-            tool,
-            action,
-            domain.map(|value| value.to_string()),
-        );
+        let request = AccessRequest::scoped(secret_id, tool, action, domains);
         self.issue_grant_with_binding(secret_id, GrantBinding::from_request(&request), ttl_secs)
             .map(SecretRef::Grant)
     }
@@ -1251,15 +1290,36 @@ impl SecretStore {
         authority: DelegatedGrantAuthority,
         ttl_secs: Option<i64>,
     ) -> Result<String, SecretStoreError> {
+        self.issue_delegated_grant_scoped(
+            secret_id,
+            tool,
+            action,
+            &RequestedDomains::from_legacy(domain),
+            authority,
+            ttl_secs,
+        )
+    }
+
+    /// `issue_delegated_grant` for a domain set or all sites; redeemed with
+    /// `GrantBindingExpectation::DelegatedScoped` naming exactly `domains`.
+    pub fn issue_delegated_grant_scoped(
+        &self,
+        secret_id: &str,
+        tool: &str,
+        action: &str,
+        domains: &RequestedDomains,
+        authority: DelegatedGrantAuthority,
+        ttl_secs: Option<i64>,
+    ) -> Result<String, SecretStoreError> {
         self.ensure_feature_enabled(SecretSourceKind::Provisioned)?;
-        match self.evaluate_access(secret_id, tool, action, domain)? {
+        match self.evaluate_access_scoped(secret_id, tool, action, domains)? {
             PolicyResult::Allowed => {},
             PolicyResult::Denied { reason } => return Err(SecretStoreError::PolicyDenied(reason)),
             PolicyResult::NeedsApproval { challenge } => {
                 return Err(SecretStoreError::ApprovalRequired(challenge.id));
             },
         }
-        let request = AccessRequest::new(secret_id, tool, action, domain.map(ToOwned::to_owned));
+        let request = AccessRequest::scoped(secret_id, tool, action, domains);
         self.issue_grant_with_binding(
             secret_id,
             GrantBinding::delegated(&request, authority),
@@ -1317,12 +1377,14 @@ impl SecretStore {
         self.ensure_feature_enabled(SecretSourceKind::Provisioned)?;
         let challenge = self.approval_table.grant(challenge_id);
         if let Some(challenge) = challenge {
+            let mut event = SecretAuditEvent::new("approval_granted")
+                .with_optional_domain(challenge.domain.as_deref());
+            event.domains = challenge.domains;
             self.audit_event(
-                SecretAuditEvent::new("approval_granted")
+                event
                     .with_secret_id(challenge.secret_id)
                     .with_tool(challenge.tool)
                     .with_action(challenge.action)
-                    .with_optional_domain(challenge.domain.as_deref())
                     .with_challenge_id(challenge.id),
             );
             Ok(true)
@@ -1356,6 +1418,7 @@ impl SecretStore {
                 tool: challenge.tool,
                 action: challenge.action,
                 domain: challenge.domain,
+                domains: challenge.domains,
                 expires_at: challenge.expires_at,
             })
             .collect()
@@ -1368,19 +1431,31 @@ impl SecretStore {
         action: &str,
         domain: Option<&str>,
     ) -> Result<(), SecretStoreError> {
+        self.approve_request_scoped(secret_id, tool, action, &RequestedDomains::from_legacy(domain))
+    }
+
+    /// `approve_request` for a domain set or all sites. The approval is
+    /// consumed only by a request for exactly `domains`.
+    pub fn approve_request_scoped(
+        &self,
+        secret_id: &str,
+        tool: &str,
+        action: &str,
+        domains: &RequestedDomains,
+    ) -> Result<(), SecretStoreError> {
         self.ensure_feature_enabled(SecretSourceKind::Provisioned)?;
         if self.get_provisioned(secret_id).is_none() {
             return Err(SecretStoreError::SecretNotFound(secret_id.to_string()));
         }
 
-        let request = AccessRequest::new(secret_id, tool, action, domain.map(ToString::to_string));
+        let request = AccessRequest::scoped(secret_id, tool, action, domains);
         self.approval_table.approve_request(&request);
         self.audit_event(
             SecretAuditEvent::new("approval_granted_restored")
                 .with_secret_id(secret_id.to_string())
                 .with_tool(tool.to_string())
                 .with_action(action.to_string())
-                .with_optional_domain(domain)
+                .with_requested_domains(domains)
                 .with_detail("pause_resume"),
         );
         Ok(())
@@ -4695,6 +4770,177 @@ mod tests {
                 .unwrap(),
             PolicyResult::Denied { .. }
         ));
+    }
+
+    #[test]
+    fn scoped_grants_follow_domain_sets_and_all_sites() {
+        use crate::policy::GrantBindingExpectation;
+
+        let store = store_with_path(temp_store_path());
+        for (id, allowed) in [
+            ("reddit", vec!["*.reddit.com".to_string()]),
+            ("anywhere", vec!["*".to_string()]),
+        ] {
+            store
+                .store_provisioned(
+                    id,
+                    id,
+                    HashMap::from([("value".to_string(), "secret".to_string())]),
+                    InjectionTarget::Header {
+                        name: "Authorization".to_string(),
+                        prefix: None,
+                    },
+                    SecretPolicy {
+                        allowed_domains: allowed,
+                        ..SecretPolicy::default()
+                    },
+                )
+                .unwrap();
+        }
+        let set = RequestedDomains::hosts(["oauth.reddit.com", "www.reddit.com"]).unwrap();
+        let wider = RequestedDomains::hosts(["www.reddit.com", "example.com"]).unwrap();
+
+        assert!(matches!(
+            store.issue_grant_scoped("reddit", "http", "get", &wider, Some(60)),
+            Err(SecretStoreError::PolicyDenied(_))
+        ));
+        assert!(matches!(
+            store.issue_grant_scoped("reddit", "http", "get", &RequestedDomains::Any, Some(60)),
+            Err(SecretStoreError::PolicyDenied(_))
+        ));
+        let SecretRef::Grant(token) = store
+            .issue_grant_scoped("reddit", "http", "get", &set, Some(60))
+            .unwrap()
+        else {
+            panic!("grant reference");
+        };
+        assert_eq!(
+            store
+                .redeem_bound_grants(&[BoundGrantRedemption {
+                    token: &token,
+                    expected: GrantBindingExpectation::SecretScoped {
+                        tool: "http",
+                        action: "get",
+                        domains: &set,
+                    },
+                }])
+                .unwrap()
+                .len(),
+            1
+        );
+
+        let authority = DelegatedGrantAuthority::new("owner", "default", "provider", "agent");
+        let delegated = store
+            .issue_delegated_grant_scoped(
+                "anywhere",
+                "http",
+                "get",
+                &RequestedDomains::Any,
+                authority.clone(),
+                Some(60),
+            )
+            .unwrap();
+        assert!(store
+            .redeem_bound_grants(&[BoundGrantRedemption {
+                token: &delegated,
+                expected: GrantBindingExpectation::DelegatedScoped {
+                    tool: "http",
+                    action: "get",
+                    domains: &RequestedDomains::Any,
+                    authority: &authority,
+                },
+            }])
+            .is_ok());
+    }
+
+    fn audit_lines(store: &SecretStore) -> Vec<serde_json::Value> {
+        std::fs::read_to_string(store.audit_path())
+            .unwrap_or_default()
+            .lines()
+            .map(|line| serde_json::from_str(line).expect("audit line"))
+            .collect()
+    }
+
+    #[test]
+    fn scoped_approvals_carry_domains_through_pending_audit_and_consumption() {
+        let store = store_with_path(temp_store_path());
+        store
+            .store_provisioned(
+                "reddit",
+                "Reddit",
+                HashMap::from([("value".to_string(), "secret".to_string())]),
+                InjectionTarget::Header {
+                    name: "Authorization".to_string(),
+                    prefix: None,
+                },
+                SecretPolicy {
+                    allowed_domains: vec!["*.reddit.com".to_string(), "*".to_string()],
+                    requires_approval: true,
+                    ..SecretPolicy::default()
+                },
+            )
+            .unwrap();
+        let set = RequestedDomains::hosts(["www.reddit.com", "oauth.reddit.com"]).unwrap();
+        let wire = vec!["oauth.reddit.com".to_string(), "www.reddit.com".to_string()];
+
+        let PolicyResult::NeedsApproval { challenge } = store
+            .evaluate_access_scoped("reddit", "http", "get", &set)
+            .unwrap()
+        else {
+            panic!("approval required");
+        };
+        let pending = store.list_pending_approvals();
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].domain, None);
+        assert_eq!(pending[0].domains, wire);
+
+        assert!(store.grant_approval(&challenge.id).unwrap());
+        let granted = audit_lines(&store)
+            .into_iter()
+            .find(|line| line["event"] == "approval_granted")
+            .expect("approval_granted audit");
+        assert_eq!(granted["domains"], serde_json::json!(wire));
+        assert!(granted.get("domain").is_none());
+        assert!(matches!(
+            store.evaluate_access_scoped("reddit", "http", "get", &RequestedDomains::Any),
+            Ok(PolicyResult::NeedsApproval { .. })
+        ));
+        assert_eq!(
+            store
+                .evaluate_access_scoped("reddit", "http", "get", &set)
+                .unwrap(),
+            PolicyResult::Allowed
+        );
+
+        store
+            .approve_request_scoped("reddit", "http", "get", &RequestedDomains::Any)
+            .unwrap();
+        let restored = audit_lines(&store)
+            .into_iter()
+            .find(|line| line["event"] == "approval_granted_restored")
+            .expect("approval_granted_restored audit");
+        assert_eq!(restored["domains"], serde_json::json!(["*"]));
+        assert!(matches!(
+            store.evaluate_access_scoped("reddit", "http", "get", &set),
+            Ok(PolicyResult::NeedsApproval { .. })
+        ));
+        assert_eq!(
+            store
+                .evaluate_access_scoped("reddit", "http", "get", &RequestedDomains::Any)
+                .unwrap(),
+            PolicyResult::Allowed
+        );
+
+        store
+            .approve_request("reddit", "http", "get", Some("www.reddit.com"))
+            .unwrap();
+        let legacy = audit_lines(&store)
+            .into_iter()
+            .filter(|line| line["event"] == "approval_granted_restored")
+            .last()
+            .unwrap();
+        assert_eq!(legacy["domain"], "www.reddit.com");
+        assert!(legacy.get("domains").is_none());
     }
 
     #[test]

@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::Mutex;
 
 use chrono::{NaiveDate, Utc};
@@ -56,7 +56,156 @@ impl ProvisionedPolicyRouteCatalog {
     }
 }
 
+/// Most hosts one request may name as a domain set.
+pub const MAX_REQUESTED_DOMAINS: usize = 16;
+
+/// The all-sites marker: a bare `*` in `SecretPolicy::allowed_domains` admits
+/// every domain, and `domains: ["*"]` on the wire is `RequestedDomains::Any`.
+pub const ANY_DOMAIN: &str = "*";
+
+/// Why a requested domain set was refused.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum DomainScopeError {
+    #[error("a requested domain set must name at least one host")]
+    Empty,
+    #[error("a requested domain set may name at most {MAX_REQUESTED_DOMAINS} hosts")]
+    TooMany,
+    #[error("requested domain '{0}' is not a DNS host name (no scheme, port, path or wildcard)")]
+    InvalidHost(String),
+    #[error("a request carries both a single domain and a domain set")]
+    Conflicting,
+}
+
+/// Two or more distinct hosts, lowercased, sorted and deduplicated.
+///
+/// Only `RequestedDomains::hosts` builds one, so every value is canonical and
+/// two sets naming the same hosts in any order or case compare equal.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct DomainSet(Vec<String>);
+
+impl DomainSet {
+    pub fn hosts(&self) -> &[String] {
+        &self.0
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+/// The target domains one runtime action may reach.
+///
+/// - `None`: no target domain. Denied for a domain-scoped secret.
+/// - `One`: the legacy single domain, compared exactly as before (not
+///   normalized), so existing grants, approvals and audits keep their meaning.
+/// - `Set`: every host the action may reach. Allowed only when each one
+///   matches some `allowed_domains` pattern.
+/// - `Any`: every public host. Allowed only when the policy is unrestricted
+///   (empty `allowed_domains`) or lists the bare `*`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
+pub enum RequestedDomains {
+    #[default]
+    None,
+    One(String),
+    Set(DomainSet),
+    Any,
+}
+
+impl RequestedDomains {
+    /// The legacy `Option<&str>` domain, unchanged.
+    pub fn from_legacy(domain: Option<&str>) -> Self {
+        match domain {
+            Some(domain) => Self::One(domain.to_owned()),
+            None => Self::None,
+        }
+    }
+
+    /// Canonicalize a host list: lowercase, validate, sort and dedupe.
+    ///
+    /// One distinct host becomes `One`, so a set of one is the single-domain
+    /// request. `*` is refused here; ask for all sites with `Any`.
+    pub fn hosts<I, S>(hosts: I) -> Result<Self, DomainScopeError>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        let mut canonical = BTreeSet::new();
+        for host in hosts {
+            let host = host.as_ref().to_ascii_lowercase();
+            if !is_dns_host(&host) {
+                return Err(DomainScopeError::InvalidHost(host));
+            }
+            canonical.insert(host);
+            if canonical.len() > MAX_REQUESTED_DOMAINS {
+                return Err(DomainScopeError::TooMany);
+            }
+        }
+        let mut canonical = canonical.into_iter().collect::<Vec<_>>();
+        match canonical.len() {
+            0 => Err(DomainScopeError::Empty),
+            1 => Ok(Self::One(canonical.remove(0))),
+            _ => Ok(Self::Set(DomainSet(canonical))),
+        }
+    }
+
+    pub fn is_none(&self) -> bool {
+        matches!(self, Self::None)
+    }
+
+    /// Read the wire pair (`domain`, `domains`) that request, challenge,
+    /// binding and audit types carry. `domains: ["*"]` is `Any`.
+    pub fn from_wire(domain: Option<&str>, domains: &[String]) -> Result<Self, DomainScopeError> {
+        if domains.is_empty() {
+            return Ok(Self::from_legacy(domain));
+        }
+        if domain.is_some() {
+            return Err(DomainScopeError::Conflicting);
+        }
+        if domains.len() == 1 && domains[0] == ANY_DOMAIN {
+            return Ok(Self::Any);
+        }
+        Self::hosts(domains)
+    }
+
+    /// The wire pair for this value: `One` keeps the legacy `domain` field and
+    /// leaves `domains` empty, so single-domain JSON is byte-identical.
+    pub fn to_wire(&self) -> (Option<String>, Vec<String>) {
+        match self {
+            Self::None => (None, Vec::new()),
+            Self::One(domain) => (Some(domain.clone()), Vec::new()),
+            Self::Set(set) => (None, set.0.clone()),
+            Self::Any => (None, vec![ANY_DOMAIN.to_owned()]),
+        }
+    }
+}
+
+/// A lowercase DNS host name: LDH labels of 1-63 bytes, at most 253 bytes in
+/// all, no leading/trailing hyphen, no scheme, port, path or wildcard.
+fn is_dns_host(host: &str) -> bool {
+    if host.is_empty() || host.len() > 253 {
+        return false;
+    }
+    host.split('.').all(|label| {
+        !label.is_empty()
+            && label.len() <= 63
+            && !label.starts_with('-')
+            && !label.ends_with('-')
+            && label
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+    })
+}
+
 /// Canonical runtime access request used for secret policy checks.
+///
+/// `domain` is the legacy single target domain. `domains` carries a domain
+/// set, or `["*"]` for all sites; it is omitted when empty, so a request
+/// serialized before it existed still deserializes and a single-domain request
+/// serializes exactly as before. At most one of the two is set.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AccessRequest {
     pub secret_id: String,
@@ -64,6 +213,8 @@ pub struct AccessRequest {
     pub action: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub domain: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub domains: Vec<String>,
     pub requested_at: i64,
 }
 
@@ -79,8 +230,31 @@ impl AccessRequest {
             tool: tool.into(),
             action: action.into(),
             domain,
+            domains: Vec::new(),
             requested_at: Utc::now().timestamp(),
         }
+    }
+
+    /// A request for a domain set, all sites, one domain or none.
+    pub fn scoped(
+        secret_id: impl Into<String>,
+        tool: impl Into<String>,
+        action: impl Into<String>,
+        domains: &RequestedDomains,
+    ) -> Self {
+        let (domain, domains) = domains.to_wire();
+        Self {
+            secret_id: secret_id.into(),
+            tool: tool.into(),
+            action: action.into(),
+            domain,
+            domains,
+            requested_at: Utc::now().timestamp(),
+        }
+    }
+
+    pub fn requested_domains(&self) -> Result<RequestedDomains, DomainScopeError> {
+        RequestedDomains::from_wire(self.domain.as_deref(), &self.domains)
     }
 
     pub fn tool_action(&self) -> String {
@@ -97,7 +271,16 @@ pub struct ApprovalChallenge {
     pub action: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub domain: Option<String>,
+    /// A domain set, or `["*"]` for all sites; see `AccessRequest::domains`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub domains: Vec<String>,
     pub expires_at: i64,
+}
+
+impl ApprovalChallenge {
+    pub fn requested_domains(&self) -> Result<RequestedDomains, DomainScopeError> {
+        RequestedDomains::from_wire(self.domain.as_deref(), &self.domains)
+    }
 }
 
 /// Policy decision returned by compiled secret checks.
@@ -115,6 +298,9 @@ pub struct GrantBinding {
     pub action: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub domain: Option<String>,
+    /// A domain set, or `["*"]` for all sites; see `AccessRequest::domains`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub domains: Vec<String>,
     #[serde(skip)]
     delegated_authority: Option<DelegatedGrantAuthority>,
 }
@@ -151,6 +337,7 @@ impl GrantBinding {
             tool: request.tool.clone(),
             action: request.action.clone(),
             domain: request.domain.clone(),
+            domains: request.domains.clone(),
             delegated_authority: None,
         }
     }
@@ -160,12 +347,20 @@ impl GrantBinding {
             tool: request.tool.clone(),
             action: request.action.clone(),
             domain: request.domain.clone(),
+            domains: request.domains.clone(),
             delegated_authority: Some(authority),
         }
     }
 
+    pub fn requested_domains(&self) -> Result<RequestedDomains, DomainScopeError> {
+        RequestedDomains::from_wire(self.domain.as_deref(), &self.domains)
+    }
+
+    /// Legacy single-domain match. A binding without a domain matches any
+    /// domain; a binding for a domain set or all sites matches no legacy
+    /// query, because it redeems only for exactly that set.
     pub fn matches(&self, tool: &str, action: &str, domain: Option<&str>) -> bool {
-        if self.tool != tool || self.action != action {
+        if self.tool != tool || self.action != action || !self.domains.is_empty() {
             return false;
         }
         match self.domain.as_deref() {
@@ -174,8 +369,25 @@ impl GrantBinding {
         }
     }
 
-    fn matches_exact(&self, tool: &str, action: &str, domain: Option<&str>) -> bool {
-        self.tool == tool && self.action == action && self.domain.as_deref() == domain
+    /// `matches` for a domain set or all sites. A binding without a domain
+    /// still matches anything; any other binding needs exactly `domains`.
+    pub fn matches_domains(&self, tool: &str, action: &str, domains: &RequestedDomains) -> bool {
+        if self.tool != tool || self.action != action {
+            return false;
+        }
+        match self.requested_domains() {
+            Ok(RequestedDomains::None) => true,
+            Ok(bound) => &bound == domains,
+            Err(_) => false,
+        }
+    }
+
+    fn matches_exact(&self, tool: &str, action: &str, domains: &RequestedDomains) -> bool {
+        self.tool == tool
+            && self.action == action
+            && self
+                .requested_domains()
+                .is_ok_and(|bound| &bound == domains)
     }
 
     pub fn matches_delegated(
@@ -185,7 +397,23 @@ impl GrantBinding {
         domain: Option<&str>,
         authority: &DelegatedGrantAuthority,
     ) -> bool {
-        self.matches_exact(tool, action, domain)
+        self.matches_delegated_domains(
+            tool,
+            action,
+            &RequestedDomains::from_legacy(domain),
+            authority,
+        )
+    }
+
+    /// Exact delegated match on tool, action, domain scope and authority.
+    pub fn matches_delegated_domains(
+        &self,
+        tool: &str,
+        action: &str,
+        domains: &RequestedDomains,
+        authority: &DelegatedGrantAuthority,
+    ) -> bool {
+        self.matches_exact(tool, action, domains)
             && self.delegated_authority.as_ref() == Some(authority)
     }
 }
@@ -306,7 +534,7 @@ impl UsageTracker {
 
 #[derive(Debug, Clone)]
 struct ApprovedRequest {
-    fingerprint: String,
+    fingerprint: RequestFingerprint,
     expires_at: i64,
 }
 
@@ -335,6 +563,7 @@ impl ApprovalTable {
             tool: request.tool.clone(),
             action: request.action.clone(),
             domain: request.domain.clone(),
+            domains: request.domains.clone(),
             expires_at: request.requested_at + self.ttl_secs,
         };
         self.pending
@@ -354,33 +583,41 @@ impl ApprovalTable {
         let Some(challenge) = challenge else {
             return None;
         };
+        let Ok(domains) = challenge.requested_domains() else {
+            return None;
+        };
 
         self.approved
             .lock()
             .expect("approval granted lock poisoned")
             .push(ApprovedRequest {
-                fingerprint: request_fingerprint(
+                fingerprint: RequestFingerprint::new(
                     &challenge.secret_id,
                     &challenge.tool,
                     &challenge.action,
-                    challenge.domain.as_deref(),
+                    &domains,
                 ),
                 expires_at: challenge.expires_at,
             });
         Some(challenge)
     }
 
+    /// Record an approval for exactly this request. A request whose domain
+    /// set is malformed is not recorded.
     pub fn approve_request(&self, request: &AccessRequest) {
         self.reap_expired();
+        let Ok(domains) = request.requested_domains() else {
+            return;
+        };
         self.approved
             .lock()
             .expect("approval granted lock poisoned")
             .push(ApprovedRequest {
-                fingerprint: request_fingerprint(
+                fingerprint: RequestFingerprint::new(
                     &request.secret_id,
                     &request.tool,
                     &request.action,
-                    request.domain.as_deref(),
+                    &domains,
                 ),
                 expires_at: request.requested_at + self.ttl_secs,
             });
@@ -388,12 +625,11 @@ impl ApprovalTable {
 
     pub fn consume(&self, request: &AccessRequest) -> bool {
         self.reap_expired();
-        let fingerprint = request_fingerprint(
-            &request.secret_id,
-            &request.tool,
-            &request.action,
-            request.domain.as_deref(),
-        );
+        let Ok(domains) = request.requested_domains() else {
+            return false;
+        };
+        let fingerprint =
+            RequestFingerprint::new(&request.secret_id, &request.tool, &request.action, &domains);
         let mut guard = self
             .approved
             .lock()
@@ -519,6 +755,20 @@ pub enum GrantBindingExpectation<'a> {
         domain: Option<&'a str>,
         authority: &'a DelegatedGrantAuthority,
     },
+    /// `Secret` for a domain set or all sites: the grant must carry exactly
+    /// `domains`.
+    SecretScoped {
+        tool: &'a str,
+        action: &'a str,
+        domains: &'a RequestedDomains,
+    },
+    /// `Delegated` for a domain set or all sites.
+    DelegatedScoped {
+        tool: &'a str,
+        action: &'a str,
+        domains: &'a RequestedDomains,
+        authority: &'a DelegatedGrantAuthority,
+    },
 }
 
 pub struct BoundGrantRedemption<'a> {
@@ -607,10 +857,11 @@ impl GrantTable {
                     tool,
                     action,
                     domain,
-                } => record
-                    .payload
-                    .binding()
-                    .matches_exact(tool, action, *domain),
+                } => record.payload.binding().matches_exact(
+                    tool,
+                    action,
+                    &RequestedDomains::from_legacy(*domain),
+                ),
                 GrantBindingExpectation::Delegated {
                     tool,
                     action,
@@ -620,6 +871,20 @@ impl GrantTable {
                     .payload
                     .binding()
                     .matches_delegated(tool, action, *domain, authority),
+                GrantBindingExpectation::SecretScoped {
+                    tool,
+                    action,
+                    domains,
+                } => record.payload.binding().matches_exact(tool, action, domains),
+                GrantBindingExpectation::DelegatedScoped {
+                    tool,
+                    action,
+                    domains,
+                    authority,
+                } => record
+                    .payload
+                    .binding()
+                    .matches_delegated_domains(tool, action, domains, authority),
             };
             if !matches {
                 return Err(BoundGrantRedemptionError::BindingMismatch);
@@ -673,21 +938,61 @@ pub fn check_policy(
         };
     }
 
-    if !policy.allowed_domains.is_empty() {
-        let Some(domain) = request.domain.as_deref() else {
+    let requested = match request.requested_domains() {
+        Ok(requested) => requested,
+        Err(error) => {
             return PolicyResult::Denied {
-                reason: "secret is domain-scoped but runtime action had no target domain".into(),
+                reason: format!("invalid target domains: {error}"),
             };
-        };
+        },
+    };
 
-        if !policy
-            .allowed_domains
-            .iter()
-            .any(|pattern| domain_matches(pattern, domain))
-        {
-            return PolicyResult::Denied {
-                reason: format!("domain '{}' is not allowed for this secret", domain),
-            };
+    if !policy.allowed_domains.is_empty() {
+        match &requested {
+            RequestedDomains::None => {
+                return PolicyResult::Denied {
+                    reason: "secret is domain-scoped but runtime action had no target domain"
+                        .into(),
+                };
+            },
+            RequestedDomains::One(domain) => {
+                if !policy
+                    .allowed_domains
+                    .iter()
+                    .any(|pattern| domain_matches(pattern, domain))
+                {
+                    return PolicyResult::Denied {
+                        reason: format!("domain '{}' is not allowed for this secret", domain),
+                    };
+                }
+            },
+            // All-of: the action may reach any host in the set.
+            RequestedDomains::Set(set) => {
+                if let Some(host) = set.hosts().iter().find(|host| {
+                    !policy
+                        .allowed_domains
+                        .iter()
+                        .any(|pattern| domain_matches(&pattern.to_ascii_lowercase(), host))
+                }) {
+                    return PolicyResult::Denied {
+                        reason: format!("domain '{}' is not allowed for this secret", host),
+                    };
+                }
+            },
+            // `*.suffix` patterns do not admit all sites; only a bare `*` does.
+            RequestedDomains::Any => {
+                if !policy
+                    .allowed_domains
+                    .iter()
+                    .any(|pattern| pattern == ANY_DOMAIN)
+                {
+                    return PolicyResult::Denied {
+                        reason: "all target domains were requested but this secret is \
+                                 domain-scoped without '*'"
+                            .into(),
+                    };
+                }
+            },
         }
     }
 
@@ -708,6 +1013,39 @@ pub fn check_policy(
     PolicyResult::Allowed
 }
 
+/// Approval identity. `Legacy` is the pre-domain-set string, byte-identical
+/// for no-domain and single-domain requests; a set or all-sites request is a
+/// separate variant, so no legacy domain string can collide with it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum RequestFingerprint {
+    Legacy(String),
+    Scoped {
+        secret_id: String,
+        tool: String,
+        action: String,
+        domains: RequestedDomains,
+    },
+}
+
+impl RequestFingerprint {
+    fn new(secret_id: &str, tool: &str, action: &str, domains: &RequestedDomains) -> Self {
+        match domains {
+            RequestedDomains::None => {
+                Self::Legacy(request_fingerprint(secret_id, tool, action, None))
+            },
+            RequestedDomains::One(domain) => {
+                Self::Legacy(request_fingerprint(secret_id, tool, action, Some(domain)))
+            },
+            RequestedDomains::Set(_) | RequestedDomains::Any => Self::Scoped {
+                secret_id: secret_id.to_owned(),
+                tool: tool.to_owned(),
+                action: action.to_owned(),
+                domains: domains.clone(),
+            },
+        }
+    }
+}
+
 fn request_fingerprint(secret_id: &str, tool: &str, action: &str, domain: Option<&str>) -> String {
     format!(
         "{}|{}|{}|{}",
@@ -725,6 +1063,9 @@ fn date_key(ts: i64) -> NaiveDate {
 }
 
 fn domain_matches(pattern: &str, domain: &str) -> bool {
+    if pattern == ANY_DOMAIN {
+        return !domain.is_empty();
+    }
     if pattern == domain {
         return true;
     }
@@ -755,6 +1096,7 @@ mod tests {
             tool: "http".to_string(),
             action: action.to_string(),
             domain: domain.map(str::to_string),
+            domains: Vec::new(),
             requested_at: Utc::now().timestamp(),
         }
     }
@@ -765,6 +1107,7 @@ mod tests {
             tool: tool.to_string(),
             action: action.to_string(),
             domain: domain.map(str::to_string),
+            domains: Vec::new(),
             requested_at: Utc::now().timestamp(),
         })
     }
@@ -1230,6 +1573,448 @@ mod tests {
             payload.install_drop_probe(Arc::clone(&observed));
         }
         assert!(observed.load(Ordering::SeqCst));
+    }
+
+    fn scoped_policy(allowed: &[&str]) -> SecretPolicy {
+        SecretPolicy {
+            allowed_domains: allowed.iter().map(|item| item.to_string()).collect(),
+            ..Default::default()
+        }
+    }
+
+    fn scoped(domains: &RequestedDomains) -> AccessRequest {
+        AccessRequest::scoped("secret-1", "http", "get", domains)
+    }
+
+    fn check(policy: &SecretPolicy, request: &AccessRequest) -> PolicyResult {
+        check_policy(
+            policy,
+            request,
+            &UsageTracker::default(),
+            &ApprovalTable::default(),
+        )
+    }
+
+    fn reddit() -> RequestedDomains {
+        RequestedDomains::hosts(["www.reddit.com", "OAUTH.reddit.com", "www.reddit.com"])
+            .expect("valid host set")
+    }
+
+    #[test]
+    fn host_sets_are_canonical_bounded_and_validated() {
+        let RequestedDomains::Set(set) = reddit() else {
+            panic!("two distinct hosts form a set");
+        };
+        assert_eq!(set.hosts(), ["oauth.reddit.com", "www.reddit.com"]);
+        assert_eq!(
+            reddit(),
+            RequestedDomains::hosts(["www.reddit.com", "oauth.reddit.com"]).unwrap()
+        );
+        assert_eq!(
+            RequestedDomains::hosts(["API.Example.com", "api.example.com"]).unwrap(),
+            RequestedDomains::One("api.example.com".to_string())
+        );
+        assert_eq!(
+            RequestedDomains::hosts(Vec::<String>::new()),
+            Err(DomainScopeError::Empty)
+        );
+        let too_many = (0..=MAX_REQUESTED_DOMAINS).map(|index| format!("h{index}.example.com"));
+        assert_eq!(
+            RequestedDomains::hosts(too_many),
+            Err(DomainScopeError::TooMany)
+        );
+        let at_limit = (0..MAX_REQUESTED_DOMAINS).map(|index| format!("h{index}.example.com"));
+        assert!(RequestedDomains::hosts(at_limit).is_ok());
+        for bad in [
+            "*",
+            "*.example.com",
+            "https://example.com",
+            "example.com:443",
+            "example.com/path",
+            "exa mple.com",
+            "",
+            "example..com",
+            "-example.com",
+            "example.com.",
+            "user@example.com",
+        ] {
+            assert!(
+                matches!(
+                    RequestedDomains::hosts(["ok.example.com", bad]),
+                    Err(DomainScopeError::InvalidHost(_))
+                ),
+                "{bad:?} must be refused"
+            );
+        }
+    }
+
+    #[test]
+    fn domain_set_is_allowed_only_when_every_host_matches() {
+        let request = scoped(&reddit());
+        assert_eq!(
+            check(&scoped_policy(&["*.reddit.com"]), &request),
+            PolicyResult::Allowed
+        );
+        assert_eq!(
+            check(
+                &scoped_policy(&["oauth.reddit.com", "www.reddit.com"]),
+                &request
+            ),
+            PolicyResult::Allowed
+        );
+        assert_eq!(
+            check(&scoped_policy(&["*.REDDIT.com"]), &request),
+            PolicyResult::Allowed,
+            "set members compare against lowercased patterns"
+        );
+        let PolicyResult::Denied { reason } =
+            check(&scoped_policy(&["oauth.reddit.com"]), &request)
+        else {
+            panic!("a host outside the policy must deny the whole set");
+        };
+        assert!(reason.contains("www.reddit.com"), "{reason}");
+        assert_eq!(check(&scoped_policy(&[]), &request), PolicyResult::Allowed);
+        assert_eq!(check(&scoped_policy(&["*"]), &request), PolicyResult::Allowed);
+    }
+
+    #[test]
+    fn any_domain_needs_an_unrestricted_policy_or_a_bare_star() {
+        let any = scoped(&RequestedDomains::Any);
+        assert_eq!(check(&scoped_policy(&[]), &any), PolicyResult::Allowed);
+        assert_eq!(
+            check(&scoped_policy(&["api.example.com", "*"]), &any),
+            PolicyResult::Allowed
+        );
+        assert!(matches!(
+            check(&scoped_policy(&["*.example.com"]), &any),
+            PolicyResult::Denied { .. }
+        ));
+        assert!(matches!(
+            check(&scoped_policy(&["api.example.com"]), &any),
+            PolicyResult::Denied { .. }
+        ));
+    }
+
+    #[test]
+    fn bare_star_policy_admits_every_single_domain_but_not_a_missing_one() {
+        let policy = scoped_policy(&["*"]);
+        assert_eq!(
+            check(&policy, &request("get", Some("anything.example.org"))),
+            PolicyResult::Allowed
+        );
+        assert!(matches!(
+            check(&policy, &request("get", None)),
+            PolicyResult::Denied { .. }
+        ));
+        assert!(matches!(
+            check(&policy, &request("get", Some(""))),
+            PolicyResult::Denied { .. }
+        ));
+    }
+
+    #[test]
+    fn single_domain_policy_checks_are_unchanged() {
+        let policy = scoped_policy(&["*.example.com", "exact.test"]);
+        for (domain, allowed) in [
+            (Some("api.example.com"), true),
+            (Some("example.com"), true),
+            (Some("exact.test"), true),
+            (Some("EXACT.test"), false),
+            (Some("evil-example.com"), false),
+            (None, false),
+        ] {
+            assert_eq!(
+                check(&policy, &request("get", domain)) == PolicyResult::Allowed,
+                allowed,
+                "{domain:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn malformed_wire_domains_are_denied_even_without_a_domain_policy() {
+        let mut both = request("get", Some("api.example.com"));
+        both.domains = vec!["a.example.com".to_string(), "b.example.com".to_string()];
+        let mut bad_host = request("get", None);
+        bad_host.domains = vec!["https://a.example.com".to_string()];
+        let mut star_in_set = request("get", None);
+        star_in_set.domains = vec!["*".to_string(), "a.example.com".to_string()];
+        for request in [both, bad_host, star_in_set] {
+            assert!(matches!(
+                check(&SecretPolicy::default(), &request),
+                PolicyResult::Denied { .. }
+            ));
+        }
+    }
+
+    #[test]
+    fn old_serialized_requests_deserialize_and_single_domain_json_is_unchanged() {
+        let old: AccessRequest = serde_json::from_value(serde_json::json!({
+            "secret_id": "secret-1",
+            "tool": "http",
+            "action": "get",
+            "domain": "api.example.com",
+            "requested_at": 1
+        }))
+        .expect("pre-domain-set request");
+        assert!(old.domains.is_empty());
+        assert_eq!(
+            old.requested_domains().unwrap(),
+            RequestedDomains::One("api.example.com".to_string())
+        );
+        assert_eq!(
+            serde_json::to_value(&old).unwrap(),
+            serde_json::json!({
+                "secret_id": "secret-1",
+                "tool": "http",
+                "action": "get",
+                "domain": "api.example.com",
+                "requested_at": 1
+            })
+        );
+        let no_domain: AccessRequest = serde_json::from_value(serde_json::json!({
+            "secret_id": "secret-1", "tool": "http", "action": "get", "requested_at": 1
+        }))
+        .unwrap();
+        assert_eq!(no_domain.requested_domains().unwrap(), RequestedDomains::None);
+
+        let mut set = scoped(&reddit());
+        set.requested_at = 1;
+        let json = serde_json::to_value(&set).unwrap();
+        assert_eq!(
+            json["domains"],
+            serde_json::json!(["oauth.reddit.com", "www.reddit.com"])
+        );
+        assert!(json.get("domain").is_none());
+        let round_trip: AccessRequest = serde_json::from_value(json).unwrap();
+        assert_eq!(round_trip.requested_domains().unwrap(), reddit());
+
+        let any = scoped(&RequestedDomains::Any);
+        assert_eq!(serde_json::to_value(&any).unwrap()["domains"], serde_json::json!(["*"]));
+        assert_eq!(any.requested_domains().unwrap(), RequestedDomains::Any);
+    }
+
+    #[test]
+    fn legacy_fingerprints_are_byte_identical() {
+        assert_eq!(
+            RequestFingerprint::new(
+                "secret-1",
+                "http",
+                "get",
+                &RequestedDomains::One("api.example.com".to_string())
+            ),
+            RequestFingerprint::Legacy("secret-1|http|get|api.example.com".to_string())
+        );
+        assert_eq!(
+            RequestFingerprint::new("secret-1", "http", "get", &RequestedDomains::None),
+            RequestFingerprint::Legacy("secret-1|http|get|".to_string())
+        );
+        assert_eq!(
+            request_fingerprint("secret-1", "http", "get", Some("api.example.com")),
+            "secret-1|http|get|api.example.com"
+        );
+        assert!(matches!(
+            RequestFingerprint::new("secret-1", "http", "get", &reddit()),
+            RequestFingerprint::Scoped { .. }
+        ));
+    }
+
+    #[test]
+    fn approval_for_a_set_is_consumed_only_by_that_exact_set() {
+        let approvals = ApprovalTable::new(60);
+        let other = RequestedDomains::hosts(["oauth.reddit.com", "old.reddit.com"]).unwrap();
+        approvals.approve_request(&scoped(&reddit()));
+
+        assert!(!approvals.consume(&scoped(&other)));
+        assert!(!approvals.consume(&scoped(&RequestedDomains::Any)));
+        assert!(!approvals.consume(&request("get", Some("oauth.reddit.com"))));
+        assert!(!approvals.consume(&request("get", None)));
+        let reordered = RequestedDomains::hosts(["WWW.reddit.com", "oauth.reddit.com"]).unwrap();
+        assert!(approvals.consume(&scoped(&reordered)));
+        assert!(!approvals.consume(&scoped(&reddit())), "approval is single-use");
+
+        approvals.approve_request(&request("get", Some("api.example.com")));
+        assert!(approvals.consume(&request("get", Some("api.example.com"))));
+    }
+
+    #[test]
+    fn challenge_for_any_round_trips_through_grant() {
+        let policy = SecretPolicy {
+            requires_approval: true,
+            ..Default::default()
+        };
+        let usage = UsageTracker::default();
+        let approvals = ApprovalTable::new(60);
+        let any = scoped(&RequestedDomains::Any);
+        let PolicyResult::NeedsApproval { challenge } =
+            check_policy(&policy, &any, &usage, &approvals)
+        else {
+            panic!("approval challenge");
+        };
+        assert_eq!(challenge.domains, vec!["*".to_string()]);
+        assert_eq!(challenge.requested_domains().unwrap(), RequestedDomains::Any);
+        assert!(approvals.grant(&challenge.id).is_some());
+        assert!(matches!(
+            check_policy(&policy, &scoped(&reddit()), &usage, &approvals),
+            PolicyResult::NeedsApproval { .. }
+        ));
+        assert_eq!(
+            check_policy(&policy, &any, &usage, &approvals),
+            PolicyResult::Allowed
+        );
+    }
+
+    #[test]
+    fn set_binding_matches_only_the_same_set() {
+        let binding = GrantBinding::from_request(&scoped(&reddit()));
+        let other = RequestedDomains::hosts(["oauth.reddit.com", "old.reddit.com"]).unwrap();
+
+        assert!(binding.matches_domains("http", "get", &reddit()));
+        assert!(!binding.matches_domains("http", "get", &other));
+        assert!(!binding.matches_domains("http", "get", &RequestedDomains::Any));
+        assert!(!binding.matches_domains("http", "post", &reddit()));
+        assert!(!binding.matches("http", "get", Some("www.reddit.com")));
+        assert!(!binding.matches("http", "get", None));
+
+        let any = GrantBinding::from_request(&scoped(&RequestedDomains::Any));
+        assert!(any.matches_domains("http", "get", &RequestedDomains::Any));
+        assert!(!any.matches_domains("http", "get", &reddit()));
+        assert!(!any.matches("http", "get", Some("www.reddit.com")));
+
+        let legacy = grant_binding("http", "get", None);
+        assert!(legacy.matches_domains("http", "get", &reddit()));
+        assert_eq!(
+            serde_json::to_value(grant_binding("http", "get", Some("api.example.com"))).unwrap(),
+            serde_json::json!({"tool": "http", "action": "get", "domain": "api.example.com"})
+        );
+    }
+
+    #[test]
+    fn secret_batch_with_sets_requires_the_exact_set() {
+        let grants = GrantTable::default();
+        let token = grants.issue_grant(
+            "secret-1",
+            HashMap::from([("value".to_string(), "secret".to_string())]),
+            InjectionTarget::Inline,
+            GrantBinding::from_request(&scoped(&reddit())),
+            60,
+        );
+        let other = RequestedDomains::hosts(["oauth.reddit.com", "old.reddit.com"]).unwrap();
+        for wrong in [
+            GrantBindingExpectation::SecretScoped {
+                tool: "http",
+                action: "get",
+                domains: &other,
+            },
+            GrantBindingExpectation::SecretScoped {
+                tool: "http",
+                action: "get",
+                domains: &RequestedDomains::Any,
+            },
+            GrantBindingExpectation::Secret {
+                tool: "http",
+                action: "get",
+                domain: None,
+            },
+            GrantBindingExpectation::Secret {
+                tool: "http",
+                action: "get",
+                domain: Some("www.reddit.com"),
+            },
+        ] {
+            assert_eq!(
+                grants
+                    .redeem_bound_batch(&[BoundGrantRedemption {
+                        token: &token,
+                        expected: wrong,
+                    }])
+                    .err(),
+                Some(BoundGrantRedemptionError::BindingMismatch)
+            );
+        }
+        let exact = reddit();
+        assert_eq!(
+            grants
+                .redeem_bound_batch(&[BoundGrantRedemption {
+                    token: &token,
+                    expected: GrantBindingExpectation::SecretScoped {
+                        tool: "http",
+                        action: "get",
+                        domains: &exact,
+                    },
+                }])
+                .expect("exact set redeems")
+                .len(),
+            1
+        );
+
+        let legacy = grants.issue_grant(
+            "secret-1",
+            HashMap::new(),
+            InjectionTarget::Inline,
+            grant_binding("http", "get", Some("api.example.com")),
+            60,
+        );
+        let one = RequestedDomains::One("api.example.com".to_string());
+        assert!(grants
+            .redeem_bound_batch(&[BoundGrantRedemption {
+                token: &legacy,
+                expected: GrantBindingExpectation::SecretScoped {
+                    tool: "http",
+                    action: "get",
+                    domains: &one,
+                },
+            }])
+            .is_ok());
+    }
+
+    #[test]
+    fn delegated_batch_with_sets_requires_the_exact_set_and_authority() {
+        let grants = GrantTable::default();
+        let authority = DelegatedGrantAuthority::new("owner", "default", "provider", "agent-a");
+        let token = grants.issue_grant(
+            "secret-1",
+            HashMap::from([("value".to_string(), "delegated-secret".to_string())]),
+            InjectionTarget::Inline,
+            GrantBinding::delegated(&scoped(&RequestedDomains::Any), authority.clone()),
+            60,
+        );
+        let set = reddit();
+        for wrong in [
+            GrantBindingExpectation::DelegatedScoped {
+                tool: "http",
+                action: "get",
+                domains: &set,
+                authority: &authority,
+            },
+            GrantBindingExpectation::Delegated {
+                tool: "http",
+                action: "get",
+                domain: None,
+                authority: &authority,
+            },
+        ] {
+            assert_eq!(
+                grants
+                    .redeem_bound_batch(&[BoundGrantRedemption {
+                        token: &token,
+                        expected: wrong,
+                    }])
+                    .err(),
+                Some(BoundGrantRedemptionError::BindingMismatch)
+            );
+        }
+        assert!(grants
+            .redeem_bound_batch(&[BoundGrantRedemption {
+                token: &token,
+                expected: GrantBindingExpectation::DelegatedScoped {
+                    tool: "http",
+                    action: "get",
+                    domains: &RequestedDomains::Any,
+                    authority: &authority,
+                },
+            }])
+            .is_ok());
     }
 
     #[test]

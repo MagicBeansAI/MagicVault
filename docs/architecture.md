@@ -77,7 +77,7 @@ that an immediate restart can acquire the old instance lock.
 | `magicvault-prompt` | `0.9.3` | Shared desktop window; bounded private metadata/input pipe; no vault or agent API |
 | Chromium extension | `0.6.1` | Permission-aware exact discovery narrowing, site grants/blocks and document-targeted fill; no navigation or submission API |
 | MagicRun `tool-runtime-core` | `0.1.74`, public Git dependency locked to `af348ab5` | Governed process preparation, descriptor-bound native macOS spawn for non-jailed batches, digest-bound dispatch, cancellation, output bounds and owned-child cleanup |
-| `magicvault-core` | `0.1.5` | Encryption, credential references, existing policies, scoped stores, typed audit, injectable clock, bounded ephemeral entries and one-time custody (receipts name their bound destination) |
+| `magicvault-core` | `0.1.6` | Encryption, credential references, existing policies (domain scoping by single host, host set or all sites), scoped stores, typed audit, injectable clock, bounded ephemeral entries and one-time custody (receipts name their bound destination) |
 | `magicvault-primitives` | `0.1.2` | Filesystem/JSON helpers plus private Windows ACL and shared local-stream primitives |
 
 The local agent wire is version **5**; matching standalone clients/daemon are required. The profile-authenticated native
@@ -564,6 +564,34 @@ measures in hours against a ten-minute retention bound. The same clock bounds
 plain ephemeral entries registered with `register_ephemeral_bounded`. The standalone
 daemon does not yet use this path; Magician's secure-HITL integration is its
 first consumer.
+
+## Domain scoping of provisioned secrets
+
+A provisioned secret's `SecretPolicy::allowed_domains` limits the target domains
+an action may present. An empty list is unrestricted. Each entry is an exact host,
+a `*.suffix` pattern (the suffix itself and any subdomain) or, from core `0.1.6`,
+a bare `*` for every domain; other entries only ever match themselves exactly.
+
+A request names its targets as `RequestedDomains`, carried on the wire by the
+legacy `domain` field plus an optional `domains` list:
+
+| Request | Wire | Allowed when `allowed_domains` is non-empty and |
+| --- | --- | --- |
+| `None` | neither field | never — a domain-scoped secret needs a target |
+| `One(host)` | `domain` | some pattern matches the host (unchanged, compared as given) |
+| `Set(hosts)` | `domains: [..]`, 2–16 sorted lowercase hosts | **every** host matches some pattern, because the action may reach any of them |
+| `Any` | `domains: ["*"]` | the list contains a bare `*`; `*.suffix` alone never admits it |
+
+`RequestedDomains::hosts` builds a set: it lowercases, validates (LDH DNS
+labels only — no scheme, port, path or wildcard), sorts and dedupes, refuses more
+than `MAX_REQUESTED_DOMAINS` (16), and turns a single distinct host into `One`.
+A request carrying both fields, or a malformed list, is denied whatever the
+policy. Grants, approval challenges and approval fingerprints carry the scope
+exactly: a grant or approval for a set, or for all sites, redeems only for that
+same canonical set or `Any` — never for a single host, another set, or no domain.
+No-domain and single-domain requests keep their serialized form, their approval
+fingerprint string and their grant matching byte for byte, so existing grants,
+approvals and audit lines keep their meaning.
 
 ## One new process or HTTP request
 

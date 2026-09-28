@@ -158,8 +158,13 @@ adds the injectable clock, bounded ephemeral entries and the
 [one-time custody state machine](architecture.md#one-time-custody-in-the-shared-core)
 for Magician's secure-HITL integration, and core `0.1.5` (2026-09-22) lets a
 one-time receipt name its bound destination for Magician's authenticated
-dispatch; the standalone surfaces do not call either yet, and every existing
-core API is unchanged. Magician keeps its direct core integration,
+dispatch. Core `0.1.6` (2026-09-28) lets a provisioned-secret request name a
+set of hosts or all sites, and lets `allowed_domains` contain a bare `*`
+([domain scoping](architecture.md#domain-scoping-of-provisioned-secrets)),
+for Magician's jailed app tools that reach several hosts; the `*_scoped` store
+methods and `GrantBindingExpectation::{SecretScoped, DelegatedScoped}` are
+additions. The standalone surfaces do not call any of these yet, and every
+existing core API keeps its behavior. Magician keeps its direct core integration,
 existing store identity and browser execution owner. It does not consume the new
 standalone registry, CLI, MCP, extension or native host. The effect crate now
 depends on public MagicRun `tool-runtime-core 0.1.74` and invokes its existing

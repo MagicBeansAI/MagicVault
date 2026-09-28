@@ -31,7 +31,7 @@ binary release, extension store listing or production-safety certification.
 | Native connection | Handshake `2`; effect/config schemas `1` | Matching extension/host/daemon required; no silent downgrade |
 | `magicvault-core` | `0.1.6` | Adds injectable clock, bounded ephemeral entries and one-time custody (0.1.4), the bound destination on a one-time receipt (0.1.5) and domain-set / all-sites (`*`) secret scoping (0.1.6) (see [CHANGELOG](../CHANGELOG.md)); existing embedded custody/API/vault format/key identity retained |
 | `magicvault-primitives` | `0.1.2` | Add owner-only Windows filesystem and shared local-stream helpers; existing Unix durability retained |
-| MagicRun `tool-runtime-core` | Public Git dependency `0.1.74` | Public coordinator unchanged; non-jailed macOS launch uses descriptor-bound native spawn; exact source in Cargo.lock |
+| MagicRun `tool-runtime-core` | Public Git dependency `0.1.74`; Cargo.lock selects `0.1.81` | Public coordinator unchanged; non-jailed macOS launch uses descriptor-bound native spawn; lock matches the MagicRun source Magician ships |
 | `magicvault-test-support` | `0.4.0`, `publish = false` | Test-only, not a production surface |
 
 Before the 0.9.0 JIT release, the source version was `0.8.3`, using local agent wire `4`. The new

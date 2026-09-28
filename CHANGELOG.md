@@ -5,6 +5,21 @@ Entries describe source changes, not publication announcements. See
 [release acceptance checklist](docs/qualification/release.md) and
 [version-specific test evidence](docs/qualification/README.md#evidence-records).
 
+## MagicRun lock refresh — 2026-09-28
+
+Cargo.lock only; no manifest, package version, wire, vault format or extension
+change, and no npm release.
+
+- Cargo.lock selects MagicRun `tool-runtime-core 0.1.81` at `c65fbbaa`, the
+  source Magician ships, instead of `0.1.74` at `af348ab5`. Standalone tests and
+  CI now exercise the same runtime Magician embeds. No other locked crate moves;
+  `libc 0.2.189` already satisfies the `>= 0.2.171` that `0.1.78+` requires.
+- `magicvault-effect` still requires `0.1.74`: it uses no API or behavior added
+  after that version. MagicRun's changes since then are in its jail, which
+  MagicVault does not use, plus close-on-exec marking of inherited descriptors on
+  the non-native launch path; the macOS native spawn is unchanged.
+- Architecture baseline refreshed for the new Cargo.lock digest.
+
 ## Shared core 0.1.6 — domain sets and all-sites secret scoping — 2026-09-28
 
 Source change to `magicvault-core` only; no standalone package, agent wire, vault

@@ -571,6 +571,8 @@ A provisioned secret's `SecretPolicy::allowed_domains` limits the target domains
 an action may present. An empty list is unrestricted. Each entry is an exact host,
 a `*.suffix` pattern (the suffix itself and any subdomain) or, from core `0.1.6`,
 a bare `*` for every domain; other entries only ever match themselves exactly.
+Patterns match without regard to ASCII case. Before `0.1.6` a stored `*` entry
+matched only the literal domain `*`; it now admits every domain.
 
 A request names its targets as `RequestedDomains`, carried on the wire by the
 legacy `domain` field plus an optional `domains` list:
@@ -578,9 +580,13 @@ legacy `domain` field plus an optional `domains` list:
 | Request | Wire | Allowed when `allowed_domains` is non-empty and |
 | --- | --- | --- |
 | `None` | neither field | never — a domain-scoped secret needs a target |
-| `One(host)` | `domain` | some pattern matches the host (unchanged, compared as given) |
+| `One(host)` | `domain` | the lowercased value is a DNS host name and some pattern matches it (from `0.1.6`; before, any text was compared as given) |
 | `Set(hosts)` | `domains: [..]`, 2–16 sorted lowercase hosts | **every** host matches some pattern, because the action may reach any of them |
 | `Any` | `domains: ["*"]` | the list contains a bare `*`; `*.suffix` alone never admits it |
+
+`Any` means every host the caller names. The vault does no public/private
+filtering; blocking loopback, link-local and private addresses (SSRF) is the
+consumer's job.
 
 `RequestedDomains::hosts` builds a set: it lowercases, validates (LDH DNS
 labels only — no scheme, port, path or wildcard), sorts and dedupes, refuses more
@@ -589,9 +595,12 @@ A request carrying both fields, or a malformed list, is denied whatever the
 policy. Grants, approval challenges and approval fingerprints carry the scope
 exactly: a grant or approval for a set, or for all sites, redeems only for that
 same canonical set or `Any` — never for a single host, another set, or no domain.
+A `Secret`/`SecretScoped` batch expectation never redeems a delegated grant.
 No-domain and single-domain requests keep their serialized form, their approval
-fingerprint string and their grant matching byte for byte, so existing grants,
-approvals and audit lines keep their meaning.
+fingerprint string and their grant binding, so existing grants, approvals and
+audit lines keep their identity; the policy check itself changed only as noted
+above (case, host validation and `*`). Host text echoed in errors and deny
+reasons is truncated to 128 bytes with control characters escaped.
 
 ## One new process or HTTP request
 

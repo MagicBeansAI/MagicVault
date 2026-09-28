@@ -4853,6 +4853,96 @@ mod tests {
             .is_ok());
     }
 
+    fn audit_lines(store: &SecretStore) -> Vec<serde_json::Value> {
+        std::fs::read_to_string(store.audit_path())
+            .unwrap_or_default()
+            .lines()
+            .map(|line| serde_json::from_str(line).expect("audit line"))
+            .collect()
+    }
+
+    #[test]
+    fn scoped_approvals_carry_domains_through_pending_audit_and_consumption() {
+        let store = store_with_path(temp_store_path());
+        store
+            .store_provisioned(
+                "reddit",
+                "Reddit",
+                HashMap::from([("value".to_string(), "secret".to_string())]),
+                InjectionTarget::Header {
+                    name: "Authorization".to_string(),
+                    prefix: None,
+                },
+                SecretPolicy {
+                    allowed_domains: vec!["*.reddit.com".to_string(), "*".to_string()],
+                    requires_approval: true,
+                    ..SecretPolicy::default()
+                },
+            )
+            .unwrap();
+        let set = RequestedDomains::hosts(["www.reddit.com", "oauth.reddit.com"]).unwrap();
+        let wire = vec!["oauth.reddit.com".to_string(), "www.reddit.com".to_string()];
+
+        let PolicyResult::NeedsApproval { challenge } = store
+            .evaluate_access_scoped("reddit", "http", "get", &set)
+            .unwrap()
+        else {
+            panic!("approval required");
+        };
+        let pending = store.list_pending_approvals();
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].domain, None);
+        assert_eq!(pending[0].domains, wire);
+
+        assert!(store.grant_approval(&challenge.id).unwrap());
+        let granted = audit_lines(&store)
+            .into_iter()
+            .find(|line| line["event"] == "approval_granted")
+            .expect("approval_granted audit");
+        assert_eq!(granted["domains"], serde_json::json!(wire));
+        assert!(granted.get("domain").is_none());
+        assert!(matches!(
+            store.evaluate_access_scoped("reddit", "http", "get", &RequestedDomains::Any),
+            Ok(PolicyResult::NeedsApproval { .. })
+        ));
+        assert_eq!(
+            store
+                .evaluate_access_scoped("reddit", "http", "get", &set)
+                .unwrap(),
+            PolicyResult::Allowed
+        );
+
+        store
+            .approve_request_scoped("reddit", "http", "get", &RequestedDomains::Any)
+            .unwrap();
+        let restored = audit_lines(&store)
+            .into_iter()
+            .find(|line| line["event"] == "approval_granted_restored")
+            .expect("approval_granted_restored audit");
+        assert_eq!(restored["domains"], serde_json::json!(["*"]));
+        assert!(matches!(
+            store.evaluate_access_scoped("reddit", "http", "get", &set),
+            Ok(PolicyResult::NeedsApproval { .. })
+        ));
+        assert_eq!(
+            store
+                .evaluate_access_scoped("reddit", "http", "get", &RequestedDomains::Any)
+                .unwrap(),
+            PolicyResult::Allowed
+        );
+
+        store
+            .approve_request("reddit", "http", "get", Some("www.reddit.com"))
+            .unwrap();
+        let legacy = audit_lines(&store)
+            .into_iter()
+            .filter(|line| line["event"] == "approval_granted_restored")
+            .last()
+            .unwrap();
+        assert_eq!(legacy["domain"], "www.reddit.com");
+        assert!(legacy.get("domains").is_none());
+    }
+
     #[test]
     fn disabled_provisioned_partition_keeps_ephemeral_flow_available() {
         let store = disabled_store_with_path(temp_store_path());

@@ -168,6 +168,12 @@ fn transport_builder(timeout: Duration) -> reqwest::ClientBuilder {
 
 async fn client(url: &Url, timeout: Duration) -> Result<Client, ErrorCode> {
     let mut builder = transport_builder(timeout);
+    // Plain HTTP never checks a certificate. Building the client still walks
+    // the OS trust store unless this is off, and that walk blocks the worker
+    // inside the system trust service.
+    if url.scheme() == "http" {
+        builder = builder.tls_built_in_native_certs(false);
+    }
     if let Some(url::Host::Domain(host)) = url.host() {
         let port = url
             .port_or_known_default()
@@ -272,11 +278,74 @@ pub async fn execute(
     }
     // Beyond this point the server might act even if cancellation, a timeout or
     // a lost reply prevents completion. Never classify it as safe to retry.
-    let exchange = exchange(client, request);
+    finish_dispatched(client, request, deadline, cancel).await
+}
+
+fn caller_is_current_thread() -> bool {
+    tokio::runtime::Handle::try_current()
+        .is_ok_and(|handle| handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::CurrentThread)
+}
+
+/// Workers for a current-thread caller. `timeout_at` polls the request before
+/// the deadline, so a poll that never returns also never arms that deadline.
+/// The caller waits on its own runtime and aborts this exchange when its
+/// deadline wins. Multi-thread callers stay inline; production already is.
+fn http_runtime() -> &'static tokio::runtime::Runtime {
+    static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
+    RUNTIME.get_or_init(|| {
+        tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .thread_name("magicvault-http")
+            .enable_io()
+            .enable_time()
+            .build()
+            .expect("magicvault http runtime")
+    })
+}
+
+struct AbortOnDrop(tokio::task::AbortHandle);
+
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
+async fn finish_dispatched(
+    client: Client,
+    request: reqwest::Request,
+    deadline: tokio::time::Instant,
+    cancel: CancellationToken,
+) -> DeliveryOutcome {
+    if caller_is_current_thread() {
+        let task = http_runtime().spawn(finish_exchange(client, request, deadline, cancel.clone()));
+        // Drop detaches a JoinHandle. Abort instead, including when this
+        // future itself is dropped, so the peer sees the socket close.
+        let _abort = AbortOnDrop(task.abort_handle());
+        tokio::select! {
+            biased;
+            _ = cancel.cancelled() => DeliveryOutcome::uncertain(ErrorCode::Cancelled),
+            result = tokio::time::timeout_at(deadline, task) => match result {
+                Ok(Ok(outcome)) => outcome,
+                Ok(Err(_)) => DeliveryOutcome::uncertain(ErrorCode::TransportUncertain),
+                Err(_) => DeliveryOutcome::uncertain(ErrorCode::Expired),
+            },
+        }
+    } else {
+        finish_exchange(client, request, deadline, cancel).await
+    }
+}
+
+async fn finish_exchange(
+    client: Client,
+    request: reqwest::Request,
+    deadline: tokio::time::Instant,
+    cancel: CancellationToken,
+) -> DeliveryOutcome {
     tokio::select! {
         biased;
         _ = cancel.cancelled() => DeliveryOutcome::uncertain(ErrorCode::Cancelled),
-        result = tokio::time::timeout_at(deadline, exchange) => match result {
+        result = tokio::time::timeout_at(deadline, exchange(client, request)) => match result {
             Ok(Ok(true)) => DeliveryOutcome::completed(),
             Ok(Ok(false)) => DeliveryOutcome::failed(ErrorCode::Unavailable).after_dispatch(),
             Ok(Err(error)) => DeliveryOutcome::uncertain(error),

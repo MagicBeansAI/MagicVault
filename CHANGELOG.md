@@ -5,6 +5,14 @@ Entries describe source changes, not publication announcements. See
 [release acceptance checklist](docs/qualification/release.md) and
 [version-specific test evidence](docs/qualification/README.md#evidence-records).
 
+## Unreleased
+
+- Plain HTTP delivery no longer loads the OS trust store while building its
+  client. A current-thread caller runs the in-flight exchange on a two-worker
+  runtime and aborts it at the deadline, so a stalled response body cannot
+  park the only worker. After the request is sent, a lost reply stays
+  uncertain and is not retried.
+
 ## MagicRun lock refresh — 2026-09-28
 
 Cargo.lock only; no manifest, package version, wire, vault format or extension

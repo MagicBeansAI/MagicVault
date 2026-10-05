@@ -312,7 +312,12 @@ async fn stalled_body_deadline_and_invalid_secret_header_do_not_retry() {
     let (mut c, material) = config(format!("http://{}/", listener.local_addr().unwrap()));
     c.timeout_secs = 1;
     let server = tokio::spawn(async move {
-        let (mut stream, _) = listener.accept().await.unwrap();
+        // An accept with no deadline parked this test for hours when the
+        // client returned without a connection. Fail that case in seconds.
+        let (mut stream, _) = tokio::time::timeout(Duration::from_secs(3), listener.accept())
+            .await
+            .expect("delivery client connected")
+            .unwrap();
         receive(&mut stream).await;
         stream
             .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\nx")
@@ -332,10 +337,18 @@ async fn stalled_body_deadline_and_invalid_secret_header_do_not_retry() {
                 .is_err()
         );
     });
-    let result = http::execute(&c, material, CancellationToken::new()).await;
+    let result = tokio::time::timeout(
+        Duration::from_secs(5),
+        http::execute(&c, material, CancellationToken::new()),
+    )
+    .await
+    .expect("stalled delivery settled");
     assert_eq!(result.state, DeliveryState::Uncertain);
     assert!(result.may_have_run);
-    server.await.unwrap();
+    tokio::time::timeout(Duration::from_secs(5), server)
+        .await
+        .expect("stalled-body server finished")
+        .unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let (c, mut material) = config(format!("http://{}/", listener.local_addr().unwrap()));
     let (reference, field) = c.headers[0].value.credential().unwrap();

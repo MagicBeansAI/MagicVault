@@ -658,6 +658,11 @@ See [consent semantics and recovery](consent.md).
    registered executable digest. HTTP uses vetted/pinned public destinations,
    verified TLS, no redirects/ambient proxy/retries, and bounded response discard.
    Explicit loopback IP HTTP is allowed for trusted local recipients only.
+   Building that plain HTTP client does not load the operating-system trust
+   store. After the request is sent, a caller whose runtime has only one worker
+   runs the exchange on a two-worker runtime and aborts it when the deadline
+   wins, so a stalled response cannot pin that worker. A multi-thread caller
+   stays on its own runtime. A lost reply remains uncertain and is not retried.
 5. Child stdout/stderr/exit codes and HTTP bodies/headers/raw status codes never
    become agent output or audit data. The broker durably settles only typed IDs,
    kind, coarse state, `may_have_run` and a closed error. Audit failure faults

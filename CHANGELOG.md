@@ -7,6 +7,12 @@ Entries describe source changes, not publication announcements. See
 
 ## Unreleased
 
+- The CDP fill adapter no longer reports every failure as `transport_uncertain`.
+  A failure before the material is sent (a changed document, a missing
+  isolated-world context, a failed attach or frame read) is `failed` with its
+  code and `not_filled` fields; only the delivery call and later steps,
+  cancellation and timeouts stay uncertain. A detach failing after a known
+  outcome keeps the outcome.
 - Plain HTTP delivery no longer loads the OS trust store while building its
   client. A current-thread caller runs the in-flight exchange on a two-worker
   runtime and aborts it at the deadline, so a stalled response body cannot

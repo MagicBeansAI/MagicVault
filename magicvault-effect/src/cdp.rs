@@ -221,75 +221,107 @@ impl CdpBrowser {
         }))
     }
 
+    /// The fill's own failure says whether the material may have reached
+    /// the page: everything before `Runtime.callFunctionOn` is sent is known
+    /// not to have delivered it, so it reports its real code; that call and
+    /// anything after it are uncertain. A detach failing after a known
+    /// outcome keeps the outcome and only spends the connection.
     async fn perform_fill(
         connection: &mut Connection,
         target: &Target,
         fields: &[MaterialField],
         world_name: &str,
-    ) -> Result<Outcome, ErrorCode> {
-        let session = connection.attach(&target.tab).await?;
-        let work =
-            async {
-                if !connection
-                    .frame_targets(&target.tab, &session)
-                    .await?
-                    .contains(target)
-                {
-                    return Err(ErrorCode::StaleTarget);
-                }
-                connection
-                    .command(Some(&session), "Runtime.enable", json!({}))
-                    .await?;
-                let world = connection.command(Some(&session), "Page.createIsolatedWorld", json!({
-                "frameId":target.frame,"worldName":world_name,"grantUniveralAccess":false
-            })).await?;
-                let numeric = world["executionContextId"]
-                    .as_i64()
-                    .ok_or(ErrorCode::UnsupportedTarget)?;
-                // Never deliver material using a numeric context ID that could be
-                // recycled across process navigation. No fallback on older browsers.
-                let unique = connection
-                    .contexts
-                    .get(&(session.clone(), numeric))
-                    .cloned()
-                    .ok_or(ErrorCode::UnsupportedTarget)?;
-                if !connection
-                    .frame_targets(&target.tab, &session)
-                    .await?
-                    .contains(target)
-                {
-                    return Err(ErrorCode::StaleTarget);
-                }
-                let mut reply = connection.command(Some(&session), "Runtime.callFunctionOn", json!({
-                "functionDeclaration":FILL_FUNCTION,"uniqueContextId":unique,
-                "arguments":[{"value":target.origin},{"value":fields}],
-                "returnByValue":true,"silent":true,"awaitPromise":false,"userGesture":false
-            })).await?;
-                let outcome = if reply.get("exceptionDetails").is_some() {
-                    Err(ErrorCode::TransportUncertain)
-                } else {
-                    reply
-                        .get_mut("result")
-                        .and_then(|value| value.get_mut("value"))
-                        .map(Value::take)
-                        .ok_or(ErrorCode::TransportUncertain)
-                        .and_then(|value| {
-                            serde_json::from_value::<Outcome>(value)
-                                .map_err(|_| ErrorCode::TransportUncertain)
-                        })
-                };
-                scrub(&mut reply);
-                let outcome = outcome?;
-                if !outcome.valid(fields.len()) {
-                    return Err(ErrorCode::TransportUncertain);
-                }
-                Ok(outcome)
+    ) -> (Result<Outcome, FillFailure>, bool) {
+        let session = match connection.attach(&target.tab).await {
+            Ok(session) => session,
+            Err(error) => return (Err(FillFailure::NotDelivered(error)), false),
+        };
+        let work = async {
+            let before = |error| FillFailure::NotDelivered(error);
+            if !connection
+                .frame_targets(&target.tab, &session)
+                .await
+                .map_err(before)?
+                .contains(target)
+            {
+                return Err(before(ErrorCode::StaleTarget));
             }
-            .await;
+            connection
+                .command(Some(&session), "Runtime.enable", json!({}))
+                .await
+                .map_err(before)?;
+            let world = connection
+                .command(
+                    Some(&session),
+                    "Page.createIsolatedWorld",
+                    json!({
+                        "frameId":target.frame,"worldName":world_name,"grantUniveralAccess":false
+                    }),
+                )
+                .await
+                .map_err(before)?;
+            let numeric = world["executionContextId"]
+                .as_i64()
+                .ok_or(before(ErrorCode::UnsupportedTarget))?;
+            // Never deliver material using a numeric context ID that could be
+            // recycled across process navigation. No fallback on older browsers.
+            let unique = connection
+                .contexts
+                .get(&(session.clone(), numeric))
+                .cloned()
+                .ok_or(before(ErrorCode::UnsupportedTarget))?;
+            if !connection
+                .frame_targets(&target.tab, &session)
+                .await
+                .map_err(before)?
+                .contains(target)
+            {
+                return Err(before(ErrorCode::StaleTarget));
+            }
+            let mut reply = connection
+                .command(
+                    Some(&session),
+                    "Runtime.callFunctionOn",
+                    json!({
+                        "functionDeclaration":FILL_FUNCTION,"uniqueContextId":unique,
+                        "arguments":[{"value":target.origin},{"value":fields}],
+                        "returnByValue":true,"silent":true,"awaitPromise":false,"userGesture":false
+                    }),
+                )
+                .await
+                .map_err(|_| FillFailure::MaybeDelivered)?;
+            let outcome = if reply.get("exceptionDetails").is_some() {
+                Err(FillFailure::MaybeDelivered)
+            } else {
+                reply
+                    .get_mut("result")
+                    .and_then(|value| value.get_mut("value"))
+                    .map(Value::take)
+                    .ok_or(FillFailure::MaybeDelivered)
+                    .and_then(|value| {
+                        serde_json::from_value::<Outcome>(value)
+                            .map_err(|_| FillFailure::MaybeDelivered)
+                    })
+            };
+            scrub(&mut reply);
+            let outcome = outcome?;
+            if !outcome.valid(fields.len()) {
+                return Err(FillFailure::MaybeDelivered);
+            }
+            Ok(outcome)
+        }
+        .await;
         // Failed cleanup invalidates this connection instead of leaking sessions.
-        connection.detach(&session).await?;
-        work
+        let detached = connection.detach(&session).await.is_ok();
+        (work, detached)
     }
+}
+
+/// How a fill failed, for its receipt: before the material could reach the
+/// page (a definite failure with its code) or possibly after.
+enum FillFailure {
+    NotDelivered(ErrorCode),
+    MaybeDelivered,
 }
 
 #[async_trait]
@@ -417,26 +449,23 @@ impl BrowserAdapter for CdpBrowser {
         let Some(mut connection) = guard.take() else {
             return Outcome::failed(count, ErrorCode::Unavailable);
         };
-        let result = tokio::select! {
-            _ = self.stop.cancelled() => Err(ErrorCode::TransportUncertain),
-            _ = cancel.cancelled() => Err(ErrorCode::TransportUncertain),
-            result = tokio::time::timeout(Duration::from_secs(FILL_TIMEOUT_SECS), Self::perform_fill(&mut connection,target,&fields,&self.world_name)) => result.unwrap_or(Err(ErrorCode::TransportUncertain)),
+        // Cancellation, shutdown and the overall timeout can land at any
+        // step, so they stay uncertain; the fill's own failures say whether
+        // delivery could have happened (`FillFailure`).
+        let (result, detached) = tokio::select! {
+            _ = self.stop.cancelled() => (Err(FillFailure::MaybeDelivered), false),
+            _ = cancel.cancelled() => (Err(FillFailure::MaybeDelivered), false),
+            result = tokio::time::timeout(Duration::from_secs(FILL_TIMEOUT_SECS), Self::perform_fill(&mut connection,target,&fields,&self.world_name)) => result.unwrap_or((Err(FillFailure::MaybeDelivered), false)),
         };
+        if result.is_ok() && detached {
+            *guard = Some(connection);
+        } else {
+            self.alive.store(false, Ordering::Release);
+        }
         match result {
-            Ok(outcome) => {
-                *guard = Some(connection);
-                outcome
-            }
-            Err(error) => {
-                self.alive.store(false, Ordering::Release);
-                // A protocol failure can follow an already-applied write. Only
-                // pre-delivery stale checks are known not to have filled.
-                if error == ErrorCode::StaleTarget {
-                    Outcome::failed(count, error)
-                } else {
-                    Outcome::uncertain(count)
-                }
-            }
+            Ok(outcome) => outcome,
+            Err(FillFailure::NotDelivered(error)) => Outcome::failed(count, error),
+            Err(FillFailure::MaybeDelivered) => Outcome::uncertain(count),
         }
     }
 

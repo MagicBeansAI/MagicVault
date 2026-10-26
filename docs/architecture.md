@@ -427,6 +427,12 @@ candidate/total-target overflow at a completed protocol boundary returns
 `capacity` while preserving the connection for a narrower discovery. Timeout,
 malformed reply and frame/transport failures still invalidate the connection;
 this exception never retries an effect or preserves uncertain delivery state.
+A CDP fill reports uncertainty only when the material may have reached the
+page: the isolated delivery call, anything after it, cancellation, shutdown or
+the overall timeout. A failure before that call (attach, frame read, document
+recheck, isolated-world creation or its unique context) is a definite
+`not_filled` failure with its code. A detach failing after a known outcome
+keeps the outcome and only invalidates the connection.
 
 Extension access is separate from credential authorization. Chrome grants remain
 optional: a human chooses all HTTPS once or selected hosts; local HTTP is always

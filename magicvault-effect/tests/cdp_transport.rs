@@ -212,8 +212,12 @@ async fn no_numeric_context_fallback_or_delivery_after_pre_cancel() {
     let outcome = browser.fill(&targets[0], fields(), cancelled).await;
     assert_eq!(outcome.fields, [FieldState::NotFilled]);
     fixture.state.lock().unwrap().omit_unique_context = true;
-    let _ = browser
+    let outcome = browser
         .fill(&targets[0], fields(), CancellationToken::new())
         .await;
     assert!(fixture.state.lock().unwrap().delivered.is_empty());
+    // Refused before the material was sent: a definite failure with its
+    // reason, not "uncertain" (which reads as "it may have been typed").
+    assert_eq!(outcome.fields, [FieldState::NotFilled]);
+    assert_eq!(outcome.error, Some(ErrorCode::UnsupportedTarget));
 }

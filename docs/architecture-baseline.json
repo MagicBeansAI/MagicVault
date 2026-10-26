@@ -3,7 +3,7 @@
   "project": "MagicVault",
   "architecture_version": "0.9.3",
   "document": "docs/architecture.md",
-  "document_sha256": "41fca6d44e87b314674bd359aaf2e37039a7e3a0220325930ef2538c7605aa3f",
+  "document_sha256": "0eea13ce1b28dacce99cb58fb71e276dde96f27c610da7060b8fe3c9d6324ab3",
   "component_versions": {
     "extension": "0.6.1",
     "magicvault": "0.9.3",
@@ -41,7 +41,7 @@
     "magicvault-core/src/types.rs": "65ac1ab641ccf9ab42117e16822983060f404c7e9a7c5cdcadbf0b3620158c3e",
     "magicvault-effect/Cargo.toml": "6f847d80dd7459519ab31d977fe3043c2b5ee9644c86bfae847b88f5e5dc60cf",
     "magicvault-effect/src/bridge.rs": "8bcb8f27e6b9cded9d8166d20b5c33000b9880f5785d9de354555395d722d078",
-    "magicvault-effect/src/cdp.rs": "2928122d7e36107b745fd457bd5f474f6e01ef718dcefb95ecd2fb0c3cc0fbbc",
+    "magicvault-effect/src/cdp.rs": "463082b0b760abdbbb184518671f4aa05c140fe90e2ca16df5e9de0fd219749c",
     "magicvault-effect/src/delivery.rs": "5d12210d891406c6045f5aae0760b828dec5df6f1cc0037c9916eaf5b059584a",
     "magicvault-effect/src/fill.js": "845eb1f035560e5b97b40d72b4efb400db04cd66e8458bc54b06b542b2924be2",
     "magicvault-effect/src/http.rs": "44eed5e0dfe1bb04c8f6a72724135eb6f6b41f6d58c04ba26aafe70f8dafc704",

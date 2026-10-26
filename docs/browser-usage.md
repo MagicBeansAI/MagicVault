@@ -327,6 +327,13 @@ or `uncertain`. Filling does not prove authentication succeeded. The adapter doe
 not explicitly submit the form, but a site's input/change handlers can have their
 own side effects; that website is an authorized recipient.
 
+The CDP adapter reports `uncertain` only when the material may have reached the
+page: the delivery call itself, anything after it, cancellation, shutdown or the
+overall timeout. A refusal before delivery (a changed document, a missing
+isolated-world context, a failed attach or frame read) is a `failed` outcome
+with its code and `not_filled` fields. A detach that fails after a known result
+keeps that result and only closes the connection.
+
 To request cancellation:
 
 ```sh

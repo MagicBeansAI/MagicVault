@@ -720,10 +720,13 @@ Magician need no API, source or storage migration for these standalone additions
   can copy credentials. MagicRun is a dependency of the effect crate, never of
   shared custody, and is invoked only for new-process delivery.
 - **One plaintext buffer per vault write:** a durable partition is serialized
-  straight from the store's state under its read lock — no entry is cloned —
-  into one exactly sized zeroizing buffer that is then sealed in place, and a
-  load decrypts the file's own buffer in place and wipes it after parsing. The
-  vault file bytes are unchanged.
+  into one exactly sized zeroizing buffer, with no entry cloned, and sealed in
+  place. A load decrypts the file's own buffer in place and wipes it after
+  parsing. The vault file bytes are unchanged. Captured entries sit behind
+  `Arc`s: a flush snapshots them by copying pointers under the state read lock
+  and serializes with no state lock held, so a flush never stalls captures or
+  sessions. Writers replace an entry or copy it on write, so a snapshot sees
+  each entry wholly as it was.
 
 ## Source map
 

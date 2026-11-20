@@ -453,7 +453,10 @@ struct McpOAuthPersistFailure {
 #[derive(Default)]
 struct SecretStoreState {
     provisioned: HashMap<String, SecretEntry>,
-    captured: HashMap<String, SecretEntry>,
+    /// Behind `Arc`s so a flush can snapshot the partition by copying pointers
+    /// and serialize it with no state lock held. Writers replace an entry or
+    /// copy it on write, so a snapshot sees every entry wholly as it was.
+    captured: HashMap<String, Arc<SecretEntry>>,
     ephemeral: HashMap<String, SecretEntry>,
     /// Absolute deadlines for bounded ephemeral entries, by the same scoped
     /// key. An entry absent here keeps the run-scoped lifetime.
@@ -515,12 +518,23 @@ struct PersistedPartition {
     entries: HashMap<String, SecretEntry>,
 }
 
-/// [`PersistedPartition`] over a borrowed map: the same fields in the same
+/// [`PersistedPartition`] over borrowed entries: the same fields in the same
 /// order, so it serializes to the same JSON without cloning a single entry.
 #[derive(Serialize)]
-struct PersistedPartitionRef<'entries> {
+struct PersistedPartitionRef<Entries> {
     version: u32,
-    entries: &'entries HashMap<String, SecretEntry>,
+    entries: Entries,
+}
+
+/// A captured snapshot serialized as the plain entry map it stands for: the
+/// same JSON object a `HashMap<String, SecretEntry>` writes, in the snapshot's
+/// iteration order.
+struct SharedEntries<'snapshot>(&'snapshot HashMap<String, Arc<SecretEntry>>);
+
+impl Serialize for SharedEntries<'_> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_map(self.0.iter().map(|(origin, entry)| (origin, entry.as_ref())))
+    }
 }
 
 /// Counts what a serializer writes, so the real buffer is allocated once.
@@ -566,20 +580,35 @@ impl Write for WipingWriter<'_> {
 /// The JSON is serialized twice — once into a counter, once for real — so the
 /// buffer is sized exactly and never grows, and the flush holds this one
 /// buffer rather than a clone of the map, a JSON copy and a ciphertext copy.
-/// The map cannot change between the passes: the caller holds the state lock.
+/// The payload cannot change between the passes: the provisioned caller holds
+/// the state lock, and a captured snapshot is immutable `Arc`s.
 fn frame_partition_plaintext(
-    entries: &HashMap<String, SecretEntry>,
+    payload: &impl Serialize,
 ) -> Result<Zeroizing<Vec<u8>>, serde_json::Error> {
-    let payload = PersistedPartitionRef {
-        version: 1,
-        entries,
-    };
     let mut counted = ByteCount(0);
-    serde_json::to_writer(&mut counted, &payload)?;
+    serde_json::to_writer(&mut counted, payload)?;
     let mut framed = Zeroizing::new(Vec::with_capacity(NONCE_LEN + counted.0 + TAG_LEN));
     framed.resize(NONCE_LEN, 0);
-    serde_json::to_writer(WipingWriter(&mut framed), &payload)?;
+    serde_json::to_writer(WipingWriter(&mut framed), payload)?;
     Ok(framed)
+}
+
+/// Loaded captured entries, each behind the `Arc` a flush snapshot shares.
+fn shared_entries(entries: HashMap<String, SecretEntry>) -> HashMap<String, Arc<SecretEntry>> {
+    entries
+        .into_iter()
+        .map(|(origin, entry)| (origin, Arc::new(entry)))
+        .collect()
+}
+
+/// Flip a captured entry's lease flag. Copy-on-write: a flush snapshot that
+/// still holds the entry keeps the version it took, and the store gets its own
+/// copy; an unshared entry is changed in place. The superseded copy wipes its
+/// fields when the snapshot drops it, as every `SecretEntry` does.
+fn set_captured_stale(entry: &mut Arc<SecretEntry>, stale_value: bool) {
+    if let SecretSource::Captured { stale, .. } = &mut Arc::make_mut(entry).source {
+        *stale = stale_value;
+    }
 }
 
 #[derive(Debug)]
@@ -629,6 +658,10 @@ pub struct SecretStore {
     /// [`SecretStore::provisioned_write_lock`].
     captured_write_lock: Mutex<()>,
     clock: RwLock<Arc<dyn CustodyClock>>,
+    /// Test-only: runs inside a captured flush after its snapshot is taken and
+    /// the state lock released, so a test can park the flush there.
+    #[cfg(test)]
+    captured_snapshot_hook: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
 }
 
 /// Take a persist lock, clearing poison rather than propagating it.
@@ -800,7 +833,7 @@ impl SecretStore {
         state
             .provisioned
             .values()
-            .chain(state.captured.values())
+            .chain(state.captured.values().map(Arc::as_ref))
             .chain(state.ephemeral.values())
             .flat_map(|entry| entry.fields.values())
             .map(String::as_str)
@@ -900,6 +933,8 @@ impl SecretStore {
             provisioned_write_lock: Mutex::new(()),
             captured_write_lock: Mutex::new(()),
             clock: RwLock::new(Arc::new(SystemClock)),
+            #[cfg(test)]
+            captured_snapshot_hook: Mutex::new(None),
         }
     }
 
@@ -1980,23 +2015,23 @@ impl SecretStore {
         };
 
         let existing_headers = existing
-            .as_ref()
+            .as_deref()
             .map(extract_captured_headers)
             .unwrap_or_default();
         let existing_query_params = existing
-            .as_ref()
+            .as_deref()
             .map(extract_captured_query_params)
             .unwrap_or_default();
         let existing_local_storage = existing
-            .as_ref()
+            .as_deref()
             .map(extract_captured_local_storage)
             .unwrap_or_default();
         let existing_session_storage = existing
-            .as_ref()
+            .as_deref()
             .map(extract_captured_session_storage)
             .unwrap_or_default();
         let generation = existing
-            .as_ref()
+            .as_deref()
             .and_then(captured_generation)
             .unwrap_or_default()
             + 1;
@@ -2046,7 +2081,7 @@ impl SecretStore {
                 .state
                 .write()
                 .expect("secret store state lock poisoned");
-            guard.captured.insert(origin.to_string(), entry);
+            guard.captured.insert(origin.to_string(), Arc::new(entry));
             self.evict_captured_if_needed(&mut guard);
         }
         self.captured_dirty.store(true, Ordering::Release);
@@ -2204,27 +2239,27 @@ impl SecretStore {
         };
 
         let existing_headers = existing
-            .as_ref()
+            .as_deref()
             .map(extract_captured_headers)
             .unwrap_or_default();
         let existing_query_params = existing
-            .as_ref()
+            .as_deref()
             .map(extract_captured_query_params)
             .unwrap_or_default();
         let existing_cookies = existing
-            .as_ref()
+            .as_deref()
             .map(extract_captured_cookies)
             .unwrap_or_default();
         let existing_local_storage = existing
-            .as_ref()
+            .as_deref()
             .map(extract_captured_local_storage)
             .unwrap_or_default();
         let existing_session_storage = existing
-            .as_ref()
+            .as_deref()
             .map(extract_captured_session_storage)
             .unwrap_or_default();
         let generation = existing
-            .as_ref()
+            .as_deref()
             .and_then(captured_generation)
             .unwrap_or_default()
             + 1;
@@ -2271,7 +2306,7 @@ impl SecretStore {
                 .state
                 .write()
                 .expect("secret store state lock poisoned");
-            guard.captured.insert(origin.to_string(), entry);
+            guard.captured.insert(origin.to_string(), Arc::new(entry));
             self.evict_captured_if_needed(&mut guard);
         }
         self.captured_dirty.store(true, Ordering::Release);
@@ -2380,14 +2415,14 @@ impl SecretStore {
             };
             let SecretSource::Captured {
                 generation, stale, ..
-            } = &mut entry.source
+            } = &entry.source
             else {
                 continue;
             };
             if *generation != target.generation || *stale {
                 continue;
             }
-            *stale = true;
+            set_captured_stale(entry, true);
             changed = true;
         }
 
@@ -2416,14 +2451,14 @@ impl SecretStore {
             };
             let SecretSource::Captured {
                 generation, stale, ..
-            } = &mut entry.source
+            } = &entry.source
             else {
                 continue;
             };
             if *generation != target.generation || !*stale {
                 continue;
             }
-            *stale = false;
+            set_captured_stale(entry, false);
             changed = true;
         }
 
@@ -2457,7 +2492,7 @@ impl SecretStore {
             .expect("secret store state lock poisoned")
             .captured
             .get(origin)
-            .map(auth_status_for_entry)
+            .map(|entry| auth_status_for_entry(entry))
             .unwrap_or_default()
     }
 
@@ -2520,6 +2555,18 @@ impl SecretStore {
         &self.base_dir
     }
 
+    #[cfg(test)]
+    fn run_captured_snapshot_hook(&self) {
+        let hook = self
+            .captured_snapshot_hook
+            .lock()
+            .expect("captured snapshot hook lock poisoned")
+            .clone();
+        if let Some(hook) = hook {
+            hook();
+        }
+    }
+
     fn update_captured_state(
         &self,
         origin: &str,
@@ -2535,9 +2582,8 @@ impl SecretStore {
         };
         let SecretSource::Captured {
             generation: current_generation,
-            stale,
             ..
-        } = &mut entry.source
+        } = &entry.source
         else {
             return Ok(false);
         };
@@ -2545,7 +2591,7 @@ impl SecretStore {
         if *current_generation != generation {
             return Ok(false);
         }
-        *stale = stale_value;
+        set_captured_stale(entry, stale_value);
         drop(guard);
         self.persist_captured()?;
         Ok(true)
@@ -2561,7 +2607,14 @@ impl SecretStore {
     fn persist_provisioned(&self) -> Result<(), SecretStoreError> {
         self.ensure_feature_enabled(SecretSourceKind::Provisioned)?;
         let _serialized = lock_for_persist(&self.provisioned_write_lock);
-        self.persist_partition(&self.provisioned_file(), |state| &state.provisioned)
+        let framed = {
+            let state = self.state.read().expect("secret store state lock poisoned");
+            frame_partition_plaintext(&PersistedPartitionRef {
+                version: 1,
+                entries: &state.provisioned,
+            })?
+        };
+        self.publish_partition(&self.provisioned_file(), framed)
     }
 
     /// Publish the captured partition. Ordering as in [`Self::persist_provisioned`].
@@ -2572,11 +2625,33 @@ impl SecretStore {
     /// flush per capture. Clearing *before* the snapshot is the safe order: an
     /// insert that lands after the clone re-dirties the flag and a later flush
     /// picks it up, whereas clearing afterwards would drop it.
+    ///
+    /// The snapshot is the map of `Arc`s, cloned under `state.read()`: pointer
+    /// copies, not entries. Serialization, sealing and the write all run with no
+    /// state lock held, reading through the `Arc`s, so a flush stalls neither
+    /// writers nor the readers queued behind them. A writer replaces the entry
+    /// it changes or copies it on write, so the snapshot sees each entry wholly
+    /// as it was. The ordering argument holds for this shape: the flag is
+    /// cleared before the snapshot, and a write that lands after the snapshot
+    /// re-dirties the flag, so a later flush writes it.
     fn persist_captured(&self) -> Result<(), SecretStoreError> {
         self.ensure_feature_enabled(SecretSourceKind::Captured)?;
         let _serialized = lock_for_persist(&self.captured_write_lock);
         self.captured_dirty.store(false, Ordering::Release);
-        let result = self.persist_partition(&self.captured_file(), |state| &state.captured);
+        let snapshot = self
+            .state
+            .read()
+            .expect("secret store state lock poisoned")
+            .captured
+            .clone();
+        #[cfg(test)]
+        self.run_captured_snapshot_hook();
+        let result = frame_partition_plaintext(&PersistedPartitionRef {
+            version: 1,
+            entries: SharedEntries(&snapshot),
+        })
+        .map_err(SecretStoreError::from)
+        .and_then(|framed| self.publish_partition(&self.captured_file(), framed));
         if result.is_err() {
             // Re-dirty so a subsequent flush retries.
             self.captured_dirty.store(true, Ordering::Release);
@@ -2699,25 +2774,19 @@ impl SecretStore {
         Ok(())
     }
 
-    /// Encrypt a partition snapshot and publish it durably.
+    /// Seal a framed partition plaintext in place and publish it durably.
     ///
-    /// The snapshot is serialized straight from the shared state under
-    /// `state.read()` — the read lock *is* the snapshot, so no entry is cloned —
-    /// and the lock is released before the key is fetched, the buffer sealed and
-    /// the file written. The caller's persist lock still spans the snapshot and
-    /// the rename, which is what keeps the file monotone. The plaintext lives in one `Zeroizing`
-    /// buffer that becomes the ciphertext in place: the copy of the map, the
-    /// separate JSON and the separate ciphertext this used to hold at once were
-    /// several times the partition's size.
-    fn persist_partition(
+    /// Called with no state lock held. The caller's persist lock spans its
+    /// snapshot and this rename, which is what keeps the file monotone. The
+    /// plaintext lives in one `Zeroizing` buffer that becomes the ciphertext in
+    /// place: the copy of the map, the separate JSON and the separate
+    /// ciphertext a flush used to hold at once were several times the
+    /// partition's size.
+    fn publish_partition(
         &self,
         path: &Path,
-        select: impl FnOnce(&SecretStoreState) -> &HashMap<String, SecretEntry>,
+        mut sealed: Zeroizing<Vec<u8>>,
     ) -> Result<(), SecretStoreError> {
-        let mut sealed = {
-            let state = self.state.read().expect("secret store state lock poisoned");
-            frame_partition_plaintext(select(&state))?
-        };
         let key = Zeroizing::new(self.key_provider.get_or_create_key()?);
         encrypt_in_place(&key, &mut sealed, &[])?;
 
@@ -2741,7 +2810,7 @@ impl SecretStore {
             .feature_status(SecretSourceKind::Captured)
             .is_available()
         {
-            self.load_partition(&self.captured_file())?
+            shared_entries(self.load_partition(&self.captured_file())?)
         } else {
             HashMap::new()
         };
@@ -2807,7 +2876,7 @@ impl SecretStore {
             .is_available()
         {
             match self.load_partition(&self.captured_file()) {
-                Ok(entries) => entries,
+                Ok(entries) => shared_entries(entries),
                 Err(err) => {
                     captured_status = SecretPartitionStatus::Unavailable;
                     if first_error.is_none() {
@@ -5282,23 +5351,61 @@ mod tests {
         store.mark_stale("https://fixture-3.invalid", 1).unwrap();
     }
 
-    /// The borrowed serializer is the same codec: for the same map it writes
-    /// the same bytes the cloning one did. `HashMap::clone` keeps the table's
-    /// layout and hasher, so the clone iterates in the original's order and
-    /// byte equality is a fair assertion; parsed equality is asserted as well.
+    fn plain_entries(shared: &HashMap<String, Arc<SecretEntry>>) -> HashMap<String, SecretEntry> {
+        shared
+            .iter()
+            .map(|(origin, entry)| (origin.clone(), entry.as_ref().clone()))
+            .collect()
+    }
+
+    /// The borrowed serializers are the same codec.
+    ///
+    /// Provisioned keeps its map type, and `HashMap::clone` keeps the table's
+    /// layout and hasher, so the legacy codec runs over a same-order copy and
+    /// the bytes must be identical. Captured entries sit behind `Arc`s, so no
+    /// same-order plain map exists for the legacy codec: its bytes are composed
+    /// entry by entry, in the snapshot's order, from the legacy entry
+    /// serializer, and parsed equality with the legacy codec is asserted too.
     #[test]
     fn borrowed_partition_serialization_matches_the_legacy_bytes() {
         let store = SecretStore::new_empty(Box::new(FixedKeyProvider), temp_store_path());
         populate_codec_fixture(&store);
         let state = store.state.read().unwrap();
-        for entries in [&state.provisioned, &state.captured] {
-            let legacy = legacy_partition_plaintext(entries);
-            let framed = frame_partition_plaintext(entries).unwrap();
-            assert_eq!(framed.capacity(), NONCE_LEN + legacy.len() + TAG_LEN);
-            assert_eq!(&framed[NONCE_LEN..], legacy.as_slice());
-            let parsed = serde_json::from_slice::<PersistedPartition>(&framed[NONCE_LEN..]).unwrap();
-            assert_eq!(&parsed.entries, entries);
+
+        let legacy = legacy_partition_plaintext(&state.provisioned);
+        let framed = frame_partition_plaintext(&PersistedPartitionRef {
+            version: 1,
+            entries: &state.provisioned,
+        })
+        .unwrap();
+        assert_eq!(framed.capacity(), NONCE_LEN + legacy.len() + TAG_LEN);
+        assert_eq!(&framed[NONCE_LEN..], legacy.as_slice());
+
+        let snapshot = state.captured.clone();
+        let framed = frame_partition_plaintext(&PersistedPartitionRef {
+            version: 1,
+            entries: SharedEntries(&snapshot),
+        })
+        .unwrap();
+        let mut composed = br#"{"version":1,"entries":{"#.to_vec();
+        for (index, (origin, entry)) in snapshot.iter().enumerate() {
+            if index > 0 {
+                composed.push(b',');
+            }
+            composed.extend(serde_json::to_vec(origin).unwrap());
+            composed.push(b':');
+            composed.extend(serde_json::to_vec(entry.as_ref()).unwrap());
         }
+        composed.extend_from_slice(b"}}");
+        assert_eq!(framed.capacity(), NONCE_LEN + composed.len() + TAG_LEN);
+        assert_eq!(&framed[NONCE_LEN..], composed.as_slice());
+        let parsed = serde_json::from_slice::<PersistedPartition>(&framed[NONCE_LEN..]).unwrap();
+        let legacy = serde_json::from_slice::<PersistedPartition>(&legacy_partition_plaintext(
+            &plain_entries(&snapshot),
+        ))
+        .unwrap();
+        assert_eq!(parsed.entries, legacy.entries);
+        assert_eq!(parsed.entries, plain_entries(&snapshot));
     }
 
     /// No on-disk change in either direction: a partition written by the old
@@ -5312,7 +5419,7 @@ mod tests {
         source.flush_captured().unwrap();
         let (provisioned, captured) = {
             let state = source.state.read().unwrap();
-            (state.provisioned.clone(), state.captured.clone())
+            (state.provisioned.clone(), plain_entries(&state.captured))
         };
 
         assert_eq!(legacy_read_partition(&source.captured_file()), captured);
@@ -5324,15 +5431,16 @@ mod tests {
         let loaded = SecretStore::new(Box::new(FixedKeyProvider), legacy_base)
             .expect("the new loader reads legacy partitions");
         let state = loaded.state.read().unwrap();
-        assert_eq!(state.captured, captured);
+        assert_eq!(plain_entries(&state.captured), captured);
         assert_eq!(state.provisioned, provisioned);
         assert_eq!(state.captured_status, SecretPartitionStatus::Loaded);
     }
 
-    /// A flush now serializes under the read lock instead of cloning under it,
-    /// so writers queue behind serialization. The dirty-flag discipline must
-    /// still hold: a write that lands while a flush is serializing re-dirties
-    /// the partition and the final flush writes it.
+    /// Every file a flush writes holds each entry wholly at one generation —
+    /// round `r` of a writer leaves exactly the keys of rounds `0..=r` at
+    /// generation `r + 1` — and the dirty-flag discipline still holds: a write
+    /// that lands after a flush's snapshot re-dirties the partition and the
+    /// final flush writes it.
     #[test]
     fn captured_writes_racing_flushes_all_survive_a_reload() {
         let temp = tempfile::tempdir().expect("temporary vault root");
@@ -5347,10 +5455,15 @@ mod tests {
         let flusher = {
             let store = Arc::clone(&store);
             let barrier = Arc::clone(&barrier);
+            let file = store.captured_file();
             thread::spawn(move || {
                 barrier.wait();
                 for _ in 0..ROUNDS * 2 {
                     store.flush_captured().expect("racing flush");
+                    // Only this thread writes the file, so it is the one just flushed.
+                    if file.exists() {
+                        assert_entries_are_whole_generations(&legacy_read_partition(&file));
+                    }
                 }
             })
         };
@@ -5398,6 +5511,140 @@ mod tests {
             );
         }
         assert!(files_matching(&base, ".tmp").is_empty());
+    }
+
+    fn assert_entries_are_whole_generations(entries: &HashMap<String, SecretEntry>) {
+        for (origin, entry) in entries {
+            let SecretSource::Captured { generation, .. } = entry.source else {
+                panic!("captured partition holds a non-captured entry");
+            };
+            let index = origin
+                .trim_start_matches("https://placeholder-")
+                .trim_end_matches(".invalid");
+            assert_eq!(entry.fields.len() as u64, generation, "{origin} is torn");
+            for round in 0..generation {
+                assert_eq!(
+                    entry.fields.get(&format!("local_storage:round-{round}")),
+                    Some(&format!("PLACEHOLDER-{index}-{round}")),
+                    "{origin} is torn"
+                );
+            }
+        }
+    }
+
+    /// The flush is parked after its snapshot: it must hold no state lock, so
+    /// writers and readers proceed, and it must still write exactly the
+    /// snapshot — the entry replaced meanwhile wholly old, the new origin absent.
+    #[test]
+    fn a_parked_flush_holds_no_state_lock_and_writes_its_snapshot() {
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let temp = tempfile::tempdir().expect("temporary vault root");
+        let base = temp.path().join("secrets");
+        let store = Arc::new(SecretStore::new_empty(Box::new(FixedKeyProvider), base.clone()));
+        let header = |value: &str| HashMap::from([("Authorization".to_string(), value.to_string())]);
+        store
+            .store_captured_deferred(
+                "https://kept.invalid",
+                header("Bearer PLACEHOLDER-OLD"),
+                Vec::new(),
+                HashMap::from([("token".to_string(), "PLACEHOLDER-OLD-STORAGE".to_string())]),
+                HashMap::new(),
+            )
+            .unwrap();
+
+        let (parked_tx, parked_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel::<()>();
+        let release_rx = Mutex::new(release_rx);
+        *store.captured_snapshot_hook.lock().unwrap() = Some(Arc::new(move || {
+            parked_tx.send(()).unwrap();
+            release_rx.lock().unwrap().recv().unwrap();
+        }));
+        let flusher = {
+            let store = Arc::clone(&store);
+            thread::spawn(move || store.flush_captured())
+        };
+        parked_rx
+            .recv_timeout(Duration::from_secs(60))
+            .expect("the flush reaches its snapshot");
+
+        assert!(store.state.try_write().is_ok(), "a parked flush holds no state lock");
+        store
+            .store_captured_deferred(
+                "https://kept.invalid",
+                header("Bearer PLACEHOLDER-NEW"),
+                Vec::new(),
+                HashMap::from([("token".to_string(), "PLACEHOLDER-NEW-STORAGE".to_string())]),
+                HashMap::new(),
+            )
+            .unwrap();
+        store
+            .store_captured_deferred(
+                "https://added.invalid",
+                header("Bearer PLACEHOLDER-ADDED"),
+                Vec::new(),
+                HashMap::new(),
+                HashMap::new(),
+            )
+            .unwrap();
+        let (session, _) = store
+            .get_session("https://kept.invalid", "https://kept.invalid/")
+            .expect("a reader is served during the flush");
+        assert_eq!(session.auth_headers["Authorization"], "Bearer PLACEHOLDER-NEW");
+
+        release_tx.send(()).unwrap();
+        flusher.join().expect("flusher thread").expect("parked flush");
+        *store.captured_snapshot_hook.lock().unwrap() = None;
+
+        let written = legacy_read_partition(&store.captured_file());
+        assert_eq!(written.len(), 1, "the origin added after the snapshot is absent");
+        let kept = &written["https://kept.invalid"];
+        assert_eq!(kept.fields["header:Authorization"], "Bearer PLACEHOLDER-OLD");
+        assert_eq!(kept.fields["local_storage:token"], "PLACEHOLDER-OLD-STORAGE");
+        assert!(matches!(kept.source, SecretSource::Captured { generation: 1, .. }));
+
+        store.flush_captured().expect("the writes re-dirtied the partition");
+        let written = legacy_read_partition(&store.captured_file());
+        assert_eq!(written.len(), 2);
+        let kept = &written["https://kept.invalid"];
+        assert_eq!(kept.fields["header:Authorization"], "Bearer PLACEHOLDER-NEW");
+        assert_eq!(kept.fields["local_storage:token"], "PLACEHOLDER-NEW-STORAGE");
+        assert!(matches!(kept.source, SecretSource::Captured { generation: 2, .. }));
+    }
+
+    /// A lease flip copies an entry a snapshot still holds, and flips an
+    /// unshared one in place.
+    #[test]
+    fn a_lease_flip_copies_an_entry_a_snapshot_still_holds() {
+        let store = store_with_path(temp_store_path());
+        let origin = "https://lease.invalid";
+        store
+            .store_captured(
+                origin,
+                HashMap::from([("Authorization".to_string(), "Bearer PLACEHOLDER".to_string())]),
+                Vec::new(),
+                HashMap::new(),
+                HashMap::new(),
+            )
+            .unwrap();
+
+        let snapshot = store.state.read().unwrap().captured.clone();
+        assert!(store.mark_stale(origin, 1).unwrap());
+        let held = &snapshot[origin];
+        let live = Arc::clone(&store.state.read().unwrap().captured[origin]);
+        assert!(matches!(held.source, SecretSource::Captured { stale: false, .. }));
+        assert!(matches!(live.source, SecretSource::Captured { stale: true, .. }));
+        assert!(!Arc::ptr_eq(held, &live));
+        assert_eq!(held.fields, live.fields);
+        drop(live);
+        drop(snapshot);
+
+        let before = Arc::as_ptr(&store.state.read().unwrap().captured[origin]);
+        assert!(store.mark_fresh(origin, 1).unwrap());
+        let after = Arc::as_ptr(&store.state.read().unwrap().captured[origin]);
+        assert_eq!(before, after, "an unshared entry is flipped in place");
+        assert!(!store.captured_status(origin).is_stale);
     }
 
     #[test]

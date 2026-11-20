@@ -17,6 +17,15 @@ Entries describe source changes, not publication announcements. See
   and `decrypt_in_place` use the same `nonce || ciphertext || tag` wire as
   `encrypt_with_aad` and `decrypt_with_aad`. No vault format, API removal or
   version change.
+- A captured flush no longer holds the store's state lock while it serializes.
+  Captured entries are kept behind `Arc`s, so a flush copies pointers under the
+  read lock and does the rest with no lock held. Writers replace an entry or
+  copy it on write, so every file holds each entry wholly at one generation.
+  In a debug build with a 43 MB partition, the worst wait for a capture or
+  `get_session` on another origin during a flush fell from 17.6 s to the
+  machine's idle noise (0.26 s for a capture, 11 ms for `get_session`). Lease
+  flips copy an entry only while a flush snapshot still holds it. No API,
+  format or version change.
 
 - The CDP fill adapter no longer reports every failure as `transport_uncertain`.
   A failure before the material is sent (a changed document, a missing

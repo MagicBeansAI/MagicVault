@@ -719,6 +719,11 @@ Magician need no API, source or storage migration for these standalone additions
   injection and other tools' observation filtering are not exposed. Recipients
   can copy credentials. MagicRun is a dependency of the effect crate, never of
   shared custody, and is invoked only for new-process delivery.
+- **One plaintext buffer per vault write:** a durable partition is serialized
+  straight from the store's state under its read lock — no entry is cloned —
+  into one exactly sized zeroizing buffer that is then sealed in place, and a
+  load decrypts the file's own buffer in place and wipes it after parsing. The
+  vault file bytes are unchanged.
 
 ## Source map
 

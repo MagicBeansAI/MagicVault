@@ -16,7 +16,10 @@ use crate::one_time::{
 };
 use crate::session::{SessionContext, SessionCookie};
 
-use super::encryption::{decrypt, encrypt, MasterKeyProvider, SecretEncryptionError};
+use super::encryption::{
+    decrypt, decrypt_in_place, encrypt, encrypt_in_place, MasterKeyProvider, SecretEncryptionError,
+    NONCE_LEN, TAG_LEN,
+};
 use super::injection::{detect_jwt_expiry, filter_cookies_for_url, CookieWithMetadata};
 use super::policy::{
     check_policy, AccessRequest, ApprovalTable, BoundGrantRedemption, BoundGrantRedemptionError,
@@ -510,6 +513,73 @@ struct PendingCapturedTask {
 struct PersistedPartition {
     version: u32,
     entries: HashMap<String, SecretEntry>,
+}
+
+/// [`PersistedPartition`] over a borrowed map: the same fields in the same
+/// order, so it serializes to the same JSON without cloning a single entry.
+#[derive(Serialize)]
+struct PersistedPartitionRef<'entries> {
+    version: u32,
+    entries: &'entries HashMap<String, SecretEntry>,
+}
+
+/// Counts what a serializer writes, so the real buffer is allocated once.
+struct ByteCount(usize);
+
+impl Write for ByteCount {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0 += bytes.len();
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// Appends to a plaintext buffer that is wiped, not merely freed, if it ever
+/// has to grow. `Vec`'s own growth hands the old allocation back to the
+/// allocator with the plaintext still in it.
+struct WipingWriter<'buffer>(&'buffer mut Zeroizing<Vec<u8>>);
+
+impl Write for WipingWriter<'_> {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        let needed = self.0.len() + bytes.len();
+        if needed > self.0.capacity() {
+            let mut grown = Zeroizing::new(Vec::with_capacity(needed.max(self.0.capacity() * 2)));
+            grown.extend_from_slice(self.0);
+            // The old buffer is the one dropped here, and it wipes itself.
+            std::mem::swap(self.0, &mut grown);
+        }
+        self.0.extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// The plaintext of a partition file, framed for [`encrypt_in_place`]:
+/// [`NONCE_LEN`] placeholder bytes, the JSON, and spare room for the tag.
+///
+/// The JSON is serialized twice — once into a counter, once for real — so the
+/// buffer is sized exactly and never grows, and the flush holds this one
+/// buffer rather than a clone of the map, a JSON copy and a ciphertext copy.
+/// The map cannot change between the passes: the caller holds the state lock.
+fn frame_partition_plaintext(
+    entries: &HashMap<String, SecretEntry>,
+) -> Result<Zeroizing<Vec<u8>>, serde_json::Error> {
+    let payload = PersistedPartitionRef {
+        version: 1,
+        entries,
+    };
+    let mut counted = ByteCount(0);
+    serde_json::to_writer(&mut counted, &payload)?;
+    let mut framed = Zeroizing::new(Vec::with_capacity(NONCE_LEN + counted.0 + TAG_LEN));
+    framed.resize(NONCE_LEN, 0);
+    serde_json::to_writer(WipingWriter(&mut framed), &payload)?;
+    Ok(framed)
 }
 
 #[derive(Debug)]
@@ -2491,13 +2561,7 @@ impl SecretStore {
     fn persist_provisioned(&self) -> Result<(), SecretStoreError> {
         self.ensure_feature_enabled(SecretSourceKind::Provisioned)?;
         let _serialized = lock_for_persist(&self.provisioned_write_lock);
-        let entries = self
-            .state
-            .read()
-            .expect("secret store state lock poisoned")
-            .provisioned
-            .clone();
-        self.persist_partition(&self.provisioned_file(), &entries)
+        self.persist_partition(&self.provisioned_file(), |state| &state.provisioned)
     }
 
     /// Publish the captured partition. Ordering as in [`Self::persist_provisioned`].
@@ -2512,13 +2576,7 @@ impl SecretStore {
         self.ensure_feature_enabled(SecretSourceKind::Captured)?;
         let _serialized = lock_for_persist(&self.captured_write_lock);
         self.captured_dirty.store(false, Ordering::Release);
-        let entries = self
-            .state
-            .read()
-            .expect("secret store state lock poisoned")
-            .captured
-            .clone();
-        let result = self.persist_partition(&self.captured_file(), &entries);
+        let result = self.persist_partition(&self.captured_file(), |state| &state.captured);
         if result.is_err() {
             // Re-dirty so a subsequent flush retries.
             self.captured_dirty.store(true, Ordering::Release);
@@ -2643,25 +2701,29 @@ impl SecretStore {
 
     /// Encrypt a partition snapshot and publish it durably.
     ///
-    /// Serialization runs through `Zeroizing`: between `to_vec` and `encrypt`
-    /// the plaintext of every provider key in the scope is sitting in a heap
-    /// buffer, and the MCP sibling already treats that window as worth closing.
+    /// The snapshot is serialized straight from the shared state under
+    /// `state.read()` — the read lock *is* the snapshot, so no entry is cloned —
+    /// and the lock is released before the key is fetched, the buffer sealed and
+    /// the file written. The caller's persist lock still spans the snapshot and
+    /// the rename, which is what keeps the file monotone. The plaintext lives in one `Zeroizing`
+    /// buffer that becomes the ciphertext in place: the copy of the map, the
+    /// separate JSON and the separate ciphertext this used to hold at once were
+    /// several times the partition's size.
     fn persist_partition(
         &self,
         path: &Path,
-        entries: &HashMap<String, SecretEntry>,
+        select: impl FnOnce(&SecretStoreState) -> &HashMap<String, SecretEntry>,
     ) -> Result<(), SecretStoreError> {
-        let payload = PersistedPartition {
-            version: 1,
-            entries: entries.clone(),
+        let mut sealed = {
+            let state = self.state.read().expect("secret store state lock poisoned");
+            frame_partition_plaintext(select(&state))?
         };
-        let json = Zeroizing::new(serde_json::to_vec(&payload)?);
         let key = Zeroizing::new(self.key_provider.get_or_create_key()?);
-        let encrypted = encrypt(&key, json.as_slice())?;
+        encrypt_in_place(&key, &mut sealed, &[])?;
 
         std::fs::create_dir_all(&self.base_dir)?;
         restrict_vault_dir(&self.base_dir)?;
-        write_file_durably(path, &encrypted)?;
+        write_file_durably(path, &sealed)?;
         restrict_vault_file(path)?;
         Ok(())
     }
@@ -2804,9 +2866,12 @@ impl SecretStore {
             return Ok(HashMap::new());
         }
 
-        let data = std::fs::read(path)?;
-        let key = self.key_provider.get_or_create_key()?;
-        let decrypted = match decrypt(&key, &data) {
+        // Decrypted in place: the file's buffer becomes the plaintext, which is
+        // parsed from there and wiped when this returns. A separate plaintext
+        // copy used to outlive the parse and go back to the allocator unwiped.
+        let mut data = Zeroizing::new(std::fs::read(path)?);
+        let key = Zeroizing::new(self.key_provider.get_or_create_key()?);
+        let decrypted = match decrypt_in_place(&key, &mut data, &[]) {
             Ok(bytes) => bytes,
             // Only `Corrupted` says the bytes are wrong. Anything else is the
             // cipher or the key failing us, and moving an intact vault aside
@@ -2819,7 +2884,7 @@ impl SecretStore {
             },
             Err(err) => return Err(err.into()),
         };
-        let payload = match serde_json::from_slice::<PersistedPartition>(&decrypted) {
+        let payload = match serde_json::from_slice::<PersistedPartition>(decrypted) {
             Ok(payload) => payload,
             Err(err) => {
                 self.quarantine_partition(path);
@@ -5139,6 +5204,211 @@ mod tests {
             files_matching(&base, ".tmp").is_empty(),
             "a completed durable write must not leave its temp behind"
         );
+    }
+
+    /// The partition codec before flushes stopped copying: clone the map into
+    /// an owned payload, serialize it, then encrypt into a second buffer. Kept
+    /// only so the borrowed path can be held to its exact bytes.
+    fn legacy_partition_plaintext(entries: &HashMap<String, SecretEntry>) -> Vec<u8> {
+        serde_json::to_vec(&PersistedPartition {
+            version: 1,
+            entries: entries.clone(),
+        })
+        .expect("legacy partition serialization")
+    }
+
+    fn legacy_write_partition(path: &Path, entries: &HashMap<String, SecretEntry>) {
+        let key = FixedKeyProvider.get_or_create_key().unwrap();
+        let encrypted = encrypt(&key, &legacy_partition_plaintext(entries)).unwrap();
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        write_file_durably(path, &encrypted).unwrap();
+    }
+
+    fn legacy_read_partition(path: &Path) -> HashMap<String, SecretEntry> {
+        let key = FixedKeyProvider.get_or_create_key().unwrap();
+        let plaintext = decrypt(&key, &std::fs::read(path).unwrap()).unwrap();
+        serde_json::from_slice::<PersistedPartition>(&plaintext)
+            .expect("legacy codec reads the new file")
+            .entries
+    }
+
+    /// Synthetic entries that exercise the JSON writer: escapes, multi-byte
+    /// UTF-8, cookies with metadata, storage of both kinds, and a stale lease.
+    fn populate_codec_fixture(store: &SecretStore) {
+        store
+            .store_provisioned(
+                "placeholder-key",
+                "Placeholder \"quoted\" label",
+                HashMap::from([("value".to_string(), "PLACEHOLDER-NOT-A-KEY".to_string())]),
+                InjectionTarget::Header {
+                    name: "Authorization".to_string(),
+                    prefix: Some("Bearer ".to_string()),
+                },
+                SecretPolicy::default(),
+            )
+            .unwrap();
+        for index in 0..12 {
+            let origin = format!("https://fixture-{index}.invalid");
+            store
+                .store_captured_deferred_with_query_params(
+                    &origin,
+                    HashMap::from([(
+                        "Authorization".to_string(),
+                        format!("Bearer PLACEHOLDER-{index}"),
+                    )]),
+                    HashMap::from([("token".to_string(), format!("q-{index}"))]),
+                    vec![CookieWithMetadata {
+                        name: "session".to_string(),
+                        value: format!("cookie-{index}"),
+                        domain: format!("fixture-{index}.invalid"),
+                        path: "/".to_string(),
+                        secure: true,
+                        http_only: index % 2 == 0,
+                        same_site: SameSite::Strict,
+                        expires: Some(1_900_000_000 + index),
+                    }],
+                    (0..20)
+                        .map(|field| {
+                            (
+                                format!("state-{field}"),
+                                format!("{{\"n\":{field},\"s\":\"caf\u{e9} \\ {index}\"}}"),
+                            )
+                        })
+                        .collect(),
+                    HashMap::from([("tab\ttoken".to_string(), "line\nbreak\u{1F511}".to_string())]),
+                )
+                .unwrap();
+        }
+        store.mark_stale("https://fixture-3.invalid", 1).unwrap();
+    }
+
+    /// The borrowed serializer is the same codec: for the same map it writes
+    /// the same bytes the cloning one did. `HashMap::clone` keeps the table's
+    /// layout and hasher, so the clone iterates in the original's order and
+    /// byte equality is a fair assertion; parsed equality is asserted as well.
+    #[test]
+    fn borrowed_partition_serialization_matches_the_legacy_bytes() {
+        let store = SecretStore::new_empty(Box::new(FixedKeyProvider), temp_store_path());
+        populate_codec_fixture(&store);
+        let state = store.state.read().unwrap();
+        for entries in [&state.provisioned, &state.captured] {
+            let legacy = legacy_partition_plaintext(entries);
+            let framed = frame_partition_plaintext(entries).unwrap();
+            assert_eq!(framed.capacity(), NONCE_LEN + legacy.len() + TAG_LEN);
+            assert_eq!(&framed[NONCE_LEN..], legacy.as_slice());
+            let parsed = serde_json::from_slice::<PersistedPartition>(&framed[NONCE_LEN..]).unwrap();
+            assert_eq!(&parsed.entries, entries);
+        }
+    }
+
+    /// No on-disk change in either direction: a partition written by the old
+    /// codec loads into an equal map, and one written by the new flush opens
+    /// with the old codec into an equal map.
+    #[test]
+    fn partitions_cross_between_the_legacy_and_borrowed_codecs() {
+        let temp = tempfile::tempdir().expect("temporary vault root");
+        let source = SecretStore::new_empty(Box::new(FixedKeyProvider), temp.path().join("new"));
+        populate_codec_fixture(&source);
+        source.flush_captured().unwrap();
+        let (provisioned, captured) = {
+            let state = source.state.read().unwrap();
+            (state.provisioned.clone(), state.captured.clone())
+        };
+
+        assert_eq!(legacy_read_partition(&source.captured_file()), captured);
+        assert_eq!(legacy_read_partition(&source.provisioned_file()), provisioned);
+
+        let legacy_base = temp.path().join("legacy");
+        legacy_write_partition(&legacy_base.join("captured_secrets.vault"), &captured);
+        legacy_write_partition(&legacy_base.join("provisioned_secrets.vault"), &provisioned);
+        let loaded = SecretStore::new(Box::new(FixedKeyProvider), legacy_base)
+            .expect("the new loader reads legacy partitions");
+        let state = loaded.state.read().unwrap();
+        assert_eq!(state.captured, captured);
+        assert_eq!(state.provisioned, provisioned);
+        assert_eq!(state.captured_status, SecretPartitionStatus::Loaded);
+    }
+
+    /// A flush now serializes under the read lock instead of cloning under it,
+    /// so writers queue behind serialization. The dirty-flag discipline must
+    /// still hold: a write that lands while a flush is serializing re-dirties
+    /// the partition and the final flush writes it.
+    #[test]
+    fn captured_writes_racing_flushes_all_survive_a_reload() {
+        let temp = tempfile::tempdir().expect("temporary vault root");
+        let base = temp.path().join("secrets");
+        let store = Arc::new(SecretStore::new_empty(
+            Box::new(FixedKeyProvider),
+            base.clone(),
+        ));
+        const ROUNDS: usize = 25;
+        let barrier = Arc::new(Barrier::new(DURABILITY_CONTENDERS + 2));
+
+        let flusher = {
+            let store = Arc::clone(&store);
+            let barrier = Arc::clone(&barrier);
+            thread::spawn(move || {
+                barrier.wait();
+                for _ in 0..ROUNDS * 2 {
+                    store.flush_captured().expect("racing flush");
+                }
+            })
+        };
+        let mut writers = Vec::with_capacity(DURABILITY_CONTENDERS);
+        for index in 0..DURABILITY_CONTENDERS {
+            let store = Arc::clone(&store);
+            let barrier = Arc::clone(&barrier);
+            writers.push(thread::spawn(move || {
+                barrier.wait();
+                for round in 0..ROUNDS {
+                    store
+                        .store_captured_deferred(
+                            &format!("https://placeholder-{index}.invalid"),
+                            HashMap::new(),
+                            Vec::new(),
+                            HashMap::from([(
+                                format!("round-{round}"),
+                                format!("PLACEHOLDER-{index}-{round}"),
+                            )]),
+                            HashMap::new(),
+                        )
+                        .expect("racing captured write");
+                }
+            }));
+        }
+        barrier.wait();
+        for writer in writers {
+            writer.join().expect("captured writer thread");
+        }
+        flusher.join().expect("flusher thread");
+        store.flush_captured().expect("final flush");
+        let expected = store.state.read().unwrap().captured.clone();
+        drop(store);
+
+        let reloaded = SecretStore::new(Box::new(FixedKeyProvider), base.clone())
+            .expect("reload after racing flushes");
+        let reloaded_state = reloaded.state.read().unwrap();
+        assert_eq!(reloaded_state.captured, expected);
+        for index in 0..DURABILITY_CONTENDERS {
+            let entry = &reloaded_state.captured[&format!("https://placeholder-{index}.invalid")];
+            assert_eq!(
+                entry.fields.keys().filter(|key| key.starts_with("local_storage:")).count(),
+                ROUNDS,
+                "every merged write survives"
+            );
+        }
+        assert!(files_matching(&base, ".tmp").is_empty());
+    }
+
+    #[test]
+    fn a_wiping_writer_that_must_grow_keeps_every_byte() {
+        let mut buffer = Zeroizing::new(Vec::with_capacity(4));
+        buffer.extend_from_slice(b"ab");
+        let mut writer = WipingWriter(&mut buffer);
+        writer.write_all(b"cdefghij").unwrap();
+        writer.write_all(b"").unwrap();
+        assert_eq!(buffer.as_slice(), b"abcdefghij");
+        assert!(buffer.capacity() >= 10);
     }
 
     /// **The decision.** An unreadable vault reads as *empty*, not as a refusal

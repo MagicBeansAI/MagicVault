@@ -1,5 +1,5 @@
 use std::sync::Mutex;
-use aes_gcm::aead::{Aead, KeyInit, OsRng, Payload};
+use aes_gcm::aead::{Aead, AeadInPlace, KeyInit, OsRng, Payload};
 use aes_gcm::{Aes256Gcm, Nonce};
 use rand::RngCore;
 use zeroize::Zeroize;
@@ -60,6 +60,83 @@ pub fn encrypt_with_aad(
     out.extend_from_slice(&nonce_bytes);
     out.extend_from_slice(&ciphertext);
     Ok(out)
+}
+
+/// Bytes of nonce that lead every sealed buffer.
+pub const NONCE_LEN: usize = 12;
+
+/// Bytes of authentication tag that end every sealed buffer.
+pub const TAG_LEN: usize = 16;
+
+/// Seal `buffer` in place into the same `nonce || ciphertext || tag` wire as
+/// [`encrypt_with_aad`].
+///
+/// The buffer must start with [`NONCE_LEN`] placeholder bytes; everything after
+/// them is the plaintext. The plaintext is overwritten by its ciphertext and
+/// the tag is appended, so a caller that reserved [`TAG_LEN`] bytes of spare
+/// capacity never sees it reallocate. Nothing is copied: the plaintext only
+/// ever lives in the caller's buffer, which the caller owns and wipes — on an
+/// error it is left unsealed.
+pub fn encrypt_in_place(
+    key: &[u8; 32],
+    buffer: &mut Vec<u8>,
+    aad: &[u8],
+) -> Result<(), SecretEncryptionError> {
+    if buffer.len() < NONCE_LEN {
+        return Err(SecretEncryptionError::Encryption(
+            "sealing buffer has no room for the nonce".into(),
+        ));
+    }
+    let cipher = Aes256Gcm::new_from_slice(key)
+        .map_err(|e| SecretEncryptionError::Encryption(e.to_string()))?;
+
+    let mut nonce_bytes = [0u8; NONCE_LEN];
+    OsRng.fill_bytes(&mut nonce_bytes);
+    let nonce = Nonce::from(nonce_bytes);
+
+    let tag = cipher
+        .encrypt_in_place_detached(&nonce, aad, &mut buffer[NONCE_LEN..])
+        .map_err(|e| SecretEncryptionError::Encryption(e.to_string()))?;
+    buffer[..NONCE_LEN].copy_from_slice(&nonce_bytes);
+    buffer.extend_from_slice(&tag);
+    Ok(())
+}
+
+/// Open a buffer sealed by [`encrypt_with_aad`] or [`encrypt_in_place`] in
+/// place, returning the plaintext as the part of `buffer` it now occupies.
+///
+/// The tag is checked before anything is decrypted, so a failure leaves the
+/// ciphertext untouched. Failures are the same payload-free errors
+/// [`decrypt_with_aad`] returns. The caller owns the buffer and must wipe it.
+pub fn decrypt_in_place<'buffer>(
+    key: &[u8; 32],
+    buffer: &'buffer mut [u8],
+    aad: &[u8],
+) -> Result<&'buffer [u8], SecretEncryptionError> {
+    if buffer.len() < NONCE_LEN {
+        return Err(SecretEncryptionError::Corrupted(
+            "ciphertext too short to contain nonce".into(),
+        ));
+    }
+    if buffer.len() < NONCE_LEN + TAG_LEN {
+        return Err(SecretEncryptionError::Corrupted(
+            "AES-GCM authentication failed".into(),
+        ));
+    }
+
+    let (nonce_bytes, sealed) = buffer.split_at_mut(NONCE_LEN);
+    let nonce = Nonce::from(<[u8; NONCE_LEN]>::try_from(&*nonce_bytes).map_err(|_| {
+        SecretEncryptionError::Corrupted("ciphertext nonce length must be 12 bytes".into())
+    })?);
+    let (ciphertext, tag) = sealed.split_at_mut(sealed.len() - TAG_LEN);
+
+    let cipher = Aes256Gcm::new_from_slice(key)
+        .map_err(|e| SecretEncryptionError::Encryption(e.to_string()))?;
+
+    cipher
+        .decrypt_in_place_detached(&nonce, aad, ciphertext, aes_gcm::Tag::from_slice(tag))
+        .map_err(|_| SecretEncryptionError::Corrupted("AES-GCM authentication failed".into()))?;
+    Ok(ciphertext)
 }
 
 /// Decrypt data produced by [`encrypt`].
@@ -208,6 +285,55 @@ mod tests {
             decrypt_with_aad(&key, &first, b"scope-b/install-a/r1"),
             Err(SecretEncryptionError::Corrupted(_))
         ));
+    }
+
+    /// The in-place pair is the same wire as the copying pair, in both
+    /// directions, so a file sealed by either opens with the other.
+    #[test]
+    fn in_place_sealing_shares_the_copying_wire() {
+        let key = [3u8; 32];
+        let plaintext = b"synthetic-in-place-plaintext";
+
+        let mut sealed = vec![0u8; NONCE_LEN];
+        sealed.extend_from_slice(plaintext);
+        sealed.reserve_exact(TAG_LEN);
+        let reserved = sealed.capacity();
+        encrypt_in_place(&key, &mut sealed, b"aad").unwrap();
+        assert_eq!(sealed.capacity(), reserved, "reserved tag room avoids a reallocation");
+        assert_eq!(sealed.len(), NONCE_LEN + plaintext.len() + TAG_LEN);
+        assert_eq!(decrypt_with_aad(&key, &sealed, b"aad").unwrap(), plaintext);
+
+        let mut copied = encrypt_with_aad(&key, plaintext, b"aad").unwrap();
+        assert_eq!(decrypt_in_place(&key, &mut copied, b"aad").unwrap(), plaintext);
+    }
+
+    #[test]
+    fn in_place_opening_fails_closed_and_leaves_the_ciphertext() {
+        let key = [4u8; 32];
+        let sealed = encrypt(&key, b"synthetic").unwrap();
+
+        let mut wrong_key = sealed.clone();
+        assert!(matches!(
+            decrypt_in_place(&[5u8; 32], &mut wrong_key, &[]),
+            Err(SecretEncryptionError::Corrupted(_))
+        ));
+        assert_eq!(wrong_key, sealed, "a failed tag check decrypts nothing");
+
+        let mut tampered = sealed.clone();
+        tampered[NONCE_LEN] ^= 0xFF;
+        assert!(matches!(
+            decrypt_in_place(&key, &mut tampered, &[]),
+            Err(SecretEncryptionError::Corrupted(_))
+        ));
+        for short in [0, NONCE_LEN - 1, NONCE_LEN, NONCE_LEN + TAG_LEN - 1] {
+            let mut truncated = sealed[..short].to_vec();
+            assert!(matches!(
+                decrypt_in_place(&key, &mut truncated, &[]),
+                Err(SecretEncryptionError::Corrupted(_))
+            ));
+        }
+        let mut empty_plaintext = encrypt(&key, b"").unwrap();
+        assert_eq!(decrypt_in_place(&key, &mut empty_plaintext, &[]).unwrap(), b"");
     }
 
     #[test]

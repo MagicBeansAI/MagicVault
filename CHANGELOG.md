@@ -7,6 +7,17 @@ Entries describe source changes, not publication announcements. See
 
 ## Unreleased
 
+- A captured or provisioned vault flush no longer copies the partition. It used
+  to clone the whole map twice, then hold the JSON and a separate ciphertext
+  as well: about 7x the file size at peak, measured on a synthetic 10 MB
+  partition. It now serializes from the shared state under the read lock into
+  one exactly sized zeroizing buffer and seals it in place (1.0x). Loading
+  decrypts the file's buffer in place, and that plaintext is now wiped after
+  parsing; before, it was freed without wiping. New `encryption::encrypt_in_place`
+  and `decrypt_in_place` use the same `nonce || ciphertext || tag` wire as
+  `encrypt_with_aad` and `decrypt_with_aad`. No vault format, API removal or
+  version change.
+
 - The CDP fill adapter no longer reports every failure as `transport_uncertain`.
   A failure before the material is sent (a changed document, a missing
   isolated-world context, a failed attach or frame read) is `failed` with its

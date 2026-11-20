@@ -2604,6 +2604,12 @@ impl SecretStore {
     /// persist lock is held across *both* the snapshot and the rename, which is
     /// what makes the file monotone: a writer that observes another writer's
     /// entries cannot then be overtaken by the snapshot that predates them.
+    ///
+    /// Unlike the captured partition, both serialization passes run under the
+    /// read lock. This partition holds operator-provisioned keys — tens of
+    /// small entries, kilobytes — so the passes take about as long as the
+    /// clone they replaced did under the same lock. An `Arc` snapshot would
+    /// change every provisioned reader for no measurable gain.
     fn persist_provisioned(&self) -> Result<(), SecretStoreError> {
         self.ensure_feature_enabled(SecretSourceKind::Provisioned)?;
         let _serialized = lock_for_persist(&self.provisioned_write_lock);
@@ -2935,9 +2941,11 @@ impl SecretStore {
             return Ok(HashMap::new());
         }
 
-        // Decrypted in place: the file's buffer becomes the plaintext, which is
-        // parsed from there and wiped when this returns. A separate plaintext
-        // copy used to outlive the parse and go back to the allocator unwiped.
+        // Decrypted in place: the file's buffer becomes the plaintext, is parsed
+        // from there, and that buffer is wiped when this returns. A separate
+        // decrypted copy used to go back to the allocator unwiped. Not covered,
+        // as before: serde_json's scratch buffer for escaped strings, and a
+        // partly parsed `fields` map dropped on a parse error.
         let mut data = Zeroizing::new(std::fs::read(path)?);
         let key = Zeroizing::new(self.key_provider.get_or_create_key()?);
         let decrypted = match decrypt_in_place(&key, &mut data, &[]) {
@@ -5645,6 +5653,131 @@ mod tests {
         let after = Arc::as_ptr(&store.state.read().unwrap().captured[origin]);
         assert_eq!(before, after, "an unshared entry is flipped in place");
         assert!(!store.captured_status(origin).is_stale);
+    }
+
+    /// Fails the first key fetch, then serves a fixed key: a flush whose write
+    /// fails once, with the vault directory left untouched.
+    struct FailOnceKeyProvider(std::sync::atomic::AtomicBool);
+
+    impl MasterKeyProvider for FailOnceKeyProvider {
+        fn get_or_create_key(&self) -> Result<[u8; 32], SecretEncryptionError> {
+            if self.0.swap(false, Ordering::SeqCst) {
+                return Err(SecretEncryptionError::Keychain(
+                    "test key backend unavailable once".to_owned(),
+                ));
+            }
+            Ok([9u8; 32])
+        }
+
+        fn delete_key(&self) -> Result<(), SecretEncryptionError> {
+            Ok(())
+        }
+
+        fn provider_name(&self) -> &str {
+            "fail-once-test-provider"
+        }
+    }
+
+    /// A captured flush that fails after its snapshot leaves the partition
+    /// dirty, so the next flush retries and writes it.
+    #[test]
+    fn a_failed_captured_flush_redirties_and_the_next_one_writes() {
+        let temp = tempfile::tempdir().expect("temporary vault root");
+        let base = temp.path().join("secrets");
+        let store = SecretStore::new_empty(
+            Box::new(FailOnceKeyProvider(std::sync::atomic::AtomicBool::new(true))),
+            base.clone(),
+        );
+        store
+            .store_captured_deferred(
+                "https://retry.invalid",
+                HashMap::from([("Authorization".to_string(), "Bearer PLACEHOLDER".to_string())]),
+                Vec::new(),
+                HashMap::new(),
+                HashMap::new(),
+            )
+            .unwrap();
+
+        assert!(store.flush_captured().is_err(), "the first key fetch fails");
+        assert!(store.captured_dirty.load(Ordering::Acquire), "a failed flush re-dirties");
+        assert!(!store.flush_in_flight.load(Ordering::Acquire));
+        assert!(!store.captured_file().exists());
+        assert!(files_matching(&base, ".tmp").is_empty());
+
+        store.flush_captured().expect("the retry flush");
+        assert!(!store.captured_dirty.load(Ordering::Acquire));
+        let written = legacy_read_partition(&store.captured_file());
+        assert_eq!(written["https://retry.invalid"].fields["header:Authorization"], "Bearer PLACEHOLDER");
+    }
+
+    /// Test-binary allocator that, for one watched allocation on the current
+    /// thread, records whether its bytes were all zero when it was freed.
+    /// Every other allocation passes straight through to the system.
+    struct FreedBytesWatch;
+
+    const WATCH_NONE: u8 = 0;
+    const WATCH_ZEROED: u8 = 1;
+    const WATCH_DIRTY: u8 = 2;
+
+    thread_local! {
+        static WATCHED_ALLOCATION: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+        static WATCH_RESULT: std::cell::Cell<u8> = const { std::cell::Cell::new(WATCH_NONE) };
+    }
+
+    unsafe impl std::alloc::GlobalAlloc for FreedBytesWatch {
+        unsafe fn alloc(&self, layout: std::alloc::Layout) -> *mut u8 {
+            std::alloc::System.alloc(layout)
+        }
+
+        unsafe fn dealloc(&self, pointer: *mut u8, layout: std::alloc::Layout) {
+            let watched = WATCHED_ALLOCATION.try_with(|cell| cell.get()).unwrap_or(0);
+            if watched != 0 && watched == pointer as usize {
+                // Still allocated here: reading it before handing it back is sound.
+                let bytes = std::slice::from_raw_parts(pointer, layout.size());
+                let result = if bytes.iter().all(|byte| *byte == 0) {
+                    WATCH_ZEROED
+                } else {
+                    WATCH_DIRTY
+                };
+                let _ = WATCH_RESULT.try_with(|cell| cell.set(result));
+                let _ = WATCHED_ALLOCATION.try_with(|cell| cell.set(0));
+            }
+            std::alloc::System.dealloc(pointer, layout)
+        }
+    }
+
+    #[global_allocator]
+    static FREED_BYTES_WATCH: FreedBytesWatch = FreedBytesWatch;
+
+    fn watch_free_of(pointer: *const u8) {
+        WATCH_RESULT.with(|cell| cell.set(WATCH_NONE));
+        WATCHED_ALLOCATION.with(|cell| cell.set(pointer as usize));
+    }
+
+    fn watched_free_result() -> u8 {
+        WATCHED_ALLOCATION.with(|cell| cell.set(0));
+        WATCH_RESULT.with(|cell| cell.get())
+    }
+
+    /// The growth fallback hands back an allocation that was wiped first. The
+    /// control proves the watch can see unwiped bytes, so the pass is not
+    /// vacuous.
+    #[test]
+    fn a_wiping_writer_wipes_the_allocation_it_outgrows() {
+        let control = vec![0xA5u8; 32];
+        watch_free_of(control.as_ptr());
+        drop(control);
+        assert_eq!(watched_free_result(), WATCH_DIRTY, "the watch sees unwiped bytes");
+
+        let mut buffer = Zeroizing::new(Vec::with_capacity(4));
+        buffer.extend_from_slice(b"ab");
+        let outgrown = buffer.as_ptr();
+        watch_free_of(outgrown);
+        WipingWriter(&mut buffer).write_all(b"PLACEHOLDER-PLAINTEXT").unwrap();
+        let result = watched_free_result();
+        assert_ne!(buffer.as_ptr(), outgrown, "the writer grew into a new allocation");
+        assert_eq!(result, WATCH_ZEROED, "the outgrown allocation was wiped before it was freed");
+        assert_eq!(buffer.as_slice(), b"abPLACEHOLDER-PLAINTEXT");
     }
 
     #[test]

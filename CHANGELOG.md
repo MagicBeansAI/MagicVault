@@ -7,25 +7,28 @@ Entries describe source changes, not publication announcements. See
 
 ## Unreleased
 
-- A captured or provisioned vault flush no longer copies the partition. It used
-  to clone the whole map twice, then hold the JSON and a separate ciphertext
-  as well: about 7x the file size at peak, measured on a synthetic 10 MB
-  partition. It now serializes from the shared state under the read lock into
-  one exactly sized zeroizing buffer and seals it in place (1.0x). Loading
-  decrypts the file's buffer in place, and that plaintext is now wiped after
-  parsing; before, it was freed without wiping. New `encryption::encrypt_in_place`
-  and `decrypt_in_place` use the same `nonce || ciphertext || tag` wire as
-  `encrypt_with_aad` and `decrypt_with_aad`. No vault format, API removal or
-  version change.
-- A captured flush no longer holds the store's state lock while it serializes.
-  Captured entries are kept behind `Arc`s, so a flush copies pointers under the
-  read lock and does the rest with no lock held. Writers replace an entry or
-  copy it on write, so every file holds each entry wholly at one generation.
-  In a debug build with a 43 MB partition, the worst wait for a capture or
-  `get_session` on another origin during a flush fell from 17.6 s to the
-  machine's idle noise (0.26 s for a capture, 11 ms for `get_session`). Lease
-  flips copy an entry only while a flush snapshot still holds it. No API,
-  format or version change.
+- A vault flush no longer copies the partition, and a captured flush no longer
+  holds the store's state lock while it serializes.
+  - It used to clone the whole map twice, then hold the JSON and a separate
+    ciphertext as well: about 7x the file size at peak on a synthetic 10 MB
+    partition. It now serializes into one exactly sized zeroizing buffer and
+    seals that buffer in place (1.0x).
+  - Captured entries are kept behind `Arc`s. A captured flush copies the map
+    of pointers under the state read lock, then counts, serializes, seals and
+    writes with no state lock held. Writers replace an entry, and lease flips
+    copy it on write only while a snapshot holds it, so every file holds each
+    entry wholly at one generation.
+  - The provisioned partition is small and is still serialized under the read
+    lock.
+  - In a debug build with a 43 MB captured partition, the worst wait for a
+    capture or `get_session` on another origin during a flush fell from 17.6 s
+    to near the loaded machine's idle noise (0.26 s for a capture, 11 ms for
+    `get_session`).
+  - Loading decrypts the file's own buffer in place and wipes that buffer
+    after parsing; before, a separate decrypted copy was freed without wiping.
+    Not wiped, as before: serde_json's scratch buffer for escaped strings, and
+    a partly parsed `fields` map dropped on a parse error.
+  - No vault format, public API or version change.
 
 - The CDP fill adapter no longer reports every failure as `transport_uncertain`.
   A failure before the material is sent (a changed document, a missing

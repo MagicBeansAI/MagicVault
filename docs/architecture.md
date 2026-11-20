@@ -721,12 +721,14 @@ Magician need no API, source or storage migration for these standalone additions
   shared custody, and is invoked only for new-process delivery.
 - **One plaintext buffer per vault write:** a durable partition is serialized
   into one exactly sized zeroizing buffer, with no entry cloned, and sealed in
-  place. A load decrypts the file's own buffer in place and wipes it after
-  parsing. The vault file bytes are unchanged. Captured entries sit behind
-  `Arc`s: a flush snapshots them by copying pointers under the state read lock
-  and serializes with no state lock held, so a flush never stalls captures or
-  sessions. Writers replace an entry or copy it on write, so a snapshot sees
-  each entry wholly as it was.
+  place. A load decrypts the file's own buffer in place and wipes that buffer
+  after parsing. Not wiped: serde_json's scratch buffer for escaped strings,
+  and a partly parsed `fields` map dropped on a parse error. The vault file bytes
+  are unchanged. Captured entries sit behind `Arc`s: a flush holds the state
+  read lock only to copy the map of pointers and serializes with no state
+  lock held. Writers replace an entry or copy it on write, so a snapshot sees
+  each entry wholly as it was. The small provisioned partition is serialized
+  under the read lock.
 
 ## Source map
 

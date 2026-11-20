@@ -63,21 +63,22 @@ pub fn encrypt_with_aad(
 }
 
 /// Bytes of nonce that lead every sealed buffer.
-pub const NONCE_LEN: usize = 12;
+pub(crate) const NONCE_LEN: usize = 12;
 
 /// Bytes of authentication tag that end every sealed buffer.
-pub const TAG_LEN: usize = 16;
+pub(crate) const TAG_LEN: usize = 16;
 
 /// Seal `buffer` in place into the same `nonce || ciphertext || tag` wire as
 /// [`encrypt_with_aad`].
 ///
 /// The buffer must start with [`NONCE_LEN`] placeholder bytes; everything after
-/// them is the plaintext. The plaintext is overwritten by its ciphertext and
+/// them is the plaintext. Crate-internal: a caller that forgot the placeholder
+/// would have its first bytes overwritten by the nonce. The plaintext is overwritten by its ciphertext and
 /// the tag is appended, so a caller that reserved [`TAG_LEN`] bytes of spare
 /// capacity never sees it reallocate. Nothing is copied: the plaintext only
 /// ever lives in the caller's buffer, which the caller owns and wipes — on an
 /// error it is left unsealed.
-pub fn encrypt_in_place(
+pub(crate) fn encrypt_in_place(
     key: &[u8; 32],
     buffer: &mut Vec<u8>,
     aad: &[u8],
@@ -108,7 +109,7 @@ pub fn encrypt_in_place(
 /// The tag is checked before anything is decrypted, so a failure leaves the
 /// ciphertext untouched. Failures are the same payload-free errors
 /// [`decrypt_with_aad`] returns. The caller owns the buffer and must wipe it.
-pub fn decrypt_in_place<'buffer>(
+pub(crate) fn decrypt_in_place<'buffer>(
     key: &[u8; 32],
     buffer: &'buffer mut [u8],
     aad: &[u8],

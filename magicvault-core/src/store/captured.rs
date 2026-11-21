@@ -17,19 +17,21 @@
 //!
 //! Serialization writes the same JSON object a `HashMap<String, String>` does,
 //! fields in ascending key order, so the vault file format is unchanged.
-//! Loading compacts one entry at a time: an entry's `fields` object is read
-//! once to size its arena and once into it, straight from the decrypted file,
-//! so a load never holds owned field strings and never grows or trims an
-//! arena.
+//! Loading compacts one entry at a time: an entry's `fields` object is
+//! borrowed as raw JSON from the decrypted file and read by a small strict
+//! parser, once to size its arena and once into it. Escapes are decoded
+//! straight into the arena, so no field passes through serde_json's scratch
+//! buffer or any other unwiped one, and a load never grows or trims an arena.
 //!
-//! Values never appear in a `Debug` impl, a panic message or an error.
+//! Values never appear in a `Debug` impl or a panic message. An error about a
+//! fields object names a fixed reason and a position, never the text.
 
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
 
-use serde::de::{self, DeserializeSeed, MapAccess, Visitor};
+use serde::de;
 use serde::ser::SerializeMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use zeroize::{Zeroize, Zeroizing};
@@ -68,6 +70,20 @@ impl FieldKind {
             FieldKind::LocalStorage => "local_storage:",
             FieldKind::SessionStorage => "session_storage:",
         }
+    }
+
+    /// The kind of the full key `prefix` followed by `rest`, without joining
+    /// them.
+    fn classify_parts(prefix: &str, rest: &str) -> FieldKind {
+        Self::PREFIXED
+            .into_iter()
+            .find(|kind| {
+                let wanted = kind.prefix().as_bytes();
+                let joined = prefix.bytes().chain(rest.bytes());
+                wanted.len() <= prefix.len() + rest.len()
+                    && joined.take(wanted.len()).eq(wanted.iter().copied())
+            })
+            .unwrap_or(FieldKind::Raw)
     }
 
     /// Split a full key into its kind and the key without the prefix. No
@@ -297,217 +313,380 @@ impl Serialize for CapturedFields {
     }
 }
 
-/// Single pass from any deserializer: the arena grows as fields arrive (each
-/// outgrown buffer wiped) and is trimmed to size at the end.
-/// [`CapturedEntry`] loads use [`CapturedFields::from_json_exact`] instead.
-impl<'de> Deserialize<'de> for CapturedFields {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        deserializer.deserialize_any(FieldsVisitor(FieldsSize {
-            bytes: 256,
-            fields: 0,
-        }))
-    }
-}
+/// The limit on an entry's arena: offsets and lengths are `u32`.
+const ARENA_LIMIT: usize = u32::MAX as usize;
 
 impl CapturedFields {
     /// Parse a JSON fields object into an arena of exactly the right size:
-    /// one pass adds up the lengths, the second writes the fields. Neither
-    /// pass copies a value out of `json` except through serde_json's scratch
-    /// buffer for escaped strings.
-    pub(crate) fn from_json_exact(json: &str) -> Result<Self, serde_json::Error> {
-        let size = serde_json::from_str::<FieldsSize>(json)?;
-        let mut deserializer = serde_json::Deserializer::from_str(json);
-        let fields = deserializer.deserialize_any(FieldsVisitor(size))?;
-        deserializer.end()?;
-        Ok(fields)
-    }
-}
-
-/// What a fields object needs: arena bytes (keys without prefix, values) and
-/// slot count. A duplicate key is counted each time, so a fields object with
-/// one is trimmed after it is built.
-#[derive(Clone, Copy)]
-struct FieldsSize {
-    bytes: usize,
-    fields: usize,
-}
-
-impl<'de> Deserialize<'de> for FieldsSize {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        deserializer.deserialize_any(SizeVisitor)
-    }
-}
-
-struct SizeVisitor;
-
-const NOT_A_FIELDS_MAP: &str = "invalid type: string, expected a map of captured fields";
-
-impl<'de> Visitor<'de> for SizeVisitor {
-    type Value = FieldsSize;
-
-    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("a map of captured field names to string values")
+    /// one pass adds up the lengths, the second writes the fields.
+    ///
+    /// The fields object has one shape, an object of strings, so it is read by
+    /// [`FieldsParser`] rather than serde_json: escaped text is unescaped
+    /// straight into the arena, and keys into one wiped scratch buffer, so no
+    /// field passes through a buffer this crate does not wipe. An entry larger
+    /// than the arena limit is refused after the sizing pass, before any arena
+    /// is allocated. Errors carry a fixed description and a position, never
+    /// the text that failed.
+    pub(crate) fn from_json_exact(json: &str) -> Result<Self, FieldsError> {
+        Self::from_json_exact_with_limit(json, ARENA_LIMIT)
     }
 
-    /// Read through `deserialize_any`, so a string reaches this visitor:
-    /// serde_json's own error for a string where a map belongs quotes the
-    /// string, which would put a value in the error and from there in a log
-    /// line.
-    fn visit_str<E: de::Error>(self, _: &str) -> Result<Self::Value, E> {
-        Err(E::custom(NOT_A_FIELDS_MAP))
-    }
-
-    fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+    fn from_json_exact_with_limit(json: &str, limit: usize) -> Result<Self, FieldsError> {
         let mut size = FieldsSize {
             bytes: 0,
             fields: 0,
+            limit,
         };
-        while let Some(key_len) = map.next_key_seed(LengthSeed { strip_prefix: true })? {
-            let value_len = map.next_value_seed(LengthSeed {
-                strip_prefix: false,
-            })?;
-            size.bytes = size.bytes.saturating_add(key_len).saturating_add(value_len);
-            size.fields += 1;
-        }
-        Ok(size)
+        FieldsParser::new(json).parse(&mut size)?;
+        let mut builder = FieldsBuilder::with_capacity(size.bytes, size.fields);
+        builder.limit = limit;
+        let mut filler = FieldsFiller {
+            builder,
+            pending: None,
+        };
+        FieldsParser::new(json).parse(&mut filler)?;
+        Ok(filler.builder.finish())
     }
 }
 
-/// The length a key (without its prefix) or a value takes in the arena.
-struct LengthSeed {
-    strip_prefix: bool,
+/// Why a fields object could not be read: a fixed description and where, in
+/// the fields object, it went wrong. Never the text itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct FieldsError {
+    reason: FieldsErrorReason,
+    line: usize,
+    column: usize,
 }
 
-impl<'de> DeserializeSeed<'de> for LengthSeed {
-    type Value = usize;
-
-    fn deserialize<D: Deserializer<'de>>(self, deserializer: D) -> Result<Self::Value, D::Error> {
-        deserializer.deserialize_str(self)
-    }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FieldsErrorReason {
+    ExpectedObject,
+    ExpectedKey,
+    ExpectedColon,
+    ExpectedStringValue,
+    ExpectedCommaOrEnd,
+    InvalidEscape,
+    LoneSurrogate,
+    ControlCharacter,
+    UnexpectedEnd,
+    TrailingCharacters,
+    ArenaFull,
 }
 
-impl Visitor<'_> for LengthSeed {
-    type Value = usize;
-
-    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("a captured field string")
-    }
-
-    fn visit_str<E: de::Error>(self, text: &str) -> Result<Self::Value, E> {
-        Ok(if self.strip_prefix {
-            FieldKind::classify(text).1.len()
-        } else {
-            text.len()
-        })
-    }
-
-    fn visit_string<E: de::Error>(self, mut text: String) -> Result<Self::Value, E> {
-        let length = self.visit_str(&text);
-        text.zeroize();
-        length
+impl FieldsError {
+    #[cfg(test)]
+    pub(crate) fn reason(&self) -> FieldsErrorReason {
+        self.reason
     }
 }
 
-struct FieldsVisitor(FieldsSize);
+impl fmt::Display for FieldsError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let reason = match self.reason {
+            FieldsErrorReason::ExpectedObject => "expected an object of strings",
+            FieldsErrorReason::ExpectedKey => "expected a string field name",
+            FieldsErrorReason::ExpectedColon => "expected `:` after a field name",
+            FieldsErrorReason::ExpectedStringValue => "expected a string field value",
+            FieldsErrorReason::ExpectedCommaOrEnd => "expected `,` or `}` after a field",
+            FieldsErrorReason::InvalidEscape => "invalid escape in a field string",
+            FieldsErrorReason::LoneSurrogate => "unpaired surrogate escape in a field string",
+            FieldsErrorReason::ControlCharacter => "control character in a field string",
+            FieldsErrorReason::UnexpectedEnd => "unexpected end of the fields object",
+            FieldsErrorReason::TrailingCharacters => "trailing characters after the fields object",
+            FieldsErrorReason::ArenaFull => "captured entry fields exceed the 4 GiB field arena",
+        };
+        write!(
+            formatter,
+            "captured fields: {reason} at line {} column {} of the fields object",
+            self.line, self.column
+        )
+    }
+}
 
-impl<'de> Visitor<'de> for FieldsVisitor {
-    type Value = CapturedFields;
+/// What the parser reports, field by field: the full key, unescaped, then the
+/// value in unescaped pieces.
+trait FieldSink {
+    fn key(&mut self, full_key: &str) -> Result<(), FieldsErrorReason>;
+    fn value_piece(&mut self, piece: &str) -> Result<(), FieldsErrorReason>;
+    fn end_value(&mut self);
+}
 
-    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("a map of captured field names to string values")
+/// The sizing pass: arena bytes (keys without prefix, values) and slot count.
+/// A duplicate key is counted each time; its bytes stay in the arena, wiped
+/// with it, until the arena drops.
+struct FieldsSize {
+    bytes: usize,
+    fields: usize,
+    limit: usize,
+}
+
+impl FieldsSize {
+    fn add(&mut self, length: usize) -> Result<(), FieldsErrorReason> {
+        self.bytes = self
+            .bytes
+            .checked_add(length)
+            .filter(|bytes| *bytes <= self.limit)
+            .ok_or(FieldsErrorReason::ArenaFull)?;
+        Ok(())
+    }
+}
+
+impl FieldSink for FieldsSize {
+    fn key(&mut self, full_key: &str) -> Result<(), FieldsErrorReason> {
+        self.fields += 1;
+        self.add(FieldKind::classify(full_key).1.len())
     }
 
-    /// As [`SizeVisitor::visit_str`]: never quote the string.
-    fn visit_str<E: de::Error>(self, _: &str) -> Result<Self::Value, E> {
-        Err(E::custom(NOT_A_FIELDS_MAP))
+    fn value_piece(&mut self, piece: &str) -> Result<(), FieldsErrorReason> {
+        self.add(piece.len())
     }
 
-    fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
-        let FieldsSize { bytes, fields } = self.0;
-        let mut builder = FieldsBuilder::with_capacity(bytes, fields);
-        while let Some(pending) = map.next_key_seed(KeySeed(&mut builder))? {
-            let val_len = map.next_value_seed(ValueSeed(&mut builder))?;
-            builder.slots.push(Slot {
-                key_off: pending.key_off,
-                key_len: pending.key_len,
-                val_len,
-                kind: pending.kind,
+    fn end_value(&mut self) {}
+}
+
+/// The filling pass: keys and values straight into the arena.
+struct FieldsFiller {
+    builder: FieldsBuilder,
+    /// The current field's kind, key offset and key length.
+    pending: Option<(FieldKind, u32, u32)>,
+}
+
+impl FieldSink for FieldsFiller {
+    fn key(&mut self, full_key: &str) -> Result<(), FieldsErrorReason> {
+        let (kind, stripped) = FieldKind::classify(full_key);
+        let key_off = self
+            .builder
+            .append(&[stripped])
+            .map_err(|ArenaFull| FieldsErrorReason::ArenaFull)?;
+        self.pending = Some((kind, key_off, stripped.len() as u32));
+        Ok(())
+    }
+
+    fn value_piece(&mut self, piece: &str) -> Result<(), FieldsErrorReason> {
+        self.builder
+            .append(&[piece])
+            .map(|_| ())
+            .map_err(|ArenaFull| FieldsErrorReason::ArenaFull)
+    }
+
+    fn end_value(&mut self) {
+        if let Some((kind, key_off, key_len)) = self.pending.take() {
+            let value_start = key_off as usize + key_len as usize;
+            self.builder.slots.push(Slot {
+                key_off,
+                key_len,
+                val_len: (self.builder.bytes.len() - value_start) as u32,
+                kind,
             });
         }
-        Ok(builder.finish())
     }
 }
 
-/// A key appended to the arena whose value is still to come.
-struct PendingKey {
-    key_off: u32,
-    key_len: u32,
-    kind: FieldKind,
+/// A strict reader for the one JSON shape a fields object has, `{}` or an
+/// object whose members are all strings, accepting exactly what serde_json
+/// accepts for a `HashMap<String, String>` (the tests hold it to that).
+struct FieldsParser<'json> {
+    json: &'json str,
+    position: usize,
+    /// Each key, unescaped, so its prefix can be classified. Reused across
+    /// keys, grown by moving to a new wiped buffer, wiped on drop.
+    key: Zeroizing<String>,
 }
 
-/// Appends a field key, without its prefix, straight into the arena.
-struct KeySeed<'builder>(&'builder mut FieldsBuilder);
+impl<'json> FieldsParser<'json> {
+    fn new(json: &'json str) -> Self {
+        Self {
+            json,
+            position: 0,
+            key: Zeroizing::new(String::new()),
+        }
+    }
 
-impl<'de> DeserializeSeed<'de> for KeySeed<'_> {
-    type Value = PendingKey;
+    fn error(&self, reason: FieldsErrorReason) -> FieldsError {
+        let before = &self.json.as_bytes()[..self.position.min(self.json.len())];
+        let line = before.iter().filter(|byte| **byte == b'\n').count() + 1;
+        let line_start = before
+            .iter()
+            .rposition(|byte| *byte == b'\n')
+            .map_or(0, |index| index + 1);
+        FieldsError {
+            reason,
+            line,
+            column: before.len() - line_start + 1,
+        }
+    }
 
-    fn deserialize<D: Deserializer<'de>>(self, deserializer: D) -> Result<Self::Value, D::Error> {
-        deserializer.deserialize_str(self)
+    fn peek(&self) -> Option<u8> {
+        self.json.as_bytes().get(self.position).copied()
+    }
+
+    fn skip_whitespace(&mut self) {
+        while matches!(self.peek(), Some(b' ' | b'\t' | b'\n' | b'\r')) {
+            self.position += 1;
+        }
+    }
+
+    fn expect(&mut self, byte: u8, reason: FieldsErrorReason) -> Result<(), FieldsError> {
+        self.skip_whitespace();
+        match self.peek() {
+            Some(found) if found == byte => {
+                self.position += 1;
+                Ok(())
+            }
+            None => Err(self.error(FieldsErrorReason::UnexpectedEnd)),
+            Some(_) => Err(self.error(reason)),
+        }
+    }
+
+    fn parse(mut self, sink: &mut impl FieldSink) -> Result<(), FieldsError> {
+        self.expect(b'{', FieldsErrorReason::ExpectedObject)?;
+        self.skip_whitespace();
+        if self.peek() == Some(b'}') {
+            self.position += 1;
+        } else {
+            loop {
+                self.expect(b'"', FieldsErrorReason::ExpectedKey)?;
+                let mut key = std::mem::take(&mut self.key);
+                key.clear();
+                let read = self.read_string(&mut |piece| {
+                    push_wiping(&mut key, piece);
+                    Ok(())
+                });
+                self.key = key;
+                read?;
+                sink.key(&self.key).map_err(|reason| self.error(reason))?;
+                self.expect(b':', FieldsErrorReason::ExpectedColon)?;
+                self.expect(b'"', FieldsErrorReason::ExpectedStringValue)?;
+                self.read_string(&mut |piece| sink.value_piece(piece))?;
+                sink.end_value();
+                self.skip_whitespace();
+                match self.peek() {
+                    Some(b',') => self.position += 1,
+                    Some(b'}') => {
+                        self.position += 1;
+                        break;
+                    }
+                    None => return Err(self.error(FieldsErrorReason::UnexpectedEnd)),
+                    Some(_) => return Err(self.error(FieldsErrorReason::ExpectedCommaOrEnd)),
+                }
+            }
+        }
+        self.skip_whitespace();
+        if self.position != self.json.len() {
+            return Err(self.error(FieldsErrorReason::TrailingCharacters));
+        }
+        Ok(())
+    }
+
+    /// Read a string whose opening quote was consumed, handing its unescaped
+    /// text to `piece` as runs of the input and single decoded characters.
+    fn read_string(
+        &mut self,
+        piece: &mut dyn FnMut(&str) -> Result<(), FieldsErrorReason>,
+    ) -> Result<(), FieldsError> {
+        let bytes = self.json.as_bytes();
+        loop {
+            let run_start = self.position;
+            while let Some(byte) = self.peek() {
+                if byte == b'"' || byte == b'\\' || byte < 0x20 {
+                    break;
+                }
+                self.position += 1;
+            }
+            if self.position > run_start {
+                // The run ends at an ASCII byte or the end, so on a char
+                // boundary of the `&str` input.
+                piece(&self.json[run_start..self.position]).map_err(|reason| self.error(reason))?;
+            }
+            match bytes.get(self.position) {
+                None => return Err(self.error(FieldsErrorReason::UnexpectedEnd)),
+                Some(b'"') => {
+                    self.position += 1;
+                    return Ok(());
+                }
+                Some(b'\\') => {
+                    self.position += 1;
+                    let decoded = self.read_escape()?;
+                    let mut utf8 = [0u8; 4];
+                    let text: &str = decoded.encode_utf8(&mut utf8);
+                    let result = piece(text).map_err(|reason| self.error(reason));
+                    utf8.zeroize();
+                    result?;
+                }
+                Some(_) => return Err(self.error(FieldsErrorReason::ControlCharacter)),
+            }
+        }
+    }
+
+    /// Decode one escape whose backslash was consumed.
+    fn read_escape(&mut self) -> Result<char, FieldsError> {
+        let Some(byte) = self.peek() else {
+            return Err(self.error(FieldsErrorReason::UnexpectedEnd));
+        };
+        self.position += 1;
+        let simple = match byte {
+            b'"' => '"',
+            b'\\' => '\\',
+            b'/' => '/',
+            b'b' => '\u{8}',
+            b'f' => '\u{c}',
+            b'n' => '\n',
+            b'r' => '\r',
+            b't' => '\t',
+            b'u' => return self.read_unicode_escape(),
+            _ => return Err(self.error(FieldsErrorReason::InvalidEscape)),
+        };
+        Ok(simple)
+    }
+
+    fn read_hex4(&mut self) -> Result<u16, FieldsError> {
+        let digits = self
+            .json
+            .as_bytes()
+            .get(self.position..self.position + 4)
+            .ok_or_else(|| self.error(FieldsErrorReason::UnexpectedEnd))?;
+        let mut unit = 0u16;
+        for digit in digits {
+            let value = (*digit as char)
+                .to_digit(16)
+                .ok_or_else(|| self.error(FieldsErrorReason::InvalidEscape))?;
+            unit = unit * 16 + value as u16;
+        }
+        self.position += 4;
+        Ok(unit)
+    }
+
+    fn read_unicode_escape(&mut self) -> Result<char, FieldsError> {
+        let unit = self.read_hex4()?;
+        let code = match unit {
+            0xD800..=0xDBFF => {
+                if self.json.as_bytes().get(self.position..self.position + 2) != Some(b"\\u") {
+                    return Err(self.error(FieldsErrorReason::LoneSurrogate));
+                }
+                self.position += 2;
+                let low = self.read_hex4()?;
+                if !(0xDC00..=0xDFFF).contains(&low) {
+                    return Err(self.error(FieldsErrorReason::LoneSurrogate));
+                }
+                0x10000 + ((u32::from(unit) - 0xD800) << 10) + (u32::from(low) - 0xDC00)
+            }
+            0xDC00..=0xDFFF => return Err(self.error(FieldsErrorReason::LoneSurrogate)),
+            _ => u32::from(unit),
+        };
+        char::from_u32(code).ok_or_else(|| self.error(FieldsErrorReason::InvalidEscape))
     }
 }
 
-impl Visitor<'_> for KeySeed<'_> {
-    type Value = PendingKey;
-
-    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("a captured field name")
+/// Append to a wiped buffer that, when it must grow, moves to a new wiped
+/// buffer and wipes the old one as it drops, rather than reallocating.
+fn push_wiping(buffer: &mut Zeroizing<String>, text: &str) {
+    let needed = buffer.len() + text.len();
+    if needed > buffer.capacity() {
+        let mut grown = Zeroizing::new(String::with_capacity(needed.max(buffer.capacity() * 2)));
+        grown.push_str(buffer);
+        std::mem::swap(buffer, &mut grown);
     }
-
-    fn visit_str<E: de::Error>(self, key: &str) -> Result<Self::Value, E> {
-        let (kind, stripped) = FieldKind::classify(key);
-        let key_off = self.0.append(&[stripped]).map_err(E::custom)?;
-        Ok(PendingKey {
-            key_off,
-            key_len: stripped.len() as u32,
-            kind,
-        })
-    }
-
-    fn visit_string<E: de::Error>(self, mut key: String) -> Result<Self::Value, E> {
-        let pending = self.visit_str(&key);
-        key.zeroize();
-        pending
-    }
-}
-
-/// Appends a field value straight into the arena, after its key.
-struct ValueSeed<'builder>(&'builder mut FieldsBuilder);
-
-impl<'de> DeserializeSeed<'de> for ValueSeed<'_> {
-    type Value = u32;
-
-    fn deserialize<D: Deserializer<'de>>(self, deserializer: D) -> Result<Self::Value, D::Error> {
-        deserializer.deserialize_str(self)
-    }
-}
-
-impl Visitor<'_> for ValueSeed<'_> {
-    type Value = u32;
-
-    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("a captured field value string")
-    }
-
-    fn visit_str<E: de::Error>(self, value: &str) -> Result<Self::Value, E> {
-        self.0.append(&[value]).map_err(E::custom)?;
-        Ok(value.len() as u32)
-    }
-
-    fn visit_string<E: de::Error>(self, mut value: String) -> Result<Self::Value, E> {
-        let length = self.visit_str(&value);
-        value.zeroize();
-        length
-    }
+    buffer.push_str(text);
 }
 
 /// Builds a [`CapturedFields`]. Its buffer never reallocates in place: when it
@@ -516,6 +695,8 @@ impl Visitor<'_> for ValueSeed<'_> {
 pub(crate) struct FieldsBuilder {
     bytes: Zeroizing<String>,
     slots: Vec<Slot>,
+    /// Most arena bytes; [`ARENA_LIMIT`] except in tests.
+    limit: usize,
 }
 
 impl FieldsBuilder {
@@ -525,7 +706,17 @@ impl FieldsBuilder {
         Self {
             bytes: Zeroizing::new(String::with_capacity(bytes)),
             slots: Vec::with_capacity(fields),
+            limit: ARENA_LIMIT,
         }
+    }
+
+    /// A builder that refuses more than `limit` arena bytes, so the refusal
+    /// can be tested without gigabytes.
+    #[cfg(test)]
+    pub(crate) fn with_limit(limit: usize) -> Self {
+        let mut builder = Self::with_capacity(0, 0);
+        builder.limit = limit;
+        builder
     }
 
     /// Append `parts` back to back and return the offset they start at.
@@ -533,17 +724,11 @@ impl FieldsBuilder {
         let extra: usize = parts.iter().map(|part| part.len()).sum();
         let start = self.bytes.len();
         let needed = start.checked_add(extra).ok_or(ArenaFull)?;
-        if needed > u32::MAX as usize {
+        if needed > self.limit.min(ARENA_LIMIT) {
             return Err(ArenaFull);
         }
-        if needed > self.bytes.capacity() {
-            let mut grown =
-                Zeroizing::new(String::with_capacity(needed.max(self.bytes.capacity() * 2)));
-            grown.push_str(&self.bytes);
-            std::mem::swap(&mut self.bytes, &mut grown);
-        }
         for part in parts {
-            self.bytes.push_str(part);
+            push_wiping(&mut self.bytes, part);
         }
         Ok(start as u32)
     }
@@ -565,9 +750,10 @@ impl FieldsBuilder {
             val_len: value.len() as u32,
             kind,
         };
-        debug_assert_eq!(
-            FieldKind::classify(&format!("{}{}", kind.prefix(), self.text(slot.key_range()))).0,
-            kind,
+        // Compared in place: formatting the full key would copy it into an
+        // unwiped buffer, and the message names no key.
+        debug_assert!(
+            FieldKind::classify_parts(kind.prefix(), self.text(slot.key_range())) == kind,
             "a field's kind must be the one its full key classifies as"
         );
         self.slots.push(slot);
@@ -587,8 +773,10 @@ impl FieldsBuilder {
     }
 
     /// Sort the slots by full key and keep the last of any duplicate key, as
-    /// inserting into a map would. A buffer with spare room is copied into an
-    /// exact one, and the larger one is wiped as it drops.
+    /// inserting into a map would. A duplicate's bytes are not removed: they
+    /// stay in the arena, wiped with it, until it drops. A buffer with spare
+    /// room is copied into an exact one, and the larger one is wiped as it
+    /// drops.
     pub(crate) fn finish(mut self) -> CapturedFields {
         let bytes = &self.bytes;
         let key_of = |slot: &Slot| -> (FieldKind, &str) {
@@ -656,9 +844,11 @@ fn deserialize_shared_fields<'de, D: Deserializer<'de>>(
     deserializer: D,
 ) -> Result<Arc<CapturedFields>, D::Error> {
     // Mapped to a fixed message: serde_json renders a value it cannot lend
-    // into the error, contents included.
+    // into the error, contents included. This covers both a syntax error in
+    // the fields object and a deserializer that cannot lend its input; the
+    // outer parser adds the position.
     let raw = <&'de serde_json::value::RawValue>::deserialize(deserializer)
-        .map_err(|_| de::Error::custom("captured fields must be read from borrowed JSON"))?;
+        .map_err(|_| de::Error::custom("captured fields object could not be read"))?;
     CapturedFields::from_json_exact(raw.get())
         .map(Arc::new)
         .map_err(de::Error::custom)
@@ -879,25 +1069,88 @@ mod tests {
         );
     }
 
-    #[test]
-    fn deserialization_reads_the_plain_map_json_by_every_string_path() {
-        let fields = every_kind_fields();
-        let legacy_json = serde_json::to_vec(&fields).unwrap();
-        // Borrowed strings and serde_json's scratch buffer for escaped ones.
-        let from_slice = serde_json::from_slice::<CapturedFields>(&legacy_json).unwrap();
-        assert!(from_slice == compact(&fields));
-        // Owned strings.
-        let value = serde_json::to_value(&fields).unwrap();
-        let from_value = serde_json::from_value::<CapturedFields>(value).unwrap();
-        assert!(from_value == compact(&fields));
-        // A loaded arena is shrunk to its exact size.
-        assert_eq!(from_slice.arena_capacity(), from_slice.arena_len());
+    fn exact(json: &str) -> Result<CapturedFields, FieldsError> {
+        CapturedFields::from_json_exact(json)
+    }
 
-        // The sized two-pass parse a load uses, borrowed and escaped strings.
-        let exact =
-            CapturedFields::from_json_exact(std::str::from_utf8(&legacy_json).unwrap()).unwrap();
-        assert!(exact == compact(&fields));
-        assert_eq!(exact.arena_capacity(), exact.arena_len());
+    #[test]
+    fn the_load_parser_reads_the_plain_map_json_exactly() {
+        let fields = every_kind_fields();
+        let legacy_json = serde_json::to_string(&fields).unwrap();
+        let loaded = exact(&legacy_json).unwrap();
+        assert!(loaded == compact(&fields));
+        assert_eq!(
+            loaded.arena_capacity(),
+            loaded.arena_len(),
+            "the arena is sized exactly"
+        );
+        let pretty = serde_json::to_string_pretty(&fields).unwrap();
+        assert!(exact(&pretty).unwrap() == compact(&fields));
+    }
+
+    /// The load parser accepts exactly what serde_json accepts for a
+    /// `HashMap<String, String>`, and reads the same map, for every escape,
+    /// surrogate pairs, whitespace, duplicates and a range of malformed input.
+    #[test]
+    fn the_load_parser_agrees_with_serde_json_on_every_case() {
+        let cases = [
+            "{}",
+            " { } ",
+            "\n{\r\n\t\"a\" : \"b\" ,\"c\":\"d\"\t}\n",
+            r#"{"a":"\"\\\/\b\f\n\r\t"}"#,
+            r#"{"a":"Aé中🔑￿\u0000"}"#,
+            r#"{"header:x":"PLACEHOLDER-ESCAPED-PREFIX"}"#,
+            r#"{"header:a":"PLACEHOLDER-1","raw":"R","header:a":"PLACEHOLDER-2"}"#,
+            "{\"caf\u{e9}\":\"\u{1F511}\"}",
+            r#"{"":""}"#,
+            r#"{"a":"\ud800"}"#,
+            r#"{"a":"\ud800A"}"#,
+            r#"{"a":"\udc00"}"#,
+            r#"{"a":"\ud83d"}"#,
+            r#"{"a":"\x"}"#,
+            r#"{"a":"\u12"}"#,
+            r#"{"a":"\u12G4"}"#,
+            "{\"a\":\"\u{1}\"}",
+            "{\"a\":\"line\nbreak\"}",
+            r#"{"a":"b",}"#,
+            r#"{,}"#,
+            r#"{"a" "b"}"#,
+            r#"{"a":"b" "c":"d"}"#,
+            r#"{"a":"b"} x"#,
+            r#"{"a":"b""#,
+            r#"{"a":"b"#,
+            r#"{"a":"#,
+            r#"{"a""#,
+            "{",
+            "",
+            r#""string""#,
+            "[]",
+            "null",
+            r#"{"a":1}"#,
+            r#"{"a":1.5}"#,
+            r#"{"a":true}"#,
+            r#"{"a":null}"#,
+            r#"{"a":["b"]}"#,
+            r#"{"a":{"b":"c"}}"#,
+            r#"{a:"b"}"#,
+            r#"{"a":'b'}"#,
+        ];
+        for json in cases {
+            let plain = serde_json::from_str::<HashMap<String, String>>(json);
+            let loaded = exact(json);
+            assert_eq!(
+                plain.is_ok(),
+                loaded.is_ok(),
+                "the load parser and serde_json disagree on case {json:?}"
+            );
+            if let (Ok(plain), Ok(loaded)) = (plain, loaded) {
+                assert!(
+                    loaded.to_field_map() == plain,
+                    "different map for case {json:?}"
+                );
+                assert_eq!(loaded.arena_capacity(), loaded.arena_len());
+            }
+        }
     }
 
     /// A load reads an entry's fields from its raw JSON in the decrypted
@@ -921,50 +1174,180 @@ mod tests {
     #[test]
     fn a_duplicate_key_keeps_the_last_value_like_a_map() {
         let json =
-            br#"{"header:a":"PLACEHOLDER-1","raw":"PLACEHOLDER-R","header:a":"PLACEHOLDER-2"}"#;
-        let compacted = serde_json::from_slice::<CapturedFields>(json).unwrap();
-        let plain = serde_json::from_slice::<HashMap<String, String>>(json).unwrap();
+            r#"{"header:a":"PLACEHOLDER-1","raw":"PLACEHOLDER-R","header:a":"PLACEHOLDER-2"}"#;
+        let compacted = exact(json).unwrap();
+        let plain = serde_json::from_str::<HashMap<String, String>>(json).unwrap();
         assert!(compacted.to_field_map() == plain);
         assert_eq!(compacted.len(), 2);
     }
 
-    /// A string where the fields map belongs is refused without quoting it:
-    /// serde's default error would carry the value into a log line.
+    /// Fields that cannot be read are refused with a fixed description and a
+    /// position. Each case carries a marker in the offending value; serde's
+    /// rendering of that value would contain it.
     #[test]
-    fn a_string_in_place_of_the_fields_map_is_refused_without_quoting_it() {
-        let json = r#""PLACEHOLDER-NOT-A-MAP""#;
-        let errors = [
-            serde_json::from_str::<CapturedFields>(json).unwrap_err(),
-            CapturedFields::from_json_exact(json).unwrap_err(),
+    fn a_fields_error_never_quotes_the_offending_value() {
+        let cases = [
+            (
+                r#"{"header:a":4815162342}"#,
+                "4815162342",
+                FieldsErrorReason::ExpectedStringValue,
+            ),
+            (
+                r#"{"header:a":-271828.5e3}"#,
+                "271828",
+                FieldsErrorReason::ExpectedStringValue,
+            ),
+            (
+                r#"{"header:a":true}"#,
+                "true",
+                FieldsErrorReason::ExpectedStringValue,
+            ),
+            (
+                r#"{"header:a":false}"#,
+                "false",
+                FieldsErrorReason::ExpectedStringValue,
+            ),
+            (
+                r#"{"header:a":null}"#,
+                "null",
+                FieldsErrorReason::ExpectedStringValue,
+            ),
+            (
+                r#""PLACEHOLDER-NOT-A-MAP""#,
+                "PLACEHOLDER",
+                FieldsErrorReason::ExpectedObject,
+            ),
+            (
+                r#"["PLACEHOLDER-IN-ARRAY"]"#,
+                "PLACEHOLDER",
+                FieldsErrorReason::ExpectedObject,
+            ),
+            (
+                r#"{"header:a":["PLACEHOLDER-IN-ARRAY"]}"#,
+                "PLACEHOLDER",
+                FieldsErrorReason::ExpectedStringValue,
+            ),
+            (
+                r#"{"header:a":"PLACEHOLDER-\q"}"#,
+                "PLACEHOLDER",
+                FieldsErrorReason::InvalidEscape,
+            ),
+            (
+                r#"{"header:a":"PLACEHOLDER-UNTERMINATED"#,
+                "PLACEHOLDER",
+                FieldsErrorReason::UnexpectedEnd,
+            ),
+            (
+                r#"{"header:a":"PLACEHOLDER-OK"} PLACEHOLDER-TRAILING"#,
+                "PLACEHOLDER",
+                FieldsErrorReason::TrailingCharacters,
+            ),
         ];
-        for error in errors {
+        for (json, marker, reason) in cases {
+            // The marker is in the input, so the check below can fail.
+            assert!(json.contains(marker));
+            let error = exact(json).expect_err("malformed fields are refused");
+            assert_eq!(error.reason(), reason);
+            let rendered = error.to_string();
             assert!(
-                !error.to_string().contains("PLACEHOLDER"),
-                "the error quoted the value"
+                !rendered.contains(marker),
+                "the error quoted the offending value"
+            );
+            assert!(
+                rendered.contains("line 1 column "),
+                "the error gives a position"
             );
         }
-        let mut entry = serde_json::to_value(placeholder_entry(None)).unwrap();
-        entry["fields"] = serde_json::Value::String("PLACEHOLDER-NOT-A-MAP".to_string());
-        let error = serde_json::from_slice::<CapturedEntry>(&serde_json::to_vec(&entry).unwrap())
-            .expect_err("a string is not a fields map");
+
+        // Through a whole entry, as a load reads it, each scalar kind included.
+        for fields in [
+            serde_json::json!("PLACEHOLDER-NOT-A-MAP"),
+            serde_json::json!({ "header:a": 4815162342u64 }),
+            serde_json::json!({ "header:a": -271828.5 }),
+            serde_json::json!({ "header:a": true }),
+            serde_json::json!({ "header:a": ["PLACEHOLDER-IN-ARRAY"] }),
+        ] {
+            let mut entry = serde_json::to_value(placeholder_entry(None)).unwrap();
+            entry["fields"] = fields;
+            let error =
+                serde_json::from_slice::<CapturedEntry>(&serde_json::to_vec(&entry).unwrap())
+                    .expect_err("malformed fields are refused")
+                    .to_string();
+            for marker in ["PLACEHOLDER", "4815162342", "271828", "true"] {
+                assert!(
+                    !error.contains(marker),
+                    "the entry error quoted the offending value"
+                );
+            }
+        }
+
+        // A syntax error inside the fields object, reported by the outer parse.
+        let mut text = serde_json::to_string(&placeholder_entry(None)).unwrap();
+        let at = text.find(r#""fields":{"#).unwrap() + r#""fields":{"#.len();
+        text.insert_str(at, r#""header:z":"PLACEHOLDER-BROKEN" "#);
+        let error = serde_json::from_str::<CapturedEntry>(&text)
+            .expect_err("a syntax error in fields is refused")
+            .to_string();
         assert!(
-            !error.to_string().contains("PLACEHOLDER"),
-            "the error quoted the value"
+            !error.contains("PLACEHOLDER"),
+            "the syntax error quoted a value"
+        );
+        assert!(
+            error.contains("could not be read"),
+            "the wording is neutral"
+        );
+
+        // The outer parse adds the file position to a fields error.
+        let mut entry = serde_json::to_value(placeholder_entry(None)).unwrap();
+        entry["fields"] = serde_json::json!({ "header:a": true });
+        let error = serde_json::from_slice::<CapturedEntry>(&serde_json::to_vec(&entry).unwrap())
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("of the fields object at line 1 column "),
+            "both positions are reported"
+        );
+    }
+
+    /// An entry over the arena limit is refused after the sizing pass, before
+    /// an arena is allocated; the limit is lowered so no gigabytes are needed.
+    #[test]
+    fn an_entry_over_the_arena_limit_is_refused() {
+        let json = r#"{"local_storage:key":"PLACEHOLDER-VALUE"}"#;
+        let payload = "key".len() + "PLACEHOLDER-VALUE".len();
+        assert!(CapturedFields::from_json_exact_with_limit(json, payload).is_ok());
+        let error = CapturedFields::from_json_exact_with_limit(json, payload - 1)
+            .expect_err("one byte over the limit");
+        assert_eq!(error.reason(), FieldsErrorReason::ArenaFull);
+        assert!(!error.to_string().contains("PLACEHOLDER"));
+
+        let mut builder = FieldsBuilder::with_limit(payload);
+        assert!(builder
+            .push(FieldKind::LocalStorage, &["key"], "PLACEHOLDER-VALUE")
+            .is_ok());
+        assert_eq!(
+            builder.push(FieldKind::LocalStorage, &["k"], ""),
+            Err(ArenaFull),
+            "the builder refuses a field past the limit"
         );
     }
 
     #[test]
-    fn a_non_string_value_is_rejected_like_a_map() {
-        for json in [
-            r#"{"header:a":1}"#,
-            r#"{"header:a":null}"#,
-            r#"["header:a"]"#,
-            "null",
+    fn classifying_split_keys_matches_classifying_joined_ones() {
+        for (prefix, rest) in [
+            ("header:", "a"),
+            ("", "header:a"),
+            ("hea", "der:a"),
+            ("cookie:", "0:x"),
+            ("", "cookie"),
+            ("", "Header:a"),
+            ("local_storage:", ""),
+            ("", ""),
         ] {
-            assert!(serde_json::from_str::<HashMap<String, String>>(json).is_err());
-            let error = serde_json::from_str::<CapturedFields>(json)
-                .expect_err("compact fields reject what the plain map rejects");
-            assert!(!error.to_string().contains("PLACEHOLDER"));
+            assert_eq!(
+                FieldKind::classify_parts(prefix, rest),
+                FieldKind::classify(&format!("{prefix}{rest}")).0
+            );
         }
     }
 
@@ -1060,7 +1443,6 @@ mod tests {
         let json = serde_json::to_string(&fields).unwrap();
         for compacted in [
             compact(&fields),
-            serde_json::from_str::<CapturedFields>(&json).unwrap(),
             CapturedFields::from_json_exact(&json).unwrap(),
         ] {
             assert_eq!(compacted.len(), FIELDS);

@@ -2973,11 +2973,19 @@ impl SecretStore {
 
         // Decrypted in place: the file's buffer becomes the plaintext, is parsed
         // from there, and that buffer is wiped when this returns. A separate
-        // decrypted copy used to go back to the allocator unwiped. Captured
-        // entries are compacted as they are parsed, into wiped arenas, so a
-        // partly parsed captured entry dropped on a parse error is wiped too.
-        // Not covered, as before: serde_json's scratch buffer for escaped
-        // strings, and a partly parsed provisioned `fields` map.
+        // decrypted copy used to go back to the allocator unwiped.
+        //
+        // Captured `fields` objects never reach serde_json's parser: each is
+        // borrowed raw and decoded by the store's own parser straight into a
+        // wiped arena, keys through a wiped scratch buffer, so a captured field
+        // is never left in an unwiped buffer, on success or on a parse error.
+        //
+        // Not covered: serde_json's scratch buffer, which holds the last
+        // escaped strings it decoded and is freed unwiped. For the captured
+        // partition those are only entry metadata (ids, labels, origins,
+        // cookie names, domains, paths); for the provisioned partition they
+        // include field values, as before, and so does a partly parsed
+        // provisioned `fields` map dropped on a parse error.
         let mut data = Zeroizing::new(std::fs::read(path)?);
         let key = Zeroizing::new(self.key_provider.get_or_create_key()?);
         let decrypted = match decrypt_in_place(&key, &mut data, &[]) {
@@ -6327,6 +6335,9 @@ mod tests {
             ("session_storage:token".to_string(), "PLACEHOLDER-S".to_string()),
             ("unknown_prefix:thing".to_string(), "PLACEHOLDER-RAW".to_string()),
             ("abc".to_string(), "PLA".to_string()),
+            // Two fields with one value: redaction keeps both copies.
+            ("session_storage:copy-a".to_string(), "PLACEHOLDER-SAME-VALUE".to_string()),
+            ("session_storage:copy-b".to_string(), "PLACEHOLDER-SAME-VALUE".to_string()),
         ]);
         let raw_origin = "https://raw-only.invalid";
         let raw_fields = HashMap::from([("api_key".to_string(), "PLACEHOLDER-RAW-ONLY".to_string())]);
@@ -6408,6 +6419,11 @@ mod tests {
         expected_values.sort();
         values.sort();
         assert!(values == expected_values, "redaction values differ from the plain map's");
+        assert_eq!(
+            values.iter().filter(|value| *value == "PLACEHOLDER-SAME-VALUE").count(),
+            2,
+            "two fields with one value yield two redaction values"
+        );
 
         // A lease flip persists; the file reads back as the legacy map with
         // only the flag changed.

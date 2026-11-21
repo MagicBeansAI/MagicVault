@@ -729,6 +729,17 @@ Magician need no API, source or storage migration for these standalone additions
   lock held. Writers replace an entry or copy it on write, so a snapshot sees
   each entry wholly as it was. The small provisioned partition is serialized
   under the read lock.
+- **Compact captured entries:** a captured entry keeps its fields in one
+  zeroizing arena, keys without their kind prefix, indexed by a table of
+  16-byte slots sorted by full key, behind an `Arc` shared by the entry's
+  copies. A key with no known prefix is kept whole. A field costs its payload
+  plus one slot, and an entry a few allocations. Fields are written in
+  ascending key order; the JSON object is otherwise the one a plain map
+  writes, so the vault format is unchanged. A load borrows each entry's raw
+  `fields` JSON from the decrypted file, reads it once to size the arena and
+  once into it, and builds no owned field strings. Writes build a new arena at
+  its exact size and wipe the temporary maps they merged from. Errors about a
+  fields object never quote a field.
 
 ## Source map
 
@@ -744,6 +755,7 @@ Magician need no API, source or storage migration for these standalone additions
 | Native installation and executable | `magicvault-service/src/native.rs`, `magicvault/src/bin/magicvault-native-host.rs` |
 | Browser extension | `extension/worker.js`, `options.js`, `manifest.json` |
 | Shared custody and utilities | `magicvault-core/src`, `magicvault-primitives/src` |
+| Compact captured fields | `magicvault-core/src/store/captured.rs` |
 | One-time custody state machine | `magicvault-core/src/one_time.rs`, `store.rs` (`*_one_time`, `register_ephemeral_bounded`, `CustodyClock`) |
 
 ## Detecting architectural drift

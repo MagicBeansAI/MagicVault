@@ -7,6 +7,22 @@ Entries describe source changes, not publication announcements. See
 
 ## Unreleased
 
+- Captured entries take less memory while resident. Each entry's fields sit in
+  one zeroizing arena, keys without their prefix, with a 16-byte index slot per
+  field, instead of a hash map of owned strings.
+  - On a synthetic 10,000-field entry: 116.8 B per field for 100.8 B of
+    payload, in 8 allocations. The same plain map took 195.1 B per field in
+    20,001 allocations.
+  - A lease flip copies an entry's metadata, not its fields.
+  - A load sizes each entry's arena from its raw JSON before filling it. Peak
+    is about the file plus the resident entries.
+  - Writes wipe the temporary maps they merge from, including values a merge
+    replaced; before, those were freed unwiped.
+  - A string where a captured `fields` map belongs no longer appears in the
+    load error.
+  - Fields are written in ascending key order rather than hash-map order. No
+    vault format, public API or version change.
+
 - A vault flush no longer copies the partition, and a captured flush no longer
   holds the store's state lock while it serializes.
   - It used to clone the whole map twice, then hold the JSON and a separate

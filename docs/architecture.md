@@ -736,10 +736,27 @@ Magician need no API, source or storage migration for these standalone additions
   plus one slot, and an entry a few allocations. Fields are written in
   ascending key order; the JSON object is otherwise the one a plain map
   writes, so the vault format is unchanged. A load borrows each entry's raw
-  `fields` JSON from the decrypted file, reads it once to size the arena and
-  once into it, and builds no owned field strings. Writes build a new arena at
-  its exact size and wipe the temporary maps they merged from. Errors about a
-  fields object never quote a field.
+  `fields` JSON from the decrypted file and reads it with the store's own
+  parser for an object of strings, once to size the arena and once into it.
+  Escapes are decoded straight into the arena and keys into a wiped scratch
+  buffer, so no captured field passes through serde_json's scratch buffer.
+  That buffer still holds the last escaped entry metadata it decoded (ids,
+  labels, origins, cookie names, domains, paths) and is freed unwiped. Writes
+  build a new arena at its exact size and wipe the temporary maps they merged
+  from.
+  - **Load errors:** an unreadable `fields` object fails with a fixed reason
+    and a line and column, both inside the fields object and in the file,
+    never with any part of its text; a non-string value, a string where the
+    object belongs and a syntax error are all reported this way. Errors about
+    other entry members come from serde_json and may quote that metadata, not
+    a field.
+  - **Arena limit:** offsets are 32-bit, so an entry's fields, prefixes
+    excluded, are capped at 4 GiB. A capture over the cap is refused with an
+    error and the previous entry is kept. A load is refused after the sizing
+    pass, before allocating. Like any parse error, that quarantines the
+    partition file: a strict open fails, and a lenient open reads the
+    partition as empty and `Unavailable`. The partition is not loaded without
+    that entry.
 
 ## Source map
 

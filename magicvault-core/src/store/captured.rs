@@ -1089,40 +1089,72 @@ mod tests {
     }
 
     /// The load parser accepts exactly what serde_json accepts for a
-    /// `HashMap<String, String>`, and reads the same map, for every escape,
-    /// surrogate pairs, whitespace, duplicates and a range of malformed input.
+    /// `HashMap<String, String>`, and reads the same map: every escape, hex
+    /// digits in both cases, surrogate pairs and every way to break one,
+    /// escaped key prefixes, whitespace, duplicates, truncation and a range of
+    /// malformed input.
+    ///
+    /// Both directions matter. A false acceptance would load bytes the old
+    /// codec refused. A false rejection is worse: a load parse error
+    /// quarantines the whole captured partition, so it would take the vault
+    /// offline. The accept side needs in-repo coverage as much as the reject
+    /// side.
     #[test]
     fn the_load_parser_agrees_with_serde_json_on_every_case() {
-        let cases = [
+        let deep_array = format!(r#"{{"a":{}{}}}"#, "[".repeat(10_000), "]".repeat(10_000));
+        let deep_object = format!(r#"{{"a":{}"#, r#"{"b":"#.repeat(10_000));
+        let cases: Vec<&str> = vec![
             "{}",
             " { } ",
             "\n{\r\n\t\"a\" : \"b\" ,\"c\":\"d\"\t}\n",
             r#"{"a":"\"\\\/\b\f\n\r\t"}"#,
-            r#"{"a":"Aé中🔑￿\u0000"}"#,
-            r#"{"header:x":"PLACEHOLDER-ESCAPED-PREFIX"}"#,
+            r#"{"a":"\u0041\u00e9\u00E9\u4e2d\uABCD\uabcd\ud83d\udd11\uD83D\uDD11\u001b\uFFFF\u0000"}"#,
+            r#"{"\u0068eader:x":"PLACEHOLDER-ESCAPED-PREFIX"}"#,
+            r#"{"header\u003Ax":"PLACEHOLDER-ESCAPED-COLON"}"#,
             r#"{"header:a":"PLACEHOLDER-1","raw":"R","header:a":"PLACEHOLDER-2"}"#,
+            r#"{"header:a":"PLACEHOLDER-PLAIN","\u0068eader:a":"PLACEHOLDER-ESCAPED"}"#,
+            r#"{"\u0068eader:a":"PLACEHOLDER-ESCAPED","header:a":"PLACEHOLDER-PLAIN"}"#,
             "{\"caf\u{e9}\":\"\u{1F511}\"}",
+            "{\"a\":\"del\u{7f}byte\"}",
             r#"{"":""}"#,
+            // Surrogates: lone high, lone low, high then a non-low escape,
+            // high then another high, high then a plain character, a
+            // reversed pair, high at the end of the string.
             r#"{"a":"\ud800"}"#,
-            r#"{"a":"\ud800A"}"#,
             r#"{"a":"\udc00"}"#,
+            r#"{"a":"\ud800\u0041"}"#,
+            r#"{"a":"\ud800\ud800"}"#,
+            r#"{"a":"\ud800A"}"#,
+            r#"{"a":"\udc00\ud800"}"#,
             r#"{"a":"\ud83d"}"#,
             r#"{"a":"\x"}"#,
             r#"{"a":"\u12"}"#,
             r#"{"a":"\u12G4"}"#,
             "{\"a\":\"\u{1}\"}",
             "{\"a\":\"line\nbreak\"}",
+            // Truncation inside an escape, inside a unicode escape, after a comma.
+            r#"{"a":"\"#,
+            r#"{"a":"\u00"#,
+            r#"{"a":"\ud83d\u"#,
+            r#"{"a":"b","#,
             r#"{"a":"b",}"#,
             r#"{,}"#,
             r#"{"a" "b"}"#,
             r#"{"a":"b" "c":"d"}"#,
+            // Bytes after the closing brace.
             r#"{"a":"b"} x"#,
+            r#"{"a":"b"}}"#,
+            "{}x",
+            "{} {}",
             r#"{"a":"b""#,
             r#"{"a":"b"#,
             r#"{"a":"#,
             r#"{"a""#,
             "{",
             "",
+            // A leading byte-order mark.
+            "\u{feff}{}",
+            "\u{feff}{\"a\":\"b\"}",
             r#""string""#,
             "[]",
             "null",
@@ -1134,23 +1166,65 @@ mod tests {
             r#"{"a":{"b":"c"}}"#,
             r#"{a:"b"}"#,
             r#"{"a":'b'}"#,
+            // Deep nesting as a value: refused at its first byte, without
+            // recursion (serde_json refuses it at its depth limit).
+            &deep_array,
+            &deep_object,
         ];
+        assert_eq!(cases.len(), 58, "case count");
         for json in cases {
             let plain = serde_json::from_str::<HashMap<String, String>>(json);
             let loaded = exact(json);
+            let shown = json.chars().take(80).collect::<String>();
             assert_eq!(
                 plain.is_ok(),
                 loaded.is_ok(),
-                "the load parser and serde_json disagree on case {json:?}"
+                "the load parser and serde_json disagree on case {shown:?}"
             );
             if let (Ok(plain), Ok(loaded)) = (plain, loaded) {
                 assert!(
                     loaded.to_field_map() == plain,
-                    "different map for case {json:?}"
+                    "different map for case {shown:?}"
                 );
                 assert_eq!(loaded.arena_capacity(), loaded.arena_len());
             }
         }
+
+        // Escaped prefixes classify as their kind, and the last spelling of a
+        // duplicate wins whichever spelling it uses.
+        let escaped = exact(r#"{"\u0068eader:x":"PLACEHOLDER-ESCAPED-PREFIX"}"#).unwrap();
+        assert!(escaped.get(FieldKind::Header, "x") == Some("PLACEHOLDER-ESCAPED-PREFIX"));
+        let colon = exact(r#"{"header\u003Ax":"PLACEHOLDER-ESCAPED-COLON"}"#).unwrap();
+        assert!(colon.get(FieldKind::Header, "x") == Some("PLACEHOLDER-ESCAPED-COLON"));
+        let last_escaped =
+            exact(r#"{"header:a":"PLACEHOLDER-PLAIN","\u0068eader:a":"PLACEHOLDER-ESCAPED"}"#)
+                .unwrap();
+        assert_eq!(last_escaped.len(), 1);
+        assert!(last_escaped.get(FieldKind::Header, "a") == Some("PLACEHOLDER-ESCAPED"));
+        let last_plain =
+            exact(r#"{"\u0068eader:a":"PLACEHOLDER-ESCAPED","header:a":"PLACEHOLDER-PLAIN"}"#)
+                .unwrap();
+        assert!(last_plain.get(FieldKind::Header, "a") == Some("PLACEHOLDER-PLAIN"));
+        let decoded = exact(
+            r#"{"a":"\u0041\u00e9\u00E9\u4e2d\uABCD\uabcd\ud83d\udd11\uD83D\uDD11\u001b\uFFFF\u0000"}"#,
+        )
+        .unwrap();
+        let expected = [
+            'A',
+            '\u{e9}',
+            '\u{e9}',
+            '\u{4e2d}',
+            '\u{abcd}',
+            '\u{abcd}',
+            '\u{1F511}',
+            '\u{1F511}',
+            '\u{1b}',
+            '\u{ffff}',
+            '\u{0}',
+        ]
+        .iter()
+        .collect::<String>();
+        assert!(decoded.get(FieldKind::Raw, "a") == Some(expected.as_str()));
     }
 
     /// A load reads an entry's fields from its raw JSON in the decrypted

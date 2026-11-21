@@ -104,6 +104,23 @@ pub struct AuthStatusMetadata {
     pub has_storage: bool,
 }
 
+/// What [`SecretStore::retain_captured_cookies`] did. Counts only.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+pub struct CapturedCookieRetention {
+    /// Captured entries examined.
+    pub entries: usize,
+    /// Entries replaced by a copy with fewer cookies.
+    pub entries_rewritten: usize,
+    /// Cookies left in the examined entries.
+    pub cookies_kept: usize,
+    /// Cookies taken out of the rewritten entries.
+    pub cookies_removed: usize,
+}
+
+/// Which cookies a captured entry keeps, by the entry's origin and a cookie's
+/// routing metadata. See [`SecretStore::retain_captured_cookies`].
+pub type CapturedCookieRule = Arc<dyn Fn(&str, &CookieSpec) -> bool + Send + Sync>;
+
 /// Captured auth entry that contributed to a replay session.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CapturedSessionTarget {
@@ -767,12 +784,59 @@ pub struct SecretStoreResolver<Layout: SecretScopeLayout> {
     capabilities: SecretRuntimeCapabilities,
     captured_max_origins: Arc<AtomicUsize>,
     clock: Arc<dyn CustodyClock>,
+    captured_cookie_rule: Option<CapturedCookieRule>,
     stores: Arc<Mutex<HashMap<(String, String), Arc<ScopeStoreSlot>>>>,
 }
 
 #[derive(Default)]
 struct ScopeStoreSlot {
     store: Mutex<Option<Arc<SecretStore>>>,
+}
+
+/// Run the resolver's captured-cookie rule over a freshly loaded store and
+/// persist the result. Best effort: a store whose captured partition is
+/// unavailable, or a failed write, leaves the entries as loaded and the next
+/// load tries again. Logs counts only.
+fn apply_captured_cookie_rule(
+    store: &SecretStore,
+    rule: &CapturedCookieRule,
+    principal: &str,
+    workspace: &str,
+) {
+    if !store
+        .feature_status(SecretSourceKind::Captured)
+        .is_available()
+    {
+        return;
+    }
+    let outcome = match store.retain_captured_cookies(|origin, spec| rule(origin, spec)) {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            warn!(
+                "secret store: captured cookie rule not applied for scope '{}/{}': {}",
+                principal, workspace, error
+            );
+            return;
+        },
+    };
+    if outcome.entries_rewritten == 0 {
+        return;
+    }
+    tracing::info!(
+        "secret store: captured cookie rule removed {} cookie(s) from {} of {} captured entries in scope '{}/{}' ({} kept)",
+        outcome.cookies_removed,
+        outcome.entries_rewritten,
+        outcome.entries,
+        principal,
+        workspace,
+        outcome.cookies_kept
+    );
+    if let Err(error) = store.flush_captured() {
+        warn!(
+            "secret store: writing the narrowed captured partition for scope '{}/{}' failed: {}",
+            principal, workspace, error
+        );
+    }
 }
 
 /// Errors produced by the shared secret store.
@@ -2581,6 +2645,147 @@ impl SecretStore {
         self.persist_captured()
     }
 
+    /// Drop, from every captured entry, the cookies `keep` refuses.
+    ///
+    /// `keep` is given the entry's origin and one cookie's routing metadata,
+    /// never a value. Everything else about an entry stays as it was: every
+    /// field that is not a cookie, the entry's source (generation, stale
+    /// flag, expiry hint), policy and creation time, and the order and
+    /// metadata of the cookies that stay. A cookie whose value is already
+    /// missing is dropped with the refused ones: it could never be sent.
+    ///
+    /// An entry that a capture replaces while this runs is left to that
+    /// capture. Nothing is written to disk here: the partition is marked
+    /// changed when an entry was rewritten, and the caller persists it with
+    /// [`SecretStore::flush_captured`].
+    pub fn retain_captured_cookies(
+        &self,
+        keep: impl Fn(&str, &CookieSpec) -> bool,
+    ) -> Result<CapturedCookieRetention, SecretStoreError> {
+        self.ensure_feature_enabled(SecretSourceKind::Captured)?;
+        let snapshot: Vec<(String, Arc<CapturedEntry>)> = {
+            let guard = self.state.read().expect("secret store state lock poisoned");
+            guard
+                .captured
+                .iter()
+                .map(|(origin, entry)| (origin.clone(), Arc::clone(entry)))
+                .collect()
+        };
+        let mut outcome = CapturedCookieRetention {
+            entries: snapshot.len(),
+            ..CapturedCookieRetention::default()
+        };
+
+        // Rebuilt with no lock held. Values go from one wiped arena straight
+        // into the next; no owned copy of a value is made.
+        struct Rewritten {
+            origin: String,
+            replaced: Arc<CapturedEntry>,
+            replacement: CapturedEntry,
+            kept: usize,
+            removed: usize,
+        }
+        let mut rewritten = Vec::new();
+        for (origin, entry) in snapshot {
+            let InjectionTarget::Cookies(specs) = &entry.injection else {
+                continue;
+            };
+            // (new index, spec, value) of every cookie that stays, in order.
+            let kept: Vec<(String, &CookieSpec, &str)> = specs
+                .iter()
+                .enumerate()
+                .filter(|(_, spec)| keep(&origin, spec))
+                .filter_map(|(index, spec)| {
+                    let value = entry
+                        .fields
+                        .get(FieldKind::Cookie, &format!("{index}:{}", spec.name))?;
+                    Some((spec, value))
+                })
+                .enumerate()
+                .map(|(new_index, (spec, value))| (new_index.to_string(), spec, value))
+                .collect();
+            if kept.len() == specs.len() {
+                outcome.cookies_kept += kept.len();
+                continue;
+            }
+            let other_fields = || {
+                entry
+                    .fields
+                    .iter()
+                    .filter(|(kind, _, _)| *kind != FieldKind::Cookie)
+            };
+            let bytes = other_fields()
+                .map(|(_, key, value)| key.len() + value.len())
+                .chain(
+                    kept.iter().map(|(index, spec, value)| {
+                        index.len() + 1 + spec.name.len() + value.len()
+                    }),
+                )
+                .sum();
+            let mut builder = FieldsBuilder::with_capacity(bytes, other_fields().count() + kept.len());
+            let too_large = |_| {
+                SecretStoreError::Serde(<serde_json::Error as serde::ser::Error>::custom(
+                    "captured entry fields exceed the 4 GiB field arena",
+                ))
+            };
+            for (kind, key, value) in other_fields() {
+                builder.push(kind, &[key], value).map_err(too_large)?;
+            }
+            for (index, spec, value) in &kept {
+                builder
+                    .push(FieldKind::Cookie, &[index, ":", &spec.name], value)
+                    .map_err(too_large)?;
+            }
+            let replacement = CapturedEntry {
+                id: entry.id.clone(),
+                label: entry.label.clone(),
+                fields: Arc::new(builder.finish()),
+                source: entry.source.clone(),
+                injection: InjectionTarget::Cookies(
+                    kept.iter().map(|(_, spec, _)| (*spec).clone()).collect(),
+                ),
+                policy: entry.policy.clone(),
+                created_at: entry.created_at,
+            };
+            let (kept, removed) = (kept.len(), specs.len() - kept.len());
+            rewritten.push(Rewritten {
+                origin,
+                replaced: Arc::clone(&entry),
+                replacement,
+                kept,
+                removed,
+            });
+        }
+        if rewritten.is_empty() {
+            return Ok(outcome);
+        }
+
+        {
+            let mut guard = self
+                .state
+                .write()
+                .expect("secret store state lock poisoned");
+            for item in rewritten {
+                let unchanged = guard
+                    .captured
+                    .get(&item.origin)
+                    .is_some_and(|current| Arc::ptr_eq(current, &item.replaced));
+                if unchanged {
+                    guard
+                        .captured
+                        .insert(item.origin, Arc::new(item.replacement));
+                    outcome.entries_rewritten += 1;
+                    outcome.cookies_kept += item.kept;
+                    outcome.cookies_removed += item.removed;
+                }
+            }
+        }
+        if outcome.entries_rewritten > 0 {
+            self.captured_dirty.store(true, Ordering::Release);
+        }
+        Ok(outcome)
+    }
+
     pub fn base_dir(&self) -> &Path {
         &self.base_dir
     }
@@ -3298,8 +3503,19 @@ impl<Layout: SecretScopeLayout> SecretStoreResolver<Layout> {
                 StoreConfig::default().captured_max_origins,
             )),
             clock: Arc::new(SystemClock),
+            captured_cookie_rule: None,
             stores: Arc::new(Mutex::new(HashMap::new())),
         }
+    }
+
+    /// Apply `rule` to a scope's captured entries when its store is first
+    /// loaded: a cookie the rule refuses is removed and the partition is
+    /// written back. An application that narrows what its captures store
+    /// uses this to bring entries written under an older, wider rule in
+    /// line. Stores already resolved are not revisited.
+    pub fn with_captured_cookie_rule(mut self, rule: CapturedCookieRule) -> Self {
+        self.captured_cookie_rule = Some(rule);
+        self
     }
 
     /// Every store this resolver hands out reads deadlines against `clock`.
@@ -3357,6 +3573,9 @@ impl<Layout: SecretScopeLayout> SecretStoreResolver<Layout> {
                 "secret store: scope '{}/{}' resolved with a quarantined partition: {}",
                 principal, workspace, error
             );
+        }
+        if let Some(rule) = self.captured_cookie_rule.as_ref() {
+            apply_captured_cookie_rule(&store, rule, principal, workspace);
         }
         *resolved = Some(Arc::clone(&store));
         Ok(store)
@@ -4661,6 +4880,510 @@ mod tests {
         assert!(session_after.cookie_header_values.is_empty());
         assert!(session_after.local_storage.is_empty());
         assert!(session_after.session_storage.is_empty());
+    }
+
+    fn retention_cookie(name: &str, value: &str, domain: &str) -> CookieWithMetadata {
+        CookieWithMetadata {
+            name: name.to_string(),
+            value: value.to_string(),
+            domain: domain.to_string(),
+            path: "/".to_string(),
+            secure: true,
+            http_only: true,
+            same_site: SameSite::Lax,
+            expires: None,
+        }
+    }
+
+    #[test]
+    fn retain_captured_cookies_drops_refused_cookies_and_keeps_the_rest_of_the_entry() {
+        let path = temp_store_path();
+        let store = SecretStore::new_empty(Box::new(FixedKeyProvider), path.clone());
+        let origin = "https://app.example.com";
+        store
+            .store_captured(
+                origin,
+                HashMap::from([("authorization".to_string(), "Bearer header-token".to_string())]),
+                vec![
+                    retention_cookie("tracker", "other-site-1", ".ads.invalid"),
+                    retention_cookie("session", "own-session", ".example.com"),
+                    retention_cookie("pref", "other-site-2", "cdn.invalid"),
+                    retention_cookie("csrf", "own-csrf", "app.example.com"),
+                ],
+                HashMap::from([("refresh".to_string(), "refresh-token".to_string())]),
+                HashMap::from([("tab".to_string(), "tab-token".to_string())]),
+            )
+            .unwrap();
+        store
+            .store_captured_browser_state_deferred(
+                "https://untouched.example.org",
+                vec![retention_cookie("only", "kept-as-is", "untouched.example.org")],
+                None,
+                None,
+            )
+            .unwrap();
+        let before = store
+            .state
+            .read()
+            .unwrap()
+            .captured
+            .get(origin)
+            .cloned()
+            .expect("entry exists");
+        let untouched_before = store
+            .state
+            .read()
+            .unwrap()
+            .captured
+            .get("https://untouched.example.org")
+            .cloned()
+            .expect("entry exists");
+
+        let outcome = store
+            .retain_captured_cookies(|entry_origin, spec| {
+                // The predicate sees the origin and routing metadata only.
+                !entry_origin.contains("app.example.com") || spec.domain.ends_with("example.com")
+            })
+            .unwrap();
+        assert_eq!(
+            outcome,
+            CapturedCookieRetention {
+                entries: 2,
+                entries_rewritten: 1,
+                cookies_kept: 3,
+                cookies_removed: 2,
+            }
+        );
+
+        let after = store
+            .state
+            .read()
+            .unwrap()
+            .captured
+            .get(origin)
+            .cloned()
+            .expect("entry exists");
+        let InjectionTarget::Cookies(specs) = &after.injection else {
+            panic!("cookie injection expected");
+        };
+        assert_eq!(
+            specs.iter().map(|spec| spec.name.as_str()).collect::<Vec<_>>(),
+            vec!["session", "csrf"],
+            "kept cookies stay in their order"
+        );
+        assert_eq!(
+            after.fields.get(FieldKind::Cookie, "0:session"),
+            Some("own-session")
+        );
+        assert_eq!(after.fields.get(FieldKind::Cookie, "1:csrf"), Some("own-csrf"));
+        assert_eq!(after.fields.of_kind(FieldKind::Cookie).count(), 2);
+        // Everything that is not a cookie is carried over exactly.
+        let non_cookie = |entry: &CapturedEntry| {
+            entry
+                .fields
+                .iter()
+                .filter(|(kind, _, _)| *kind != FieldKind::Cookie)
+                .map(|(kind, key, value)| (kind, key.to_string(), value.to_string()))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(non_cookie(&after), non_cookie(&before));
+        assert_eq!(after.source, before.source);
+        assert_eq!(after.policy, before.policy);
+        assert_eq!(after.created_at, before.created_at);
+        assert_eq!((&after.id, &after.label), (&before.id, &before.label));
+        // An entry with nothing refused is the same allocation as before.
+        let untouched_after = store
+            .state
+            .read()
+            .unwrap()
+            .captured
+            .get("https://untouched.example.org")
+            .cloned()
+            .expect("entry exists");
+        assert!(Arc::ptr_eq(&untouched_before, &untouched_after));
+
+        // The session a request gets is what it got before, minus nothing it
+        // could have used: both own-site cookies still apply.
+        let (session, _) = store
+            .get_session(origin, "https://app.example.com/home")
+            .expect("captured session");
+        assert_eq!(session.cookies.get("session").map(String::as_str), Some("own-session"));
+        assert_eq!(session.cookies.get("csrf").map(String::as_str), Some("own-csrf"));
+
+        // The change reaches disk on the next flush and survives a reload.
+        store.flush_captured().unwrap();
+        let reloaded = SecretStore::new(Box::new(FixedKeyProvider), path).unwrap();
+        let reloaded_entry = reloaded
+            .state
+            .read()
+            .unwrap()
+            .captured
+            .get(origin)
+            .cloned()
+            .expect("entry reloads");
+        assert_eq!(*reloaded_entry, *after);
+    }
+
+    #[test]
+    fn retain_captured_cookies_with_nothing_refused_changes_nothing() {
+        let store = store_with_path(temp_store_path());
+        store
+            .store_captured_browser_state_deferred(
+                "https://app.example.com",
+                vec![retention_cookie("session", "value", ".example.com")],
+                None,
+                None,
+            )
+            .unwrap();
+        store.flush_captured().unwrap();
+        assert!(!store.captured_dirty.load(Ordering::Acquire));
+        let outcome = store.retain_captured_cookies(|_, _| true).unwrap();
+        assert_eq!(
+            outcome,
+            CapturedCookieRetention {
+                entries: 1,
+                entries_rewritten: 0,
+                cookies_kept: 1,
+                cookies_removed: 0,
+            }
+        );
+        assert!(
+            !store.captured_dirty.load(Ordering::Acquire),
+            "nothing to flush when nothing was removed"
+        );
+    }
+
+    #[test]
+    fn retain_captured_cookies_keeps_the_stale_flag_and_generation() {
+        let store = store_with_path(temp_store_path());
+        let origin = "https://app.example.com";
+        store
+            .store_captured_browser_state_deferred(
+                origin,
+                vec![
+                    retention_cookie("session", "value", ".example.com"),
+                    retention_cookie("tracker", "other", ".ads.invalid"),
+                ],
+                None,
+                None,
+            )
+            .unwrap();
+        assert!(store.mark_stale(origin, 1).unwrap(), "generation 1 is marked stale");
+        let source_before = store
+            .state
+            .read()
+            .unwrap()
+            .captured
+            .get(origin)
+            .map(|entry| entry.source.clone())
+            .expect("entry exists");
+        assert!(matches!(
+            source_before,
+            SecretSource::Captured {
+                stale: true,
+                generation: 1,
+                ..
+            }
+        ));
+        let status_before = store.captured_status(origin);
+        store
+            .retain_captured_cookies(|_, spec| spec.domain.ends_with("example.com"))
+            .unwrap();
+        let source_after = store
+            .state
+            .read()
+            .unwrap()
+            .captured
+            .get(origin)
+            .map(|entry| entry.source.clone())
+            .expect("entry exists");
+        assert_eq!(source_after, source_before);
+        assert_eq!(store.captured_status(origin), status_before);
+    }
+
+    fn retention_spec(name: &str, domain: &str) -> CookieSpec {
+        CookieSpec {
+            name: name.to_string(),
+            domain: domain.to_string(),
+            path: "/".to_string(),
+            secure: true,
+            http_only: false,
+            same_site: None,
+            expires: Some(5),
+        }
+    }
+
+    /// A captured entry as a partition loaded from disk can hold it: any field
+    /// keys, any specs, a stale source.
+    fn insert_loaded_entry(
+        store: &SecretStore,
+        origin: &str,
+        fields: &[(String, String)],
+        specs: Vec<CookieSpec>,
+    ) -> Arc<CapturedEntry> {
+        let entry = Arc::new(CapturedEntry::from_secret_entry(&SecretEntry {
+            id: origin.to_string(),
+            label: origin.to_string(),
+            fields: fields.iter().cloned().collect(),
+            source: SecretSource::Captured {
+                origin: origin.to_string(),
+                generation: 7,
+                stale: true,
+                expires_hint: Some(1234),
+            },
+            injection: InjectionTarget::Cookies(specs),
+            policy: None,
+            created_at: 99,
+        }));
+        store
+            .state
+            .write()
+            .unwrap()
+            .captured
+            .insert(origin.to_string(), Arc::clone(&entry));
+        entry
+    }
+
+    fn fields_other_than_cookies(entry: &CapturedEntry) -> Vec<(FieldKind, String, String)> {
+        entry
+            .fields
+            .iter()
+            .filter(|(kind, _, _)| *kind != FieldKind::Cookie)
+            .map(|(kind, key, value)| (kind, key.to_string(), value.to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn retain_captured_cookies_carries_every_other_field_and_renumbers_past_ten() {
+        let store = store_with_path(temp_store_path());
+        let origin = "https://app.example.com";
+        // (name, domain) in spec order. Index 13 has no value field.
+        let layout = [
+            ("c0", "keep.example"),
+            ("c1", "drop.invalid"),
+            ("c2", "keep.example"),
+            ("a:b", "keep.example"),
+            ("c4", "drop.invalid"),
+            ("dup", "keep.example"),
+            ("dup", "keep.example"),
+            ("c7", "keep.example"),
+            ("c8", "keep.example"),
+            ("c9", "keep.example"),
+            ("c10", "keep.example"),
+            ("c11", "keep.example"),
+            ("c12", "keep.example"),
+            ("novalue", "keep.example"),
+        ];
+        let mut fields: Vec<(String, String)> = vec![
+            ("header:authorization".to_string(), "header-value".to_string()),
+            ("query_param:token".to_string(), "query-value".to_string()),
+            ("local_storage:refresh".to_string(), "local-value".to_string()),
+            ("session_storage:tab".to_string(), "session-value".to_string()),
+            ("a-key-with-no-known-prefix".to_string(), "raw-value".to_string()),
+        ];
+        for (index, (name, _)) in layout.iter().enumerate().take(13) {
+            fields.push((format!("cookie:{index}:{name}"), format!("v{index}")));
+        }
+        let specs: Vec<CookieSpec> = layout
+            .iter()
+            .map(|(name, domain)| retention_spec(name, domain))
+            .collect();
+        let before = insert_loaded_entry(&store, origin, &fields, specs.clone());
+        assert_eq!(
+            before.fields.get(FieldKind::Raw, "a-key-with-no-known-prefix"),
+            Some("raw-value")
+        );
+
+        let outcome = store
+            .retain_captured_cookies(|_, spec| spec.domain == "keep.example")
+            .unwrap();
+        assert_eq!(
+            outcome,
+            CapturedCookieRetention {
+                entries: 1,
+                entries_rewritten: 1,
+                cookies_kept: 11,
+                cookies_removed: 3,
+            }
+        );
+
+        let after = store
+            .state
+            .read()
+            .unwrap()
+            .captured
+            .get(origin)
+            .cloned()
+            .expect("entry exists");
+        let kept_old_indexes = [0usize, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12];
+        let InjectionTarget::Cookies(kept_specs) = &after.injection else {
+            panic!("cookie injection expected");
+        };
+        assert_eq!(
+            kept_specs,
+            &kept_old_indexes
+                .iter()
+                .map(|index| specs[*index].clone())
+                .collect::<Vec<_>>(),
+            "kept specs are the old ones, whole and in order"
+        );
+        for (new_index, old_index) in kept_old_indexes.iter().enumerate() {
+            let name = layout[*old_index].0;
+            assert_eq!(
+                after
+                    .fields
+                    .get(FieldKind::Cookie, &format!("{new_index}:{name}")),
+                Some(format!("v{old_index}").as_str()),
+                "cookie {name} moved from index {old_index} to {new_index} with its value"
+            );
+        }
+        assert_eq!(after.fields.of_kind(FieldKind::Cookie).count(), 11);
+        assert_eq!(fields_other_than_cookies(&after), fields_other_than_cookies(&before));
+        assert_eq!(
+            after.fields.get(FieldKind::Raw, "a-key-with-no-known-prefix"),
+            Some("raw-value")
+        );
+        assert_eq!(after.fields.get(FieldKind::QueryParam, "token"), Some("query-value"));
+        assert_eq!(after.source, before.source, "stale flag, generation and expiry hint stay");
+        assert_eq!(after.created_at, 99);
+
+        // What a request to the kept site gets is unchanged by the renumbering.
+        let extracted = extract_captured_cookies(&after);
+        assert_eq!(extracted.len(), 11);
+        assert_eq!(
+            extracted
+                .iter()
+                .map(|cookie| (cookie.name.as_str(), cookie.value.as_str()))
+                .collect::<Vec<_>>(),
+            kept_old_indexes
+                .iter()
+                .map(|index| (layout[*index].0, ["v0", "v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9", "v10", "v11", "v12"][*index]))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn retain_captured_cookies_can_leave_an_entry_with_no_cookies() {
+        let store = store_with_path(temp_store_path());
+        let origin = "https://app.example.com";
+        let fields = vec![
+            ("header:authorization".to_string(), "header-value".to_string()),
+            ("cookie:0:tracker".to_string(), "other-site".to_string()),
+        ];
+        let before = insert_loaded_entry(
+            &store,
+            origin,
+            &fields,
+            vec![retention_spec("tracker", ".ads.invalid")],
+        );
+        let outcome = store.retain_captured_cookies(|_, _| false).unwrap();
+        assert_eq!(
+            (outcome.entries_rewritten, outcome.cookies_kept, outcome.cookies_removed),
+            (1, 0, 1)
+        );
+        let after = store
+            .state
+            .read()
+            .unwrap()
+            .captured
+            .get(origin)
+            .cloned()
+            .expect("the entry itself stays");
+        assert_eq!(after.injection, InjectionTarget::Cookies(Vec::new()));
+        assert!(!after.fields.has_kind(FieldKind::Cookie));
+        assert_eq!(fields_other_than_cookies(&after), fields_other_than_cookies(&before));
+        assert_eq!(after.source, before.source);
+    }
+
+    #[test]
+    fn retain_captured_cookies_leaves_an_entry_a_capture_replaced_meanwhile() {
+        let store = store_with_path(temp_store_path());
+        let origin = "https://app.example.com";
+        store
+            .store_captured_browser_state_deferred(
+                origin,
+                vec![
+                    retention_cookie("session", "old-session", ".example.com"),
+                    retention_cookie("tracker", "other-site", ".ads.invalid"),
+                ],
+                None,
+                None,
+            )
+            .unwrap();
+        let captured_meanwhile = AtomicBool::new(false);
+        // The predicate runs with no store lock held, so a capture can land
+        // between the snapshot and the swap; here it lands from inside it.
+        let outcome = store
+            .retain_captured_cookies(|entry_origin, spec| {
+                if !captured_meanwhile.swap(true, Ordering::SeqCst) {
+                    store
+                        .store_captured_browser_state_deferred(
+                            entry_origin,
+                            vec![
+                                retention_cookie("session", "new-session", ".example.com"),
+                                retention_cookie("tracker", "new-other-site", ".ads.invalid"),
+                            ],
+                            None,
+                            None,
+                        )
+                        .unwrap();
+                }
+                spec.domain.ends_with("example.com")
+            })
+            .unwrap();
+        assert_eq!(outcome.entries_rewritten, 0, "the newer capture wins");
+        assert_eq!(outcome.cookies_removed, 0);
+        let guard = store.state.read().unwrap();
+        let entry = guard.captured.get(origin).expect("entry exists");
+        assert_eq!(entry.fields.get(FieldKind::Cookie, "0:session"), Some("new-session"));
+        assert_eq!(
+            entry.fields.get(FieldKind::Cookie, "1:tracker"),
+            Some("new-other-site")
+        );
+        assert!(matches!(
+            entry.source,
+            SecretSource::Captured { generation: 2, .. }
+        ));
+    }
+
+    #[test]
+    fn a_resolver_cookie_rule_writes_nothing_over_a_partition_that_failed_to_load() {
+        let temp = tempfile::tempdir().expect("temporary scope root");
+        let root = temp.path().to_path_buf();
+        let seeding = SecretStoreResolver::new_with_capabilities(
+            Box::new(FixedKeyProvider),
+            root.clone(),
+            SecretRuntimeCapabilities::fully_available("fixed"),
+        );
+        let base = seeding
+            .resolve_for_scope("placeholder-principal", "placeholder-workspace")
+            .expect("resolve a fresh scope")
+            .base_dir()
+            .to_path_buf();
+        drop(seeding);
+        std::fs::create_dir_all(&base).expect("vault directory");
+        let vault = base.join("captured_secrets.vault");
+        std::fs::write(&vault, b"PLACEHOLDER-NOT-CIPHERTEXT").expect("write an unreadable vault");
+
+        let refuse_everything: CapturedCookieRule = Arc::new(|_, _| false);
+        let resolver = SecretStoreResolver::new_with_capabilities(
+            Box::new(FixedKeyProvider),
+            root.clone(),
+            SecretRuntimeCapabilities::fully_available("fixed"),
+        )
+        .with_captured_cookie_rule(refuse_everything);
+        let store = resolver
+            .resolve_for_scope("placeholder-principal", "placeholder-workspace")
+            .expect("an unreadable captured partition must not fail the scope");
+        assert_eq!(
+            store.partition_status(SecretSourceKind::Captured),
+            SecretPartitionStatus::Unavailable
+        );
+        assert!(
+            !vault.exists(),
+            "the rule must not write an empty partition where the unreadable one was"
+        );
+        assert!(!store.captured_dirty.load(Ordering::Acquire));
     }
 
     #[test]
@@ -6073,6 +6796,90 @@ mod tests {
             "the resolver must keep the store that knows the vault was unreadable"
         );
         assert!(store.list_provisioned_entries().is_empty());
+    }
+
+    #[test]
+    fn a_resolver_cookie_rule_narrows_a_scope_once_and_writes_it_back() {
+        let temp = tempfile::tempdir().expect("temporary scope root");
+        let root = temp.path().to_path_buf();
+        let resolver_without_rule = || {
+            SecretStoreResolver::new_with_capabilities(
+                Box::new(FixedKeyProvider),
+                root.clone(),
+                SecretRuntimeCapabilities::fully_available("fixed"),
+            )
+        };
+        let origin = "https://app.example.com";
+        let cookie_names = |store: &SecretStore| {
+            let guard = store.state.read().unwrap();
+            let entry = guard.captured.get(origin).expect("entry exists");
+            let InjectionTarget::Cookies(specs) = &entry.injection else {
+                panic!("cookie injection expected");
+            };
+            specs.iter().map(|spec| spec.name.clone()).collect::<Vec<_>>()
+        };
+
+        // An entry written under a wider rule: it carries another site's cookie.
+        let seeding = resolver_without_rule();
+        let seeded = seeding
+            .resolve_for_scope("placeholder-principal", "placeholder-workspace")
+            .expect("resolve a fresh scope");
+        seeded
+            .store_captured_browser_state_deferred(
+                origin,
+                vec![
+                    retention_cookie("session", "own-session", ".example.com"),
+                    retention_cookie("tracker", "other-site", ".ads.invalid"),
+                ],
+                None,
+                None,
+            )
+            .unwrap();
+        seeded.flush_captured().unwrap();
+        drop(seeded);
+        drop(seeding);
+        assert_eq!(
+            cookie_names(
+                &resolver_without_rule()
+                    .resolve_for_scope("placeholder-principal", "placeholder-workspace")
+                    .unwrap()
+            ),
+            vec!["session", "tracker"],
+            "without a rule the entry loads as written"
+        );
+
+        let calls = Arc::new(AtomicUsize::new(0));
+        let counted = Arc::clone(&calls);
+        let rule: CapturedCookieRule = Arc::new(move |entry_origin, spec| {
+            counted.fetch_add(1, Ordering::SeqCst);
+            entry_origin == "https://app.example.com" && spec.domain.ends_with("example.com")
+        });
+        let narrowing = resolver_without_rule().with_captured_cookie_rule(rule);
+        let narrowed = narrowing
+            .resolve_for_scope("placeholder-principal", "placeholder-workspace")
+            .unwrap();
+        assert_eq!(cookie_names(&narrowed), vec!["session"]);
+        let calls_after_load = calls.load(Ordering::SeqCst);
+        assert_eq!(calls_after_load, 2, "one decision per stored cookie");
+        // A second resolve hands out the same store and does not run the rule again.
+        let again = narrowing
+            .resolve_for_scope("placeholder-principal", "placeholder-workspace")
+            .unwrap();
+        assert!(Arc::ptr_eq(&narrowed, &again));
+        assert_eq!(calls.load(Ordering::SeqCst), calls_after_load);
+        drop(again);
+        drop(narrowed);
+        drop(narrowing);
+
+        // The narrowed partition is what is on disk now.
+        assert_eq!(
+            cookie_names(
+                &resolver_without_rule()
+                    .resolve_for_scope("placeholder-principal", "placeholder-workspace")
+                    .unwrap()
+            ),
+            vec!["session"]
+        );
     }
 
     /// The other half of the same decision: a key backend that cannot answer

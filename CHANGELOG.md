@@ -7,6 +7,20 @@ Entries describe source changes, not publication announcements. See
 
 ## Unreleased
 
+- A store can drop cookies from its captured entries by rule.
+  `SecretStore::retain_captured_cookies(keep)` removes the cookies the
+  predicate refuses (it sees an entry's origin and a cookie's name, domain and
+  path, never a value) and leaves the rest of each entry as it was.
+  `SecretStoreResolver::with_captured_cookie_rule` applies a rule once when a
+  scope's store is first loaded and writes the narrowed partition back.
+  - For an application whose captures once stored more cookies per origin
+    than they do now. Entries written under the wider rule never shrank,
+    because a capture merges into the entry it finds.
+  - A removed cookie is gone from the vault file after the next captured
+    flush. Keep a copy of the file before narrowing a real scope.
+  - New public items: `CapturedCookieRetention`, `CapturedCookieRule`. No
+    vault format or version change.
+
 - Captured entries take less memory while resident. Each entry's fields sit in
   one zeroizing arena, keys without their prefix, with a 16-byte index slot per
   field, instead of a hash map of owned strings.

@@ -757,6 +757,21 @@ Magician need no API, source or storage migration for these standalone additions
     partition file: a strict open fails, and a lenient open reads the
     partition as empty and `Unavailable`. The partition is not loaded without
     that entry.
+- **Narrowing captured cookies:** `SecretStore::retain_captured_cookies`
+  drops, from every captured entry, the cookies a caller's predicate refuses.
+  The predicate is given the entry's origin and a cookie's routing metadata,
+  never a value. An entry is rebuilt from its own arena into a new one of the
+  exact size, so no owned copy of a value is made; every field that is not a
+  cookie, the source (generation, stale flag, expiry hint), policy, creation
+  time and the kept cookies' order and metadata are unchanged, and kept
+  cookies are renumbered. The rebuild runs with no state lock held; an entry
+  that a capture replaced meanwhile is left to that capture. Nothing is
+  written until the next captured flush. A resolver given a rule
+  (`SecretStoreResolver::with_captured_cookie_rule`) applies it once when a
+  scope's store is first loaded and writes the partition back if an entry
+  changed; a partition that failed to load is not written over. The removed
+  cookies are gone from the vault file after that write: an application that
+  narrows a real scope keeps its own copy of the file first.
 
 ## Source map
 

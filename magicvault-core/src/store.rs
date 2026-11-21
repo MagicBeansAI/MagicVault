@@ -27,8 +27,11 @@ use super::policy::{
     RequestedDomains, SecretPolicy, UsageTracker,
 };
 use super::{
-    cookie_field_value, CookieSpec, InjectionTarget, SameSite, SecretEntry, SecretRef, SecretSource,
+    CookieSpec, InjectionTarget, SameSite, SecretEntry, SecretRef, SecretSource,
 };
+
+mod captured;
+use captured::{wipe_values, CapturedEntry, CapturedFields, FieldKind, FieldsBuilder};
 
 pub const SECRET_AUDIT_FILENAME: &str = "secret_audit.jsonl";
 const MCP_OAUTH_VAULT_FILENAME: &str = "mcp_oauth.vault";
@@ -455,8 +458,9 @@ struct SecretStoreState {
     provisioned: HashMap<String, SecretEntry>,
     /// Behind `Arc`s so a flush can snapshot the partition by copying pointers
     /// and serialize it with no state lock held. Writers replace an entry or
-    /// copy it on write, so a snapshot sees every entry wholly as it was.
-    captured: HashMap<String, Arc<SecretEntry>>,
+    /// copy it on write, so a snapshot sees every entry wholly as it was. Each
+    /// entry's fields are compact (see [`captured`]) and shared by its copies.
+    captured: HashMap<String, Arc<CapturedEntry>>,
     ephemeral: HashMap<String, SecretEntry>,
     /// Absolute deadlines for bounded ephemeral entries, by the same scoped
     /// key. An entry absent here keeps the run-scoped lifetime.
@@ -512,10 +516,12 @@ struct PendingCapturedTask {
     handle: tokio::task::JoinHandle<()>,
 }
 
+/// A partition file's JSON. Captured partitions load straight into
+/// [`CapturedEntry`]s, one entry compacted at a time.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct PersistedPartition {
+struct PersistedPartition<Entry = SecretEntry> {
     version: u32,
-    entries: HashMap<String, SecretEntry>,
+    entries: HashMap<String, Entry>,
 }
 
 /// [`PersistedPartition`] over borrowed entries: the same fields in the same
@@ -527,9 +533,9 @@ struct PersistedPartitionRef<Entries> {
 }
 
 /// A captured snapshot serialized as the plain entry map it stands for: the
-/// same JSON object a `HashMap<String, SecretEntry>` writes, in the snapshot's
-/// iteration order.
-struct SharedEntries<'snapshot>(&'snapshot HashMap<String, Arc<SecretEntry>>);
+/// same JSON object a `HashMap<String, SecretEntry>` writes, origins in the
+/// snapshot's iteration order and each entry's fields in ascending key order.
+struct SharedEntries<'snapshot>(&'snapshot HashMap<String, Arc<CapturedEntry>>);
 
 impl Serialize for SharedEntries<'_> {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
@@ -594,7 +600,7 @@ fn frame_partition_plaintext(
 }
 
 /// Loaded captured entries, each behind the `Arc` a flush snapshot shares.
-fn shared_entries(entries: HashMap<String, SecretEntry>) -> HashMap<String, Arc<SecretEntry>> {
+fn shared_entries(entries: HashMap<String, CapturedEntry>) -> HashMap<String, Arc<CapturedEntry>> {
     entries
         .into_iter()
         .map(|(origin, entry)| (origin, Arc::new(entry)))
@@ -603,9 +609,9 @@ fn shared_entries(entries: HashMap<String, SecretEntry>) -> HashMap<String, Arc<
 
 /// Flip a captured entry's lease flag. Copy-on-write: a flush snapshot that
 /// still holds the entry keeps the version it took, and the store gets its own
-/// copy; an unshared entry is changed in place. The superseded copy wipes its
-/// fields when the snapshot drops it, as every `SecretEntry` does.
-fn set_captured_stale(entry: &mut Arc<SecretEntry>, stale_value: bool) {
+/// copy of the metadata; an unshared entry is changed in place. Either way the
+/// fields stay one shared arena, wiped when its last holder drops it.
+fn set_captured_stale(entry: &mut Arc<CapturedEntry>, stale_value: bool) {
     if let SecretSource::Captured { stale, .. } = &mut Arc::make_mut(entry).source {
         *stale = stale_value;
     }
@@ -833,10 +839,14 @@ impl SecretStore {
         state
             .provisioned
             .values()
-            .chain(state.captured.values().map(Arc::as_ref))
-            .chain(state.ephemeral.values())
-            .flat_map(|entry| entry.fields.values())
-            .map(String::as_str)
+            .flat_map(|entry| entry.fields.values().map(String::as_str))
+            .chain(state.captured.values().flat_map(|entry| entry.fields.values()))
+            .chain(
+                state
+                    .ephemeral
+                    .values()
+                    .flat_map(|entry| entry.fields.values().map(String::as_str)),
+            )
             .chain(state.one_time.live_values())
             .filter(|value| value.len() >= 4)
             .map(|value| Zeroizing::new(value.to_string()))
@@ -2041,8 +2051,13 @@ impl SecretStore {
         let snapshot_cookies = merge_captured_cookies(Vec::new(), cookies);
         let merge_ms = merge_start.elapsed().as_millis();
 
-        let merged_local_storage = local_storage_tokens.unwrap_or(existing_local_storage);
-        let merged_session_storage = session_storage_tokens.unwrap_or(existing_session_storage);
+        let mut merged_local_storage =
+            replace_or_keep(local_storage_tokens, existing_local_storage);
+        let mut merged_session_storage =
+            replace_or_keep(session_storage_tokens, existing_session_storage);
+        let mut existing_headers = existing_headers;
+        let mut existing_query_params = existing_query_params;
+        let mut snapshot_cookies = snapshot_cookies;
         let expires_hint = existing_headers
             .values()
             .chain(existing_query_params.values())
@@ -2052,23 +2067,30 @@ impl SecretStore {
             .min();
 
         let flatten_start = std::time::Instant::now();
-        let entry = SecretEntry {
+        let fields = build_captured_fields(
+            &existing_headers,
+            &existing_query_params,
+            &snapshot_cookies,
+            &merged_local_storage,
+            &merged_session_storage,
+        );
+        let injection = InjectionTarget::Cookies(cookies_to_specs(&snapshot_cookies));
+        wipe_values(&mut existing_headers);
+        wipe_values(&mut existing_query_params);
+        wipe_cookie_values(&mut snapshot_cookies);
+        wipe_values(&mut merged_local_storage);
+        wipe_values(&mut merged_session_storage);
+        let entry = CapturedEntry {
             id: origin.to_string(),
             label: origin.to_string(),
-            fields: flatten_captured_fields(
-                &existing_headers,
-                &existing_query_params,
-                &snapshot_cookies,
-                &merged_local_storage,
-                &merged_session_storage,
-            ),
+            fields: Arc::new(fields?),
             source: SecretSource::Captured {
                 origin: origin.to_string(),
                 generation,
                 stale: false,
                 expires_hint,
             },
-            injection: InjectionTarget::Cookies(cookies_to_specs(&snapshot_cookies)),
+            injection,
             policy: None,
             created_at: Utc::now().timestamp(),
         };
@@ -2265,11 +2287,12 @@ impl SecretStore {
             + 1;
 
         // All merge work happens lock-free.
-        let merged_headers = merge_captured_headers(existing_headers, headers);
-        let merged_query_params = merge_named_values(existing_query_params, auth_query_params);
-        let merged_cookies = merge_captured_cookies(existing_cookies, cookies);
-        let merged_local_storage = merge_named_values(existing_local_storage, local_storage_tokens);
-        let merged_session_storage =
+        let mut merged_headers = merge_captured_headers(existing_headers, headers);
+        let mut merged_query_params = merge_named_values(existing_query_params, auth_query_params);
+        let mut merged_cookies = merge_captured_cookies(existing_cookies, cookies);
+        let mut merged_local_storage =
+            merge_named_values(existing_local_storage, local_storage_tokens);
+        let mut merged_session_storage =
             merge_named_values(existing_session_storage, session_storage_tokens);
         let expires_hint = merged_headers
             .values()
@@ -2279,23 +2302,30 @@ impl SecretStore {
             .filter_map(|value| detect_jwt_expiry(value.strip_prefix("Bearer ").unwrap_or(value)))
             .min();
 
-        let entry = SecretEntry {
+        let fields = build_captured_fields(
+            &merged_headers,
+            &merged_query_params,
+            &merged_cookies,
+            &merged_local_storage,
+            &merged_session_storage,
+        );
+        let injection = InjectionTarget::Cookies(cookies_to_specs(&merged_cookies));
+        wipe_values(&mut merged_headers);
+        wipe_values(&mut merged_query_params);
+        wipe_cookie_values(&mut merged_cookies);
+        wipe_values(&mut merged_local_storage);
+        wipe_values(&mut merged_session_storage);
+        let entry = CapturedEntry {
             id: origin.to_string(),
             label: origin.to_string(),
-            fields: flatten_captured_fields(
-                &merged_headers,
-                &merged_query_params,
-                &merged_cookies,
-                &merged_local_storage,
-                &merged_session_storage,
-            ),
+            fields: Arc::new(fields?),
             source: SecretSource::Captured {
                 origin: origin.to_string(),
                 generation,
                 stale: false,
                 expires_hint,
             },
-            injection: InjectionTarget::Cookies(cookies_to_specs(&merged_cookies)),
+            injection,
             policy: None,
             created_at: Utc::now().timestamp(),
         };
@@ -2933,19 +2963,21 @@ impl SecretStore {
         }
     }
 
-    fn load_partition(
+    fn load_partition<Entry: serde::de::DeserializeOwned>(
         &self,
         path: &Path,
-    ) -> Result<HashMap<String, SecretEntry>, SecretStoreError> {
+    ) -> Result<HashMap<String, Entry>, SecretStoreError> {
         if !path.exists() {
             return Ok(HashMap::new());
         }
 
         // Decrypted in place: the file's buffer becomes the plaintext, is parsed
         // from there, and that buffer is wiped when this returns. A separate
-        // decrypted copy used to go back to the allocator unwiped. Not covered,
-        // as before: serde_json's scratch buffer for escaped strings, and a
-        // partly parsed `fields` map dropped on a parse error.
+        // decrypted copy used to go back to the allocator unwiped. Captured
+        // entries are compacted as they are parsed, into wiped arenas, so a
+        // partly parsed captured entry dropped on a parse error is wiped too.
+        // Not covered, as before: serde_json's scratch buffer for escaped
+        // strings, and a partly parsed provisioned `fields` map.
         let mut data = Zeroizing::new(std::fs::read(path)?);
         let key = Zeroizing::new(self.key_provider.get_or_create_key()?);
         let decrypted = match decrypt_in_place(&key, &mut data, &[]) {
@@ -2961,7 +2993,7 @@ impl SecretStore {
             },
             Err(err) => return Err(err.into()),
         };
-        let payload = match serde_json::from_slice::<PersistedPartition>(decrypted) {
+        let payload = match serde_json::from_slice::<PersistedPartition<Entry>>(decrypted) {
             Ok(payload) => payload,
             Err(err) => {
                 self.quarantine_partition(path);
@@ -3396,59 +3428,54 @@ impl<Layout: SecretScopeLayout> SecretStoreResolver<Layout> {
     }
 }
 
-fn auth_status_for_entry(entry: &SecretEntry) -> AuthStatusMetadata {
+fn auth_status_for_entry(entry: &CapturedEntry) -> AuthStatusMetadata {
     let is_stale = matches!(entry.source, SecretSource::Captured { stale: true, .. });
     AuthStatusMetadata {
         has_auth: true,
         is_stale,
-        has_cookies: entry.fields.keys().any(|key| key.starts_with("cookie:")),
-        has_headers: entry.fields.keys().any(|key| key.starts_with("header:")),
-        has_query_params: entry
-            .fields
-            .keys()
-            .any(|key| key.starts_with("query_param:")),
-        has_storage: entry
-            .fields
-            .keys()
-            .any(|key| key.starts_with("local_storage:") || key.starts_with("session_storage:")),
+        has_cookies: entry.fields.has_kind(FieldKind::Cookie),
+        has_headers: entry.fields.has_kind(FieldKind::Header),
+        has_query_params: entry.fields.has_kind(FieldKind::QueryParam),
+        has_storage: entry.fields.has_kind(FieldKind::LocalStorage)
+            || entry.fields.has_kind(FieldKind::SessionStorage),
     }
 }
 
-fn captured_generation(entry: &SecretEntry) -> Option<u64> {
+fn captured_generation(entry: &CapturedEntry) -> Option<u64> {
     match &entry.source {
         SecretSource::Captured { generation, .. } => Some(*generation),
         _ => None,
     }
 }
 
-fn extract_captured_headers(entry: &SecretEntry) -> HashMap<String, String> {
-    extract_prefixed_fields(entry, "header:")
+fn extract_captured_headers(entry: &CapturedEntry) -> HashMap<String, String> {
+    extract_fields_of_kind(entry, FieldKind::Header)
 }
 
-fn extract_captured_query_params(entry: &SecretEntry) -> HashMap<String, String> {
-    extract_prefixed_fields(entry, "query_param:")
+fn extract_captured_query_params(entry: &CapturedEntry) -> HashMap<String, String> {
+    extract_fields_of_kind(entry, FieldKind::QueryParam)
 }
 
-fn extract_captured_local_storage(entry: &SecretEntry) -> HashMap<String, String> {
-    extract_prefixed_fields(entry, "local_storage:")
+fn extract_captured_local_storage(entry: &CapturedEntry) -> HashMap<String, String> {
+    extract_fields_of_kind(entry, FieldKind::LocalStorage)
 }
 
-fn extract_captured_session_storage(entry: &SecretEntry) -> HashMap<String, String> {
-    extract_prefixed_fields(entry, "session_storage:")
+fn extract_captured_session_storage(entry: &CapturedEntry) -> HashMap<String, String> {
+    extract_fields_of_kind(entry, FieldKind::SessionStorage)
 }
 
-fn extract_prefixed_fields(entry: &SecretEntry, prefix: &str) -> HashMap<String, String> {
+/// The fields of one kind, keyed without the prefix.
+fn extract_fields_of_kind(entry: &CapturedEntry, kind: FieldKind) -> HashMap<String, String> {
     entry
         .fields
-        .iter()
-        .filter_map(|(key, value)| {
-            key.strip_prefix(prefix)
-                .map(|stripped| (stripped.to_string(), value.clone()))
-        })
+        .of_kind(kind)
+        .map(|(key, value)| (key.to_string(), value.to_string()))
         .collect()
 }
 
-fn extract_captured_cookies(entry: &SecretEntry) -> Vec<CookieWithMetadata> {
+/// The entry's cookies in spec order. A spec whose `cookie:{index}:{name}`
+/// field is missing is skipped, as before.
+fn extract_captured_cookies(entry: &CapturedEntry) -> Vec<CookieWithMetadata> {
     let InjectionTarget::Cookies(specs) = &entry.injection else {
         return Vec::new();
     };
@@ -3456,7 +3483,8 @@ fn extract_captured_cookies(entry: &SecretEntry) -> Vec<CookieWithMetadata> {
         .iter()
         .enumerate()
         .filter_map(|(idx, spec)| {
-            cookie_field_value(&entry.fields, idx, &spec.name).map(|value| CookieWithMetadata {
+            let key = format!("{idx}:{}", spec.name);
+            entry.fields.get(FieldKind::Cookie, &key).map(|value| CookieWithMetadata {
                 name: spec.name.clone(),
                 value: value.to_string(),
                 domain: spec.domain.clone(),
@@ -3470,33 +3498,72 @@ fn extract_captured_cookies(entry: &SecretEntry) -> Vec<CookieWithMetadata> {
         .collect()
 }
 
-fn flatten_captured_fields(
+/// The compact fields of a captured entry: the same keys the flat map used to
+/// hold (`header:`, `query_param:`, `cookie:{index}:{name}`, `local_storage:`,
+/// `session_storage:`), in one arena allocated at its exact size.
+fn build_captured_fields(
     headers: &HashMap<String, String>,
     auth_query_params: &HashMap<String, String>,
     cookies: &[CookieWithMetadata],
     local_storage_tokens: &HashMap<String, String>,
     session_storage_tokens: &HashMap<String, String>,
+) -> Result<CapturedFields, SecretStoreError> {
+    let named = [
+        (FieldKind::Header, headers),
+        (FieldKind::QueryParam, auth_query_params),
+        (FieldKind::LocalStorage, local_storage_tokens),
+        (FieldKind::SessionStorage, session_storage_tokens),
+    ];
+    let cookie_indexes = (0..cookies.len()).map(|idx| idx.to_string()).collect::<Vec<_>>();
+    let bytes = named
+        .iter()
+        .flat_map(|(_, map)| map.iter())
+        .map(|(name, value)| name.len() + value.len())
+        .chain(
+            cookies
+                .iter()
+                .zip(&cookie_indexes)
+                .map(|(cookie, idx)| idx.len() + 1 + cookie.name.len() + cookie.value.len()),
+        )
+        .sum();
+    let count = named.iter().map(|(_, map)| map.len()).sum::<usize>() + cookies.len();
+    let mut builder = FieldsBuilder::with_capacity(bytes, count);
+    let too_large = |_| {
+        SecretStoreError::Serde(<serde_json::Error as serde::ser::Error>::custom(
+            "captured entry fields exceed the 4 GiB field arena",
+        ))
+    };
+    for (kind, map) in named {
+        for (name, value) in map {
+            builder.push(kind, &[name], value).map_err(too_large)?;
+        }
+    }
+    for (cookie, idx) in cookies.iter().zip(&cookie_indexes) {
+        builder
+            .push(FieldKind::Cookie, &[idx, ":", &cookie.name], &cookie.value)
+            .map_err(too_large)?;
+    }
+    Ok(builder.finish())
+}
+
+/// `incoming` when given, else `existing`; whichever is not kept is wiped.
+fn replace_or_keep(
+    incoming: Option<HashMap<String, String>>,
+    mut existing: HashMap<String, String>,
 ) -> HashMap<String, String> {
-    let mut fields = HashMap::new();
-    for (name, value) in headers {
-        fields.insert(format!("header:{name}"), value.clone());
+    match incoming {
+        Some(incoming) => {
+            wipe_values(&mut existing);
+            incoming
+        },
+        None => existing,
     }
-    for (name, value) in auth_query_params {
-        fields.insert(format!("query_param:{name}"), value.clone());
+}
+
+fn wipe_cookie_values(cookies: &mut [CookieWithMetadata]) {
+    for cookie in cookies {
+        cookie.value.zeroize();
     }
-    for (idx, cookie) in cookies.iter().enumerate() {
-        fields.insert(
-            format!("cookie:{idx}:{}", cookie.name),
-            cookie.value.clone(),
-        );
-    }
-    for (name, value) in local_storage_tokens {
-        fields.insert(format!("local_storage:{name}"), value.clone());
-    }
-    for (name, value) in session_storage_tokens {
-        fields.insert(format!("session_storage:{name}"), value.clone());
-    }
-    fields
 }
 
 fn merge_captured_headers(
@@ -3509,7 +3576,9 @@ fn merge_captured_headers(
             .find(|existing_key| existing_key.eq_ignore_ascii_case(&key))
             .cloned()
         {
-            existing.remove(&existing_key);
+            if let Some(mut replaced) = existing.remove(&existing_key) {
+                replaced.zeroize();
+            }
         }
         existing.insert(key, value);
     }
@@ -3526,6 +3595,7 @@ fn merge_captured_cookies(
                 && candidate.domain == cookie.domain
                 && candidate.path == cookie.path
         }) {
+            existing[idx].value.zeroize();
             existing[idx] = cookie;
         } else {
             existing.push(cookie);
@@ -3538,7 +3608,11 @@ fn merge_named_values(
     mut existing: HashMap<String, String>,
     incoming: HashMap<String, String>,
 ) -> HashMap<String, String> {
-    existing.extend(incoming);
+    for (key, value) in incoming {
+        if let Some(mut replaced) = existing.insert(key, value) {
+            replaced.zeroize();
+        }
+    }
     existing
 }
 
@@ -5359,21 +5433,49 @@ mod tests {
         store.mark_stale("https://fixture-3.invalid", 1).unwrap();
     }
 
-    fn plain_entries(shared: &HashMap<String, Arc<SecretEntry>>) -> HashMap<String, SecretEntry> {
+    fn plain_entries(shared: &HashMap<String, Arc<CapturedEntry>>) -> HashMap<String, SecretEntry> {
         shared
             .iter()
-            .map(|(origin, entry)| (origin.clone(), entry.as_ref().clone()))
+            .map(|(origin, entry)| (origin.clone(), entry.to_secret_entry()))
             .collect()
+    }
+
+    /// The legacy `SecretEntry` serializer's exact bytes for `entry`, with its
+    /// fields written in ascending key order: the entry is serialized with no
+    /// fields, and the sorted fields object is spliced into its `"fields":{}`.
+    /// A `"` inside a JSON string is always escaped, so that sequence occurs
+    /// once, as the key itself.
+    fn legacy_entry_bytes_in_key_order(entry: &SecretEntry) -> Vec<u8> {
+        let mut hollow = entry.clone();
+        let fields = std::mem::take(&mut hollow.fields);
+        let skeleton = serde_json::to_vec(&hollow).unwrap();
+        let sorted = fields.iter().collect::<std::collections::BTreeMap<_, _>>();
+        let fields_json = serde_json::to_vec(&sorted).unwrap();
+        let empty = br#""fields":{}"#;
+        let positions = skeleton
+            .windows(empty.len())
+            .enumerate()
+            .filter(|(_, window)| window == empty)
+            .map(|(position, _)| position)
+            .collect::<Vec<_>>();
+        assert_eq!(positions.len(), 1, "the hollow entry has one empty fields object");
+        let at = positions[0] + br#""fields":"#.len();
+        let mut bytes = skeleton[..at].to_vec();
+        bytes.extend_from_slice(&fields_json);
+        bytes.extend_from_slice(&skeleton[at + 2..]);
+        bytes
     }
 
     /// The borrowed serializers are the same codec.
     ///
     /// Provisioned keeps its map type, and `HashMap::clone` keeps the table's
     /// layout and hasher, so the legacy codec runs over a same-order copy and
-    /// the bytes must be identical. Captured entries sit behind `Arc`s, so no
-    /// same-order plain map exists for the legacy codec: its bytes are composed
-    /// entry by entry, in the snapshot's order, from the legacy entry
-    /// serializer, and parsed equality with the legacy codec is asserted too.
+    /// the bytes must be identical. Captured entries are compact and write
+    /// their fields in ascending key order, where the legacy `HashMap` wrote
+    /// them in its own unspecified order. So the legacy bytes are composed
+    /// entry by entry, origins in the snapshot's order, from the legacy entry
+    /// serializer with its fields in key order, and must be identical; parsed
+    /// equality with the legacy codec is asserted too.
     #[test]
     fn borrowed_partition_serialization_matches_the_legacy_bytes() {
         let store = SecretStore::new_empty(Box::new(FixedKeyProvider), temp_store_path());
@@ -5402,7 +5504,7 @@ mod tests {
             }
             composed.extend(serde_json::to_vec(origin).unwrap());
             composed.push(b':');
-            composed.extend(serde_json::to_vec(entry.as_ref()).unwrap());
+            composed.extend(legacy_entry_bytes_in_key_order(&entry.to_secret_entry()));
         }
         composed.extend_from_slice(b"}}");
         assert_eq!(framed.capacity(), NONCE_LEN + composed.len() + TAG_LEN);
@@ -5513,7 +5615,7 @@ mod tests {
         for index in 0..DURABILITY_CONTENDERS {
             let entry = &reloaded_state.captured[&format!("https://placeholder-{index}.invalid")];
             assert_eq!(
-                entry.fields.keys().filter(|key| key.starts_with("local_storage:")).count(),
+                entry.fields.of_kind(FieldKind::LocalStorage).count(),
                 ROUNDS,
                 "every merged write survives"
             );

@@ -38,7 +38,7 @@
     "magicvault-core/src/policy.rs": "21a4df3746963731df17f701b1cbb4d0566bd000d8f0923bc423f14d58cfeef8",
     "magicvault-core/src/session.rs": "8584151a37f5f2e95f71e0f767118d76eb607a0b91a4687d30998b7881c332da",
     "magicvault-core/src/store.rs": "2436baf0e5b0e5d1c2c67e2a9c232efa8e7889637dacb7da2d77b78617755497",
-    "magicvault-core/src/store/captured.rs": "b3d16b8f57dae871fe415b00556eb478451cbbde41219977555ccbfdb7e7a7fd",
+    "magicvault-core/src/store/captured.rs": "6730673b84cca090656170b9cc55d0d8628f52e2983a730066d120bbe67c9818",
     "magicvault-core/src/types.rs": "65ac1ab641ccf9ab42117e16822983060f404c7e9a7c5cdcadbf0b3620158c3e",
     "magicvault-effect/Cargo.toml": "6f847d80dd7459519ab31d977fe3043c2b5ee9644c86bfae847b88f5e5dc60cf",
     "magicvault-effect/src/bridge.rs": "8bcb8f27e6b9cded9d8166d20b5c33000b9880f5785d9de354555395d722d078",

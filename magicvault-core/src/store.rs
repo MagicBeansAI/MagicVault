@@ -6181,4 +6181,343 @@ mod tests {
         );
         assert_eq!(mode_of(&base), 0o700);
     }
+
+    /// A captured arena is wiped when its last holder frees it. The watch's
+    /// control is `a_wiping_writer_wipes_the_allocation_it_outgrows`.
+    #[test]
+    fn a_dropped_captured_arena_is_wiped_when_freed() {
+        let fields = CapturedFields::from_field_map(&HashMap::from([(
+            "local_storage:token".to_string(),
+            "PLACEHOLDER-ARENA-VALUE".to_string(),
+        )]))
+        .unwrap();
+        watch_free_of(fields.arena_ptr());
+        drop(fields);
+        assert_eq!(watched_free_result(), WATCH_ZEROED, "the arena was freed unwiped");
+    }
+
+    /// A builder that outgrows its buffer wipes the old one, and the copy that
+    /// trims a buffer with spare room wipes the larger one.
+    #[test]
+    fn a_fields_builder_wipes_every_buffer_it_leaves_behind() {
+        let mut builder = FieldsBuilder::with_capacity(4, 2);
+        builder.push(FieldKind::LocalStorage, &["k"], "PL").unwrap();
+        let outgrown = builder.arena_ptr();
+        watch_free_of(outgrown);
+        builder.push(FieldKind::LocalStorage, &["j"], "PLA").unwrap();
+        assert_ne!(builder.arena_ptr(), outgrown, "the builder grew into a new allocation");
+        assert_eq!(watched_free_result(), WATCH_ZEROED, "the outgrown buffer was freed unwiped");
+
+        let with_slack = builder.arena_ptr();
+        watch_free_of(with_slack);
+        let fields = builder.finish();
+        assert_ne!(fields.arena_ptr(), with_slack, "finish copied into an exact buffer");
+        assert_eq!(watched_free_result(), WATCH_ZEROED, "the trimmed buffer was freed unwiped");
+        assert_eq!(fields.arena_capacity(), fields.arena_len());
+        assert_eq!(fields.get(FieldKind::LocalStorage, "j"), Some("PLA"));
+    }
+
+    /// A capture that replaces an entry frees the old arena wiped.
+    #[test]
+    fn a_superseded_captured_entry_frees_its_arena_wiped() {
+        let store = store_with_path(temp_store_path());
+        let origin = "https://superseded.invalid";
+        let capture = |value: &str| {
+            store
+                .store_captured_deferred(
+                    origin,
+                    HashMap::new(),
+                    Vec::new(),
+                    HashMap::from([("token".to_string(), value.to_string())]),
+                    HashMap::new(),
+                )
+                .unwrap()
+        };
+        capture("PLACEHOLDER-OLD");
+        let old_arena = store.state.read().unwrap().captured[origin].fields.arena_ptr();
+        watch_free_of(old_arena);
+        capture("PLACEHOLDER-NEW");
+        assert_eq!(watched_free_result(), WATCH_ZEROED, "the superseded arena was freed unwiped");
+    }
+
+    /// A lease flip copies only an entry's metadata: the copy and the
+    /// snapshot's version share one field arena.
+    #[test]
+    fn a_lease_flip_shares_the_field_arena_with_the_snapshot() {
+        let store = store_with_path(temp_store_path());
+        let origin = "https://lease-arena.invalid";
+        store
+            .store_captured(
+                origin,
+                HashMap::from([("Authorization".to_string(), "Bearer PLACEHOLDER".to_string())]),
+                Vec::new(),
+                HashMap::from([("token".to_string(), "PLACEHOLDER-STORAGE".to_string())]),
+                HashMap::new(),
+            )
+            .unwrap();
+        let snapshot = store.state.read().unwrap().captured.clone();
+        assert!(store.mark_stale(origin, 1).unwrap());
+        let live = Arc::clone(&store.state.read().unwrap().captured[origin]);
+        assert!(!Arc::ptr_eq(&snapshot[origin], &live));
+        assert!(Arc::ptr_eq(&snapshot[origin].fields, &live.fields));
+        assert!(store.get_session(origin, "https://lease-arena.invalid/").is_none());
+        assert!(store.mark_fresh(origin, 1).unwrap());
+        let (session, _) = store.get_session(origin, "https://lease-arena.invalid/").unwrap();
+        assert!(session.local_storage.get("token").map(String::as_str) == Some("PLACEHOLDER-STORAGE"));
+    }
+
+    fn legacy_captured_entry(
+        origin: &str,
+        fields: HashMap<String, String>,
+        specs: Vec<CookieSpec>,
+        created_at: i64,
+    ) -> SecretEntry {
+        SecretEntry {
+            id: origin.to_string(),
+            label: origin.to_string(),
+            fields,
+            source: SecretSource::Captured {
+                origin: origin.to_string(),
+                generation: 3,
+                stale: false,
+                expires_hint: None,
+            },
+            injection: InjectionTarget::Cookies(specs),
+            policy: None,
+            created_at,
+        }
+    }
+
+    fn cookie_spec(name: &str, domain: &str) -> CookieSpec {
+        CookieSpec {
+            name: name.to_string(),
+            domain: domain.to_string(),
+            path: "/".to_string(),
+            secure: true,
+            http_only: true,
+            same_site: Some(SameSite::Lax),
+            expires: None,
+        }
+    }
+
+    fn prefixed(fields: &HashMap<String, String>, prefix: &str) -> HashMap<String, String> {
+        fields
+            .iter()
+            .filter_map(|(key, value)| {
+                key.strip_prefix(prefix).map(|rest| (rest.to_string(), value.clone()))
+            })
+            .collect()
+    }
+
+    /// A partition written by the plain-map codec, with every field kind, an
+    /// unknown prefix, raw keys and a cookie spec with no field, loads into
+    /// the compact form and serves every reader as the plain map did.
+    #[test]
+    fn a_legacy_partition_with_every_field_kind_serves_every_reader_unchanged() {
+        let temp = tempfile::tempdir().expect("temporary vault root");
+        let base = temp.path().join("legacy");
+        let main_origin = "https://every-kind.invalid";
+        let main_fields = HashMap::from([
+            ("header:Authorization".to_string(), "Bearer PLACEHOLDER-H".to_string()),
+            ("header:X-Empty".to_string(), String::new()),
+            ("query_param:token".to_string(), "PLACEHOLDER-Q".to_string()),
+            ("cookie:0:session".to_string(), "PLACEHOLDER-C".to_string()),
+            ("local_storage:token".to_string(), "PLACEHOLDER-L-\u{1F511}".to_string()),
+            ("local_storage:ключ".to_string(), "PLACEHOLDER-LONG-".repeat(4096)),
+            ("session_storage:token".to_string(), "PLACEHOLDER-S".to_string()),
+            ("unknown_prefix:thing".to_string(), "PLACEHOLDER-RAW".to_string()),
+            ("abc".to_string(), "PLA".to_string()),
+        ]);
+        let raw_origin = "https://raw-only.invalid";
+        let raw_fields = HashMap::from([("api_key".to_string(), "PLACEHOLDER-RAW-ONLY".to_string())]);
+        let sibling_origin = "https://sibling.invalid";
+        let sibling_fields =
+            HashMap::from([("cookie:0:shared".to_string(), "PLACEHOLDER-SIBLING".to_string())]);
+        let legacy = HashMap::from([
+            (
+                main_origin.to_string(),
+                legacy_captured_entry(
+                    main_origin,
+                    main_fields.clone(),
+                    vec![
+                        cookie_spec("session", "every-kind.invalid"),
+                        cookie_spec("missing", "every-kind.invalid"),
+                    ],
+                    100,
+                ),
+            ),
+            (
+                raw_origin.to_string(),
+                legacy_captured_entry(raw_origin, raw_fields.clone(), Vec::new(), 200),
+            ),
+            (
+                sibling_origin.to_string(),
+                legacy_captured_entry(
+                    sibling_origin,
+                    sibling_fields.clone(),
+                    vec![cookie_spec("shared", "every-kind.invalid")],
+                    300,
+                ),
+            ),
+        ]);
+        legacy_write_partition(&base.join("captured_secrets.vault"), &legacy);
+
+        let store = SecretStore::new(Box::new(FixedKeyProvider), base.clone())
+            .expect("the compact loader reads the plain-map partition");
+        assert!(plain_entries(&store.state.read().unwrap().captured) == legacy);
+        assert_eq!(store.partition_status(SecretSourceKind::Captured), SecretPartitionStatus::Loaded);
+
+        let (session, lease) = store
+            .get_session(main_origin, "https://every-kind.invalid/path")
+            .expect("a session for the exact origin");
+        assert!(session.auth_headers == prefixed(&main_fields, "header:"));
+        assert!(session.auth_query_params == prefixed(&main_fields, "query_param:"));
+        assert!(session.local_storage == prefixed(&main_fields, "local_storage:"));
+        assert!(session.session_storage == prefixed(&main_fields, "session_storage:"));
+        assert!(
+            session.cookies
+                == HashMap::from([
+                    ("session".to_string(), "PLACEHOLDER-C".to_string()),
+                    ("shared".to_string(), "PLACEHOLDER-SIBLING".to_string()),
+                ]),
+            "the exact origin's cookie, without the spec that has no field, plus the sibling's"
+        );
+        assert_eq!(lease.stale_mark_targets().len(), 2);
+
+        let status = store.captured_status(main_origin);
+        assert!(status.has_auth && status.has_cookies && status.has_headers);
+        assert!(status.has_query_params && status.has_storage && !status.is_stale);
+        let raw_status = store.captured_status(raw_origin);
+        assert!(raw_status.has_auth);
+        assert!(!raw_status.has_cookies && !raw_status.has_headers);
+        assert!(!raw_status.has_query_params && !raw_status.has_storage);
+        assert_eq!(store.all_captured_statuses().len(), 3);
+
+        let mut expected_values = main_fields
+            .values()
+            .chain(raw_fields.values())
+            .chain(sibling_fields.values())
+            .filter(|value| value.len() >= 4)
+            .cloned()
+            .collect::<Vec<_>>();
+        let mut values = store
+            .redaction_values()
+            .iter()
+            .map(|value| value.to_string())
+            .collect::<Vec<_>>();
+        expected_values.sort();
+        values.sort();
+        assert!(values == expected_values, "redaction values differ from the plain map's");
+
+        // A lease flip persists; the file reads back as the legacy map with
+        // only the flag changed.
+        assert!(store.mark_stale(raw_origin, 3).unwrap());
+        let mut expected = legacy.clone();
+        if let Some(entry) = expected.get_mut(raw_origin) {
+            entry.source = SecretSource::Captured {
+                origin: raw_origin.to_string(),
+                generation: 3,
+                stale: true,
+                expires_hint: None,
+            };
+        }
+        assert!(legacy_read_partition(&store.captured_file()) == expected);
+
+        // A capture rebuilds the entry from its known kinds, as before: raw
+        // fields are not carried forward, and cookies are re-indexed.
+        store
+            .store_captured(
+                main_origin,
+                HashMap::from([("authorization".to_string(), "Bearer PLACEHOLDER-H2".to_string())]),
+                Vec::new(),
+                HashMap::from([("added".to_string(), "PLACEHOLDER-ADDED".to_string())]),
+                HashMap::new(),
+            )
+            .unwrap();
+        let written = legacy_read_partition(&store.captured_file());
+        let rebuilt = &written[main_origin].fields;
+        assert!(!rebuilt.contains_key("unknown_prefix:thing") && !rebuilt.contains_key("abc"));
+        assert!(!rebuilt.contains_key("header:Authorization"), "headers merge case-insensitively");
+        assert!(rebuilt.get("header:authorization").map(String::as_str) == Some("Bearer PLACEHOLDER-H2"));
+        assert!(rebuilt.get("cookie:0:session").map(String::as_str) == Some("PLACEHOLDER-C"));
+        assert!(rebuilt.get("local_storage:added").map(String::as_str) == Some("PLACEHOLDER-ADDED"));
+        assert!(rebuilt.get("local_storage:token") == main_fields.get("local_storage:token"));
+        assert!(matches!(
+            written[main_origin].source,
+            SecretSource::Captured { generation: 4, .. }
+        ));
+        let InjectionTarget::Cookies(specs) = &written[main_origin].injection else {
+            panic!("a captured entry injects cookies");
+        };
+        assert_eq!(specs.len(), 1, "the spec with no field is dropped");
+    }
+
+    /// A damaged captured partition whose `fields` holds a string is refused
+    /// and quarantined, and the error does not quote the string.
+    #[test]
+    fn a_captured_fields_string_is_refused_without_quoting_it() {
+        let temp = tempfile::tempdir().expect("temporary vault root");
+        let base = temp.path().join("damaged");
+        let mut entry = serde_json::to_value(legacy_captured_entry(
+            "https://damaged.invalid",
+            HashMap::new(),
+            Vec::new(),
+            1,
+        ))
+        .unwrap();
+        entry["fields"] = serde_json::Value::String("PLACEHOLDER-NOT-A-MAP".to_string());
+        let plaintext = serde_json::to_vec(&serde_json::json!({
+            "version": 1,
+            "entries": { "https://damaged.invalid": entry },
+        }))
+        .unwrap();
+        let key = FixedKeyProvider.get_or_create_key().unwrap();
+        std::fs::create_dir_all(&base).unwrap();
+        write_file_durably(&base.join("captured_secrets.vault"), &encrypt(&key, &plaintext).unwrap())
+            .unwrap();
+
+        let error = match SecretStore::new(Box::new(FixedKeyProvider), base.clone()) {
+            Ok(_) => panic!("a string is not a fields map"),
+            Err(error) => error,
+        };
+        assert!(matches!(error, SecretStoreError::Serde(_)));
+        assert!(!error.to_string().contains("PLACEHOLDER"), "the load error quoted the value");
+        assert!(!files_matching(&base, ".corrupt-").is_empty(), "the damaged file is quarantined");
+    }
+
+    /// Eviction still removes the entry with the oldest `created_at`.
+    #[test]
+    fn captured_eviction_removes_the_oldest_created_at() {
+        let temp = tempfile::tempdir().expect("temporary vault root");
+        let base = temp.path().join("legacy");
+        let legacy = [("https://b.invalid", 300), ("https://oldest.invalid", 100), ("https://c.invalid", 200)]
+            .into_iter()
+            .map(|(origin, created_at)| {
+                let fields =
+                    HashMap::from([("local_storage:token".to_string(), format!("PLACEHOLDER-{created_at}"))]);
+                (origin.to_string(), legacy_captured_entry(origin, fields, Vec::new(), created_at))
+            })
+            .collect::<HashMap<_, _>>();
+        legacy_write_partition(&base.join("captured_secrets.vault"), &legacy);
+        let store = SecretStore::new(Box::new(FixedKeyProvider), base).unwrap();
+        store.set_captured_max_origins(3);
+        store
+            .store_captured_deferred(
+                "https://new.invalid",
+                HashMap::new(),
+                Vec::new(),
+                HashMap::from([("token".to_string(), "PLACEHOLDER-NEW".to_string())]),
+                HashMap::new(),
+            )
+            .unwrap();
+        assert!(!store.has_captured("https://oldest.invalid"));
+        for origin in ["https://b.invalid", "https://c.invalid", "https://new.invalid"] {
+            assert!(store.has_captured(origin), "{origin} was evicted");
+        }
+        assert!(store.clear_captured("https://b.invalid").unwrap());
+        assert!(!store.has_captured("https://b.invalid"));
+        store.clear_all_captured().unwrap();
+        assert!(store.all_captured_statuses().is_empty());
+        assert!(legacy_read_partition(&store.captured_file()).is_empty());
+    }
 }

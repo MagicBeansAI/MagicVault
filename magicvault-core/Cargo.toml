@@ -21,7 +21,8 @@ hex = "0.4"
 rand = "0.8"
 regex = "1.10"
 serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+# `raw_value`: a captured entry's fields object is sized before it is parsed.
+serde_json = { version = "1.0", features = ["raw_value"] }
 thiserror = "1.0"
 tokio = { version = "1.0", features = ["rt", "sync"] }
 tracing = "0.1"

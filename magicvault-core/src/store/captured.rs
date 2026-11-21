@@ -17,8 +17,10 @@
 //!
 //! Serialization writes the same JSON object a `HashMap<String, String>` does,
 //! fields in ascending key order, so the vault file format is unchanged.
-//! Deserialization compacts each entry as its `fields` object is parsed, so a
-//! load never holds the partition as owned strings beside its compact form.
+//! Loading compacts one entry at a time: an entry's `fields` object is read
+//! once to size its arena and once into it, straight from the decrypted file,
+//! so a load never holds owned field strings and never grows or trims an
+//! arena.
 //!
 //! Values never appear in a `Debug` impl, a panic message or an error.
 
@@ -159,6 +161,12 @@ impl CapturedFields {
         std::mem::size_of_val(&*self.slots)
     }
 
+    /// Where the arena allocation starts, for the wipe-on-free tests.
+    #[cfg(test)]
+    pub(crate) fn arena_ptr(&self) -> *const u8 {
+        self.bytes.as_ptr()
+    }
+
     fn text(&self, range: std::ops::Range<usize>) -> &str {
         // Every slot boundary is the end of a whole `&str` pushed by the
         // builder, so this never fails; the message names no content.
@@ -227,7 +235,10 @@ impl CapturedFields {
     /// Compact a plain field map, classifying each key by its prefix.
     #[cfg(test)]
     pub(crate) fn from_field_map(fields: &HashMap<String, String>) -> Result<Self, ArenaFull> {
-        let bytes = fields.iter().map(|(key, value)| key.len() + value.len()).sum();
+        let bytes = fields
+            .iter()
+            .map(|(key, value)| key.len() + value.len())
+            .sum();
         let mut builder = FieldsBuilder::with_capacity(bytes, fields.len());
         for (key, value) in fields {
             let (kind, rest) = FieldKind::classify(key);
@@ -286,13 +297,118 @@ impl Serialize for CapturedFields {
     }
 }
 
+/// Single pass from any deserializer: the arena grows as fields arrive (each
+/// outgrown buffer wiped) and is trimmed to size at the end.
+/// [`CapturedEntry`] loads use [`CapturedFields::from_json_exact`] instead.
 impl<'de> Deserialize<'de> for CapturedFields {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        deserializer.deserialize_map(FieldsVisitor)
+        deserializer.deserialize_any(FieldsVisitor(FieldsSize {
+            bytes: 256,
+            fields: 0,
+        }))
     }
 }
 
-struct FieldsVisitor;
+impl CapturedFields {
+    /// Parse a JSON fields object into an arena of exactly the right size:
+    /// one pass adds up the lengths, the second writes the fields. Neither
+    /// pass copies a value out of `json` except through serde_json's scratch
+    /// buffer for escaped strings.
+    pub(crate) fn from_json_exact(json: &str) -> Result<Self, serde_json::Error> {
+        let size = serde_json::from_str::<FieldsSize>(json)?;
+        let mut deserializer = serde_json::Deserializer::from_str(json);
+        let fields = deserializer.deserialize_any(FieldsVisitor(size))?;
+        deserializer.end()?;
+        Ok(fields)
+    }
+}
+
+/// What a fields object needs: arena bytes (keys without prefix, values) and
+/// slot count. A duplicate key is counted each time, so a fields object with
+/// one is trimmed after it is built.
+#[derive(Clone, Copy)]
+struct FieldsSize {
+    bytes: usize,
+    fields: usize,
+}
+
+impl<'de> Deserialize<'de> for FieldsSize {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer.deserialize_any(SizeVisitor)
+    }
+}
+
+struct SizeVisitor;
+
+const NOT_A_FIELDS_MAP: &str = "invalid type: string, expected a map of captured fields";
+
+impl<'de> Visitor<'de> for SizeVisitor {
+    type Value = FieldsSize;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("a map of captured field names to string values")
+    }
+
+    /// Read through `deserialize_any`, so a string reaches this visitor:
+    /// serde_json's own error for a string where a map belongs quotes the
+    /// string, which would put a value in the error and from there in a log
+    /// line.
+    fn visit_str<E: de::Error>(self, _: &str) -> Result<Self::Value, E> {
+        Err(E::custom(NOT_A_FIELDS_MAP))
+    }
+
+    fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+        let mut size = FieldsSize {
+            bytes: 0,
+            fields: 0,
+        };
+        while let Some(key_len) = map.next_key_seed(LengthSeed { strip_prefix: true })? {
+            let value_len = map.next_value_seed(LengthSeed {
+                strip_prefix: false,
+            })?;
+            size.bytes = size.bytes.saturating_add(key_len).saturating_add(value_len);
+            size.fields += 1;
+        }
+        Ok(size)
+    }
+}
+
+/// The length a key (without its prefix) or a value takes in the arena.
+struct LengthSeed {
+    strip_prefix: bool,
+}
+
+impl<'de> DeserializeSeed<'de> for LengthSeed {
+    type Value = usize;
+
+    fn deserialize<D: Deserializer<'de>>(self, deserializer: D) -> Result<Self::Value, D::Error> {
+        deserializer.deserialize_str(self)
+    }
+}
+
+impl Visitor<'_> for LengthSeed {
+    type Value = usize;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("a captured field string")
+    }
+
+    fn visit_str<E: de::Error>(self, text: &str) -> Result<Self::Value, E> {
+        Ok(if self.strip_prefix {
+            FieldKind::classify(text).1.len()
+        } else {
+            text.len()
+        })
+    }
+
+    fn visit_string<E: de::Error>(self, mut text: String) -> Result<Self::Value, E> {
+        let length = self.visit_str(&text);
+        text.zeroize();
+        length
+    }
+}
+
+struct FieldsVisitor(FieldsSize);
 
 impl<'de> Visitor<'de> for FieldsVisitor {
     type Value = CapturedFields;
@@ -301,8 +417,14 @@ impl<'de> Visitor<'de> for FieldsVisitor {
         formatter.write_str("a map of captured field names to string values")
     }
 
+    /// As [`SizeVisitor::visit_str`]: never quote the string.
+    fn visit_str<E: de::Error>(self, _: &str) -> Result<Self::Value, E> {
+        Err(E::custom(NOT_A_FIELDS_MAP))
+    }
+
     fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
-        let mut builder = FieldsBuilder::with_capacity(256, map.size_hint().unwrap_or(0));
+        let FieldsSize { bytes, fields } = self.0;
+        let mut builder = FieldsBuilder::with_capacity(bytes, fields);
         while let Some(pending) = map.next_key_seed(KeySeed(&mut builder))? {
             let val_len = map.next_value_seed(ValueSeed(&mut builder))?;
             builder.slots.push(Slot {
@@ -458,6 +580,12 @@ impl FieldsBuilder {
             .expect("captured field arena slot ends on a char boundary")
     }
 
+    /// Where the arena allocation starts, for the wipe-on-free tests.
+    #[cfg(test)]
+    pub(crate) fn arena_ptr(&self) -> *const u8 {
+        self.bytes.as_ptr()
+    }
+
     /// Sort the slots by full key and keep the last of any duplicate key, as
     /// inserting into a map would. A buffer with spare room is copied into an
     /// exact one, and the larger one is wiped as it drops.
@@ -520,10 +648,20 @@ fn serialize_shared_fields<S: Serializer>(
     fields.as_ref().serialize(serializer)
 }
 
+/// Borrow the entry's raw `fields` JSON from the input and compact it at its
+/// exact size. Needs a deserializer that borrows from its input, as
+/// `serde_json::from_slice` over the decrypted partition does; any other is
+/// refused rather than parsed through owned strings.
 fn deserialize_shared_fields<'de, D: Deserializer<'de>>(
     deserializer: D,
 ) -> Result<Arc<CapturedFields>, D::Error> {
-    CapturedFields::deserialize(deserializer).map(Arc::new)
+    // Mapped to a fixed message: serde_json renders a value it cannot lend
+    // into the error, contents included.
+    let raw = <&'de serde_json::value::RawValue>::deserialize(deserializer)
+        .map_err(|_| de::Error::custom("captured fields must be read from borrowed JSON"))?;
+    CapturedFields::from_json_exact(raw.get())
+        .map(Arc::new)
+        .map_err(de::Error::custom)
 }
 
 /// Metadata and field counts; never a value.
@@ -561,7 +699,9 @@ impl CapturedEntry {
         Self {
             id: entry.id.clone(),
             label: entry.label.clone(),
-            fields: Arc::new(CapturedFields::from_field_map(&entry.fields).expect("fits the arena")),
+            fields: Arc::new(
+                CapturedFields::from_field_map(&entry.fields).expect("fits the arena"),
+            ),
             source: entry.source.clone(),
             injection: entry.injection.clone(),
             policy: entry.policy.clone(),
@@ -574,5 +714,373 @@ impl CapturedEntry {
 pub(crate) fn wipe_values(map: &mut HashMap<String, String>) {
     for value in map.values_mut() {
         value.zeroize();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::{BTreeMap, HashMap};
+
+    use super::*;
+    use crate::{CookieSpec, SecretEntry};
+
+    /// Every kind, unknown prefixes, a prefix-only key, an empty key, empty
+    /// values, non-ASCII and JSON-escaped text, a long value, and the same
+    /// stripped key under several kinds. Synthetic placeholders only.
+    fn every_kind_fields() -> HashMap<String, String> {
+        let mut fields = HashMap::from([
+            (
+                "header:Authorization".to_string(),
+                "Bearer PLACEHOLDER-H".to_string(),
+            ),
+            (
+                "header:".to_string(),
+                "PLACEHOLDER-EMPTY-HEADER-NAME".to_string(),
+            ),
+            ("query_param:token".to_string(), "PLACEHOLDER-Q".to_string()),
+            ("cookie:0:session".to_string(), "PLACEHOLDER-C0".to_string()),
+            (
+                "cookie:10:session".to_string(),
+                "PLACEHOLDER-C10".to_string(),
+            ),
+            ("cookie:2:other".to_string(), String::new()),
+            (
+                "local_storage:token".to_string(),
+                "PLACEHOLDER-L".to_string(),
+            ),
+            (
+                "session_storage:token".to_string(),
+                "PLACEHOLDER-S".to_string(),
+            ),
+            (
+                "header:token".to_string(),
+                "PLACEHOLDER-SAME-KEY".to_string(),
+            ),
+            ("local_storage:".to_string(), String::new()),
+            (
+                "local_storage:ключ-🔑".to_string(),
+                "значение-🔐-caf\u{e9}".to_string(),
+            ),
+            (
+                "session_storage:tab\ttoken".to_string(),
+                "line\nbreak \"quoted\" \\ end".to_string(),
+            ),
+            ("api_key".to_string(), "PLACEHOLDER-RAW".to_string()),
+            (
+                "unknown_prefix:thing".to_string(),
+                "PLACEHOLDER-UNKNOWN".to_string(),
+            ),
+            ("cookie".to_string(), "PLACEHOLDER-NO-COLON".to_string()),
+            ("Header:Case".to_string(), "PLACEHOLDER-CASE".to_string()),
+            (String::new(), "PLACEHOLDER-EMPTY-KEY".to_string()),
+            ("\u{1F511}".to_string(), String::new()),
+        ]);
+        fields.insert(
+            "local_storage:long".to_string(),
+            "PLACEHOLDER-LONG-".repeat(64 * 1024),
+        );
+        fields
+    }
+
+    fn compact(fields: &HashMap<String, String>) -> CapturedFields {
+        CapturedFields::from_field_map(fields).expect("synthetic fields fit the arena")
+    }
+
+    #[test]
+    fn keys_split_into_kind_and_stripped_key() {
+        assert_eq!(FieldKind::classify("header:a"), (FieldKind::Header, "a"));
+        assert_eq!(
+            FieldKind::classify("query_param:a"),
+            (FieldKind::QueryParam, "a")
+        );
+        assert_eq!(
+            FieldKind::classify("cookie:3:a"),
+            (FieldKind::Cookie, "3:a")
+        );
+        assert_eq!(
+            FieldKind::classify("local_storage:"),
+            (FieldKind::LocalStorage, "")
+        );
+        assert_eq!(
+            FieldKind::classify("session_storage:a:b"),
+            (FieldKind::SessionStorage, "a:b")
+        );
+        assert_eq!(FieldKind::classify("query:a"), (FieldKind::Raw, "query:a"));
+        assert_eq!(
+            FieldKind::classify("Header:a"),
+            (FieldKind::Raw, "Header:a")
+        );
+        assert_eq!(FieldKind::classify(""), (FieldKind::Raw, ""));
+    }
+
+    #[test]
+    fn compact_fields_round_trip_the_plain_map_for_every_kind() {
+        let fields = every_kind_fields();
+        let compacted = compact(&fields);
+        assert_eq!(compacted.len(), fields.len());
+        assert!(
+            compacted.to_field_map() == fields,
+            "the compact form lost or changed a field"
+        );
+
+        for (key, value) in &fields {
+            let (kind, stripped) = FieldKind::classify(key);
+            assert!(
+                compacted.get(kind, stripped) == Some(value.as_str()),
+                "lookup failed for a field of kind {kind:?}"
+            );
+        }
+        assert!(compacted.get(FieldKind::Header, "absent").is_none());
+        assert!(compacted.get(FieldKind::Cookie, "1:session").is_none());
+
+        for kind in FieldKind::PREFIXED {
+            let expected = fields
+                .iter()
+                .filter_map(|(key, value)| {
+                    key.strip_prefix(kind.prefix())
+                        .map(|rest| (rest.to_string(), value.clone()))
+                })
+                .collect::<HashMap<_, _>>();
+            let actual = compacted
+                .of_kind(kind)
+                .map(|(key, value)| (key.to_string(), value.to_string()))
+                .collect::<HashMap<_, _>>();
+            assert!(
+                actual == expected,
+                "the {kind:?} range differs from a prefix scan"
+            );
+            assert_eq!(compacted.has_kind(kind), !expected.is_empty());
+        }
+
+        let mut expected_values = fields.values().map(String::as_str).collect::<Vec<_>>();
+        let mut values = compacted.values().collect::<Vec<_>>();
+        expected_values.sort_unstable();
+        values.sort_unstable();
+        assert!(
+            values == expected_values,
+            "values() differs from the map's values"
+        );
+    }
+
+    #[test]
+    fn serialization_is_the_plain_map_json_in_key_order() {
+        let fields = every_kind_fields();
+        let compacted = compact(&fields);
+        let written = serde_json::to_vec(&compacted).unwrap();
+        let sorted = fields.iter().collect::<BTreeMap<_, _>>();
+        assert!(
+            written == serde_json::to_vec(&sorted).unwrap(),
+            "compact fields must write the plain map's JSON in ascending key order"
+        );
+        let parsed = serde_json::from_slice::<HashMap<String, String>>(&written).unwrap();
+        assert!(
+            parsed == fields,
+            "the written JSON parses back to a different map"
+        );
+    }
+
+    #[test]
+    fn deserialization_reads_the_plain_map_json_by_every_string_path() {
+        let fields = every_kind_fields();
+        let legacy_json = serde_json::to_vec(&fields).unwrap();
+        // Borrowed strings and serde_json's scratch buffer for escaped ones.
+        let from_slice = serde_json::from_slice::<CapturedFields>(&legacy_json).unwrap();
+        assert!(from_slice == compact(&fields));
+        // Owned strings.
+        let value = serde_json::to_value(&fields).unwrap();
+        let from_value = serde_json::from_value::<CapturedFields>(value).unwrap();
+        assert!(from_value == compact(&fields));
+        // A loaded arena is shrunk to its exact size.
+        assert_eq!(from_slice.arena_capacity(), from_slice.arena_len());
+
+        // The sized two-pass parse a load uses, borrowed and escaped strings.
+        let exact =
+            CapturedFields::from_json_exact(std::str::from_utf8(&legacy_json).unwrap()).unwrap();
+        assert!(exact == compact(&fields));
+        assert_eq!(exact.arena_capacity(), exact.arena_len());
+    }
+
+    /// A load reads an entry's fields from its raw JSON in the decrypted
+    /// file; a deserializer that cannot lend its input is refused, not
+    /// parsed through owned strings.
+    #[test]
+    fn a_captured_entry_loads_only_from_borrowed_json() {
+        let plain = placeholder_entry(None);
+        let json = serde_json::to_vec(&plain).unwrap();
+        assert!(
+            serde_json::from_slice::<CapturedEntry>(&json)
+                .unwrap()
+                .to_secret_entry()
+                == plain
+        );
+        let error = serde_json::from_value::<CapturedEntry>(serde_json::to_value(&plain).unwrap())
+            .expect_err("an owned Value cannot lend raw JSON");
+        assert!(!error.to_string().contains("PLACEHOLDER"));
+    }
+
+    #[test]
+    fn a_duplicate_key_keeps_the_last_value_like_a_map() {
+        let json =
+            br#"{"header:a":"PLACEHOLDER-1","raw":"PLACEHOLDER-R","header:a":"PLACEHOLDER-2"}"#;
+        let compacted = serde_json::from_slice::<CapturedFields>(json).unwrap();
+        let plain = serde_json::from_slice::<HashMap<String, String>>(json).unwrap();
+        assert!(compacted.to_field_map() == plain);
+        assert_eq!(compacted.len(), 2);
+    }
+
+    /// A string where the fields map belongs is refused without quoting it:
+    /// serde's default error would carry the value into a log line.
+    #[test]
+    fn a_string_in_place_of_the_fields_map_is_refused_without_quoting_it() {
+        let json = r#""PLACEHOLDER-NOT-A-MAP""#;
+        let errors = [
+            serde_json::from_str::<CapturedFields>(json).unwrap_err(),
+            CapturedFields::from_json_exact(json).unwrap_err(),
+        ];
+        for error in errors {
+            assert!(
+                !error.to_string().contains("PLACEHOLDER"),
+                "the error quoted the value"
+            );
+        }
+        let mut entry = serde_json::to_value(placeholder_entry(None)).unwrap();
+        entry["fields"] = serde_json::Value::String("PLACEHOLDER-NOT-A-MAP".to_string());
+        let error = serde_json::from_slice::<CapturedEntry>(&serde_json::to_vec(&entry).unwrap())
+            .expect_err("a string is not a fields map");
+        assert!(
+            !error.to_string().contains("PLACEHOLDER"),
+            "the error quoted the value"
+        );
+    }
+
+    #[test]
+    fn a_non_string_value_is_rejected_like_a_map() {
+        for json in [
+            r#"{"header:a":1}"#,
+            r#"{"header:a":null}"#,
+            r#"["header:a"]"#,
+            "null",
+        ] {
+            assert!(serde_json::from_str::<HashMap<String, String>>(json).is_err());
+            let error = serde_json::from_str::<CapturedFields>(json)
+                .expect_err("compact fields reject what the plain map rejects");
+            assert!(!error.to_string().contains("PLACEHOLDER"));
+        }
+    }
+
+    fn placeholder_entry(policy: Option<SecretPolicy>) -> SecretEntry {
+        SecretEntry {
+            id: "https://placeholder.invalid".to_string(),
+            label: "Placeholder \"label\"".to_string(),
+            fields: every_kind_fields(),
+            source: SecretSource::Captured {
+                origin: "https://placeholder.invalid".to_string(),
+                generation: 7,
+                stale: true,
+                expires_hint: Some(1_900_000_000),
+            },
+            injection: InjectionTarget::Cookies(vec![CookieSpec {
+                name: "session".to_string(),
+                domain: "placeholder.invalid".to_string(),
+                path: "/".to_string(),
+                secure: true,
+                http_only: false,
+                same_site: None,
+                expires: Some(1_900_000_001),
+            }]),
+            policy,
+            created_at: 42,
+        }
+    }
+
+    /// A captured entry reads and writes the `SecretEntry` JSON object, with
+    /// and without a policy, and with no `fields` member at all.
+    #[test]
+    fn a_captured_entry_crosses_the_secret_entry_codec_both_ways() {
+        for policy in [None, Some(SecretPolicy::default())] {
+            let plain = placeholder_entry(policy);
+            let compacted = CapturedEntry::from_secret_entry(&plain);
+
+            let written = serde_json::to_vec(&compacted).unwrap();
+            assert!(serde_json::from_slice::<SecretEntry>(&written).unwrap() == plain);
+            let read =
+                serde_json::from_slice::<CapturedEntry>(&serde_json::to_vec(&plain).unwrap())
+                    .unwrap();
+            assert!(read == compacted);
+            assert!(read.to_secret_entry() == plain);
+
+            let as_value = serde_json::to_value(&compacted).unwrap();
+            assert!(as_value == serde_json::to_value(&plain).unwrap());
+        }
+
+        let mut without_fields = serde_json::to_value(placeholder_entry(None)).unwrap();
+        without_fields.as_object_mut().unwrap().remove("fields");
+        let read =
+            serde_json::from_slice::<CapturedEntry>(&serde_json::to_vec(&without_fields).unwrap())
+                .unwrap();
+        assert_eq!(read.fields.len(), 0);
+    }
+
+    #[test]
+    fn debug_names_no_key_and_no_value() {
+        let entry = CapturedEntry::from_secret_entry(&placeholder_entry(None));
+        let rendered = format!("{entry:?}");
+        assert!(
+            !rendered.contains("PLACEHOLDER"),
+            "Debug leaked a field value"
+        );
+        assert!(
+            !rendered.contains("Authorization"),
+            "Debug leaked a field key"
+        );
+        assert!(rendered.contains(&format!("fields: {}", every_kind_fields().len())));
+    }
+
+    /// The per-field cost is the payload without its prefix plus one 16-byte
+    /// slot; the arena is one allocation of exactly the payload.
+    #[test]
+    fn per_field_overhead_is_one_sixteen_byte_slot() {
+        const FIELDS: usize = 10_000;
+        let fields = (0..FIELDS)
+            .map(|index| {
+                (
+                    format!("local_storage:placeholder-key-{index}"),
+                    format!(
+                        "{{\"synthetic\":\"PLACEHOLDER-{index}\",\"pad\":\"{}\"}}",
+                        "x".repeat(40)
+                    ),
+                )
+            })
+            .collect::<HashMap<_, _>>();
+        let payload = fields
+            .iter()
+            .map(|(key, value)| key.len() - "local_storage:".len() + value.len())
+            .sum::<usize>();
+
+        let json = serde_json::to_string(&fields).unwrap();
+        for compacted in [
+            compact(&fields),
+            serde_json::from_str::<CapturedFields>(&json).unwrap(),
+            CapturedFields::from_json_exact(&json).unwrap(),
+        ] {
+            assert_eq!(compacted.len(), FIELDS);
+            assert_eq!(std::mem::size_of::<Slot>(), 16);
+            assert_eq!(compacted.slot_table_bytes(), 16 * FIELDS);
+            assert_eq!(compacted.arena_len(), payload);
+            assert_eq!(
+                compacted.arena_capacity(),
+                payload,
+                "the arena has no slack"
+            );
+            let resident = compacted.slot_table_bytes() + compacted.arena_capacity();
+            println!(
+                "{FIELDS} fields: payload {payload} B, arena {} B, slots {} B, {:.1} B per field ({:.1} B payload)",
+                compacted.arena_capacity(),
+                compacted.slot_table_bytes(),
+                resident as f64 / FIELDS as f64,
+                payload as f64 / FIELDS as f64,
+            );
+            assert!(resident <= payload + 16 * FIELDS);
+        }
     }
 }
